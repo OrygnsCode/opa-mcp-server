@@ -1,0 +1,83 @@
+name: Bug report
+description: Report a problem with @orygn/opa-mcp
+title: '[Bug] '
+labels: ['bug', 'triage']
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Steps to reproduce, ideally with a minimal Rego policy / input.
+      placeholder: |
+        1. Set OPA_URL to ...
+        2. Call tool `rego_eval` with ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the JSON envelope returned, redacting any secrets.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: '@orygn/opa-mcp version'
+      placeholder: '0.1.0'
+    validations:
+      required: true
+  - type: input
+    id: opa-version
+    attributes:
+      label: OPA version
+      description: Output of `opa version`
+    validations:
+      required: true
+  - type: input
+    id: regal-version
+    attributes:
+      label: Regal version (if rego_lint involved)
+      description: Output of `regal version`
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client
+      options:
+        - Claude Desktop
+        - Claude Code
+        - Cursor
+        - VS Code
+        - Windsurf
+        - Zed
+        - ChatGPT Desktop
+        - Other (specify in summary)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: 'macOS 15.2 / Ubuntu 24.04 / Windows 11'
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Contents of the orygn-opa-mcp.log file (in your OS tmp dir). Redact secrets.
+      render: shell

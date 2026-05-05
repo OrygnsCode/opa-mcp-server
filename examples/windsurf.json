@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "opa": {
+      "command": "npx",
+      "args": ["-y", "@orygn/opa-mcp"],
+      "env": {
+        "OPA_URL": "http://localhost:8181",
+        "OPA_MCP_ALLOWED_PATHS": "/path/to/your/policies"
+      }
+    }
+  }
+}

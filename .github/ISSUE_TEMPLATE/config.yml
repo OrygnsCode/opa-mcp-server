@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security disclosure
+    url: https://github.com/OrygnsCode/opa-mcp-server/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue for security problems.
+  - name: OPA project
+    url: https://github.com/open-policy-agent/opa
+    about: Issues with OPA itself (not this MCP wrapper) belong upstream.
+  - name: Regal project
+    url: https://github.com/StyraInc/regal
+    about: Issues with the Regal linter (not the MCP wrapper) belong upstream.

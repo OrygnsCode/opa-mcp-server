@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "opa": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--network=host",
+        "-v",
+        "/path/to/your/policies:/policies:ro",
+        "-e",
+        "OPA_URL=http://localhost:8181",
+        "-e",
+        "OPA_MCP_ALLOWED_PATHS=/policies",
+        "orygnscode/opa-mcp:latest"
+      ]
+    }
+  }
+}

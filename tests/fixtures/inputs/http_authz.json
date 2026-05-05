@@ -1,0 +1,10 @@
+{
+  "method": "PATCH",
+  "user": {
+    "id": "u_42"
+  },
+  "resource": {
+    "id": "doc_7",
+    "owner_id": "u_42"
+  }
+}

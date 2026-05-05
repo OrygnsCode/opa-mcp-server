@@ -1,0 +1,53 @@
+# Smithery configuration for @orygn/opa-mcp.
+#
+# Distribution model: Local stdio MCPB bundle. Smithery distributes the
+# pre-built .mcpb file; clients download and run it locally.
+#
+# Publishing:
+#   smithery mcp publish ./server.mcpb -n @orygn/opa-mcp
+#
+# See: https://smithery.ai/docs/build/publish
+runtime: typescript
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      opaUrl:
+        type: string
+        title: OPA Server URL
+        description: Base URL of a running OPA server. Required only for opa_* runtime tools.
+        default: http://localhost:8181
+      opaToken:
+        type: string
+        title: OPA Bearer Token
+        description: Bearer token for OPA running with --authentication=token.
+        format: password
+      opaBinary:
+        type: string
+        title: OPA Binary Path
+        description: Path to the opa binary. Defaults to 'opa' on PATH.
+        default: opa
+      regalBinary:
+        type: string
+        title: Regal Binary Path
+        description: Path to the regal binary (used by rego_lint). Optional.
+        default: regal
+      allowedPaths:
+        type: array
+        title: Allowed Filesystem Roots
+        description: Root directories tools may read or write. When empty, file-based tools refuse to access the disk.
+        items:
+          type: string
+  commandFunction: |-
+    (config) => ({
+      command: 'node',
+      args: ['dist/server.js'],
+      env: {
+        OPA_URL: config.opaUrl,
+        OPA_TOKEN: config.opaToken,
+        OPA_BINARY: config.opaBinary,
+        REGAL_BINARY: config.regalBinary,
+        OPA_MCP_ALLOWED_PATHS: (config.allowedPaths || []).join(',')
+      }
+    })

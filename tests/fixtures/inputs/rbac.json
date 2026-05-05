@@ -1,0 +1,8 @@
+{
+  "user": {
+    "id": "alice",
+    "roles": ["editor"]
+  },
+  "action": "write",
+  "resource": "documents/intro.md"
+}

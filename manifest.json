@@ -1,0 +1,84 @@
+{
+  "manifest_version": "0.2",
+  "name": "@orygn/opa-mcp",
+  "display_name": "OPA MCP",
+  "version": "0.1.0",
+  "description": "Author, validate, debug, and explain Open Policy Agent (OPA) Rego policies through any MCP-compatible client.",
+  "long_description": "Wraps the OPA CLI (opa fmt, check, eval, test, build, sign, etc.), the OPA REST API (policies, data, decisions, compile), and the Regal linter. Provides higher-level helper tools that use AI to explain decisions, generate test skeletons, describe policies, and suggest fixes.",
+  "author": {
+    "name": "Orygn",
+    "url": "https://orygn.tech"
+  },
+  "homepage": "https://github.com/OrygnsCode/opa-mcp-server",
+  "documentation": "https://github.com/OrygnsCode/opa-mcp-server#readme",
+  "support": "https://github.com/OrygnsCode/opa-mcp-server/issues",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "opa",
+    "open-policy-agent",
+    "rego",
+    "policy",
+    "policy-as-code",
+    "authorization",
+    "kubernetes"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/dist/server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/dist/server.js"],
+      "env": {
+        "OPA_URL": "${user_config.opa_url}",
+        "OPA_TOKEN": "${user_config.opa_token}",
+        "OPA_BINARY": "${user_config.opa_binary}",
+        "REGAL_BINARY": "${user_config.regal_binary}",
+        "OPA_MCP_ALLOWED_PATHS": "${user_config.allowed_paths}"
+      }
+    }
+  },
+  "user_config": {
+    "opa_url": {
+      "type": "string",
+      "title": "OPA Server URL",
+      "description": "Base URL of a running OPA server (only needed for opa_* runtime tools).",
+      "default": "http://localhost:8181",
+      "required": false
+    },
+    "opa_token": {
+      "type": "string",
+      "title": "OPA Bearer Token",
+      "description": "Bearer token if OPA is running with --authentication=token.",
+      "sensitive": true,
+      "required": false
+    },
+    "opa_binary": {
+      "type": "string",
+      "title": "OPA Binary Path",
+      "description": "Path to the opa binary. Defaults to 'opa' on PATH.",
+      "default": "opa",
+      "required": false
+    },
+    "regal_binary": {
+      "type": "string",
+      "title": "Regal Binary Path",
+      "description": "Path to the regal binary (used by rego_lint). Defaults to 'regal' on PATH.",
+      "default": "regal",
+      "required": false
+    },
+    "allowed_paths": {
+      "type": "directory",
+      "title": "Allowed Paths",
+      "description": "Root directories tools may read/write. When empty, file-based tools refuse to access the disk.",
+      "multiple": true,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+# Source — published as compiled dist/ only
+src/
+tests/
+examples/
+docs/
+
+# Configs
+tsconfig*.json
+vitest*.config.ts
+eslint.config.mjs
+.prettierrc.json
+.prettierignore
+.editorconfig
+
+# CI
+.github/
+
+# Distribution intermediates
+Dockerfile
+.dockerignore
+manifest.json
+server.json
+smithery.yaml
+
+# Repo meta
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+
+# Misc
+*.test.ts
+*.spec.ts
+coverage/
+.vitest-cache/
+*.tsbuildinfo

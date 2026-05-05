@@ -1,0 +1,9 @@
+# Default reviewer for everything in the repo.
+*       @OrygnsCode
+
+# CI / release tooling
+/.github/        @OrygnsCode
+/Dockerfile      @OrygnsCode
+/server.json     @OrygnsCode
+/manifest.json   @OrygnsCode
+/smithery.yaml   @OrygnsCode

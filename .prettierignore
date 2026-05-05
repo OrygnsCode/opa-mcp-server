@@ -1,0 +1,12 @@
+dist
+coverage
+node_modules
+*.min.js
+*.min.css
+package-lock.json
+.vitest-cache
+CHANGELOG.md
+
+# Fixtures are fixed test data — formatting changes break tests
+tests/fixtures/
+*.rego

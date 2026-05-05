@@ -1,0 +1,8 @@
+{
+  "user": {
+    "id": "bob",
+    "roles": ["viewer"]
+  },
+  "action": "delete",
+  "resource": "documents/intro.md"
+}

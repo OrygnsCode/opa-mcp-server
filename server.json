@@ -1,0 +1,78 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.orygnscode/opa-mcp",
+  "title": "OPA MCP",
+  "description": "Author, validate, debug, and explain Open Policy Agent (OPA) Rego policies through any MCP-compatible client. Wraps the OPA CLI, REST API, and the Regal linter.",
+  "websiteUrl": "https://orygn.tech",
+  "repository": {
+    "url": "https://github.com/OrygnsCode/opa-mcp-server",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@orygn/opa-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "OPA_URL",
+          "description": "Base URL of a running OPA server. Required only for opa_* runtime tools, not for rego_* language tools.",
+          "default": "http://localhost:8181",
+          "isRequired": false
+        },
+        {
+          "name": "OPA_TOKEN",
+          "description": "Bearer token for OPA running with --authentication=token.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "OPA_BINARY",
+          "description": "Path to the opa binary. Defaults to 'opa' on PATH.",
+          "default": "opa",
+          "isRequired": false
+        },
+        {
+          "name": "REGAL_BINARY",
+          "description": "Path to the regal binary (optional, used by rego_lint). Defaults to 'regal' on PATH.",
+          "default": "regal",
+          "isRequired": false
+        },
+        {
+          "name": "OPA_MCP_ALLOWED_PATHS",
+          "description": "Comma-separated list of root directories tools may read/write. When unset, file-based tools refuse to access the disk.",
+          "isRequired": false
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/orygnscode/opa-mcp:0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "OPA_URL",
+          "description": "Base URL of a running OPA server.",
+          "default": "http://host.docker.internal:8181",
+          "isRequired": false
+        },
+        {
+          "name": "OPA_TOKEN",
+          "description": "Bearer token for OPA authentication.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tool": "manual",
+      "version": "0.1.0"
+    }
+  }
+}
