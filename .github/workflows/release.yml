@@ -21,7 +21,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -41,7 +41,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           registry-url: 'https://registry.npmjs.org'
-      - run: npm ci
+      - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run build
       - name: Publish (with provenance)
         run: npm publish --provenance --access public
@@ -95,7 +95,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run build
       - name: Prune to production dependencies
         run: npm prune --omit=dev
