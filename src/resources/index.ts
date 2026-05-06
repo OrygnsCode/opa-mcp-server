@@ -68,11 +68,7 @@ async function buildBuiltinsResource(opa: OpaCli): Promise<string> {
   }
   const caps = tryParseJson<CapabilitiesShape>(result.stdout);
   if (!caps) {
-    return JSON.stringify(
-      { error: 'opa capabilities produced no parseable JSON' },
-      null,
-      2,
-    );
+    return JSON.stringify({ error: 'opa capabilities produced no parseable JSON' }, null, 2);
   }
 
   const grouped = categorizeBuiltins(caps);

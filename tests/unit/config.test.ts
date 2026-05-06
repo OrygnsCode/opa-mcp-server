@@ -152,11 +152,9 @@ describe('loadConfig — OPA_MCP_ALLOWED_PATHS parsing', () => {
 describe('loadConfig — validation failures', () => {
   it('exits with code 2 when OPA_URL is not a valid URL', () => {
     process.env['OPA_URL'] = 'not-a-url';
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation(((_code?: number) => {
-        throw new Error('process.exit called');
-      }) as never);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      throw new Error('process.exit called');
+    }) as never);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     expect(() => loadConfig()).toThrow('process.exit called');

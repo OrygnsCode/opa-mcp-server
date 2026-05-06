@@ -12,11 +12,7 @@ import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { err, ok } from '../../lib/errors.js';
 import type { OpaCli, EvalInput } from '../../lib/opa-cli.js';
-import {
-  mapSubprocessFailure,
-  tryParseJson,
-  validatePaths,
-} from '../../lib/tool-helpers.js';
+import { mapSubprocessFailure, tryParseJson, validatePaths } from '../../lib/tool-helpers.js';
 import type { ToolEnvelope } from '../../types.js';
 
 /** Common input fields shared across rego_eval and its variants. */
@@ -29,9 +25,7 @@ export const SharedEvalInput = {
   paths: z
     .array(z.string())
     .optional()
-    .describe(
-      'Policy / data file or directory paths. Each must be inside an allowed root.',
-    ),
+    .describe('Policy / data file or directory paths. Each must be inside an allowed root.'),
   input: z.unknown().optional().describe('Inline input document.'),
   inputPath: z
     .string()
@@ -41,10 +35,7 @@ export const SharedEvalInput = {
     .array(z.string())
     .optional()
     .describe('Refs to treat as unknown during partial evaluation.'),
-  partial: z
-    .boolean()
-    .optional()
-    .describe('Run partial evaluation rather than full evaluation.'),
+  partial: z.boolean().optional().describe('Run partial evaluation rather than full evaluation.'),
   strictBuiltinErrors: z
     .boolean()
     .optional()
@@ -95,10 +86,7 @@ export async function runEval(
     );
   }
   if (args.input !== undefined && args.inputPath) {
-    return err(
-      'INVALID_INPUT',
-      'rego_eval accepts either `input` or `inputPath`, not both.',
-    );
+    return err('INVALID_INPUT', 'rego_eval accepts either `input` or `inputPath`, not both.');
   }
 
   const evalInput: EvalInput = { query: args.query };
@@ -138,21 +126,15 @@ export async function runEval(
   const parsed = tryParseJson<RegoEvalOutput>(result.stdout);
 
   if (result.exitCode !== 0) {
-    return err(
-      'EVAL_ERROR',
-      'opa eval exited with an error.',
-      {
-        details: parsed ?? { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
-      },
-    );
+    return err('EVAL_ERROR', 'opa eval exited with an error.', {
+      details: parsed ?? { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
+    });
   }
 
   if (parsed === undefined) {
-    return err(
-      'UNKNOWN_ERROR',
-      'opa eval produced no parseable JSON output.',
-      { details: { stdout: result.stdout.trim() } },
-    );
+    return err('UNKNOWN_ERROR', 'opa eval produced no parseable JSON output.', {
+      details: { stdout: result.stdout.trim() },
+    });
   }
   return ok<RegoEvalOutput>(parsed);
 }

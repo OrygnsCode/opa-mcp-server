@@ -290,14 +290,12 @@ describe('tools/call', () => {
 
 describe('tools/call — server-management tools', () => {
   it('opa_list_policies dispatches and forwards JSON results', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okJsonResponse({ result: [{ id: 'rbac' }] }),
-    );
+    fetchMock.mockResolvedValueOnce(okJsonResponse({ result: [{ id: 'rbac' }] }));
     const { client } = await buildServerAndClient();
     const result = await client.callTool({ name: 'opa_list_policies', arguments: {} });
-    const env = JSON.parse(
-      (result.content as Array<{ text: string }>)[0]!.text,
-    ) as ToolEnvelope<{ policies: Array<{ id: string }> }>;
+    const env = JSON.parse((result.content as Array<{ text: string }>)[0]!.text) as ToolEnvelope<{
+      policies: Array<{ id: string }>;
+    }>;
     expect(env.ok).toBe(true);
     expect(env.data?.policies[0]?.id).toBe('rbac');
   });
@@ -360,18 +358,14 @@ describe('prompts/list and prompts/get', () => {
       name: 'decision_debugging_workflow',
       arguments: {},
     });
-    const text = (
-      result.messages[0]?.content as { type: string; text?: string }
-    ).text ?? '';
+    const text = (result.messages[0]?.content as { type: string; text?: string }).text ?? '';
     expect(text).toContain('not provided');
     expect(text).toContain('rego_explain_decision');
   });
 
   it('rejects unknown prompt names', async () => {
     const { client } = await buildServerAndClient();
-    await expect(
-      client.getPrompt({ name: 'no_such_prompt', arguments: {} }),
-    ).rejects.toThrow();
+    await expect(client.getPrompt({ name: 'no_such_prompt', arguments: {} })).rejects.toThrow();
   });
 });
 

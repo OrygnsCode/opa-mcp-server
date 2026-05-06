@@ -20,10 +20,7 @@ import {
 } from '../../lib/tool-helpers.js';
 
 const RegoCheckInput = {
-  source: z
-    .string()
-    .optional()
-    .describe('Inline Rego source. Mutually exclusive with `paths`.'),
+  source: z.string().optional().describe('Inline Rego source. Mutually exclusive with `paths`.'),
   paths: z
     .array(z.string())
     .optional()
@@ -33,17 +30,12 @@ const RegoCheckInput = {
   strict: z
     .boolean()
     .optional()
-    .describe(
-      'Enable strict mode — fail on unused vars, deprecated builtins, etc.',
-    ),
+    .describe('Enable strict mode — fail on unused vars, deprecated builtins, etc.'),
   capabilities: z
     .string()
     .optional()
     .describe('Path to a capabilities JSON file restricting allowed builtins.'),
-  schemaDir: z
-    .string()
-    .optional()
-    .describe('Schema directory for input/data validation.'),
+  schemaDir: z.string().optional().describe('Schema directory for input/data validation.'),
 };
 
 interface CheckErrorRecord {

@@ -14,11 +14,7 @@ import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
-import {
-  runEval,
-  SharedEvalInput,
-  type RegoEvalOutput,
-} from '../evaluation/_shared.js';
+import { runEval, SharedEvalInput, type RegoEvalOutput } from '../evaluation/_shared.js';
 
 interface TraceEvent {
   op?: string;

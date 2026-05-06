@@ -149,10 +149,7 @@ interface RegisteredTools {
 
 async function setup(overrides?: Partial<Config>): Promise<{
   client: Client;
-  call: <T = unknown>(
-    name: string,
-    args: Record<string, unknown>,
-  ) => Promise<ToolEnvelope<T>>;
+  call: <T = unknown>(name: string, args: Record<string, unknown>) => Promise<ToolEnvelope<T>>;
 }> {
   const config = buildConfig(overrides);
   const server = new McpServer({ name: 'opa-it-server', version: '0.0.0' });
@@ -163,10 +160,7 @@ async function setup(overrides?: Partial<Config>): Promise<{
 
   // Also expose direct handler invocation for finer assertions.
   const registry = (server as unknown as RegisteredTools)._registeredTools;
-  const call = async <T,>(
-    name: string,
-    args: Record<string, unknown>,
-  ): Promise<ToolEnvelope<T>> => {
+  const call = async <T>(name: string, args: Record<string, unknown>): Promise<ToolEnvelope<T>> => {
     const entry = registry[name];
     if (!entry) throw new Error(`Tool ${name} not registered`);
     const result = await entry.handler(args);
@@ -195,10 +189,7 @@ describe('opa_health', () => {
 describe('opa_status and opa_config', () => {
   it('opa_status returns a config object', async () => {
     const { call } = await setup();
-    const env = await call<{ status: { default_decision?: string } }>(
-      'opa_status',
-      {},
-    );
+    const env = await call<{ status: { default_decision?: string } }>('opa_status', {});
     expect(env.ok).toBe(true);
     expect(env.data?.status).toBeDefined();
   });
@@ -314,10 +305,10 @@ describe('decision queries', () => {
 
   it('opa_query_decision returns explanation when explain=full', async () => {
     const { call } = await setup();
-    const env = await call<{ result: unknown; explanation?: unknown[] }>(
-      'opa_query_decision',
-      { path: 'seed.allow', explain: 'full' },
-    );
+    const env = await call<{ result: unknown; explanation?: unknown[] }>('opa_query_decision', {
+      path: 'seed.allow',
+      explain: 'full',
+    });
     expect(env.ok).toBe(true);
     expect(Array.isArray(env.data?.explanation)).toBe(true);
   });
@@ -346,9 +337,7 @@ default allow := false
 allow if input.user.role == "admin"
 `;
 
-    expect(
-      (await call<{ replaced: boolean }>('opa_put_policy', { id, source })).ok,
-    ).toBe(true);
+    expect((await call<{ replaced: boolean }>('opa_put_policy', { id, source })).ok).toBe(true);
 
     const adminEnv = await call<{ result: unknown }>('opa_query_decision', {
       path: 'e2e.allow',
@@ -362,8 +351,6 @@ allow if input.user.role == "admin"
     });
     expect(viewerEnv.data?.result).toBe(false);
 
-    expect(
-      (await call<{ deleted: boolean }>('opa_delete_policy', { id })).ok,
-    ).toBe(true);
+    expect((await call<{ deleted: boolean }>('opa_delete_policy', { id })).ok).toBe(true);
   });
 });

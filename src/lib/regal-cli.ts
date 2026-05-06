@@ -111,10 +111,7 @@ export class RegalCli {
 
   // ─── Internal: temp file management ──────────────────────────────────
 
-  private async withTempSource<T>(
-    source: string,
-    fn: (path: string) => Promise<T>,
-  ): Promise<T> {
+  private async withTempSource<T>(source: string, fn: (path: string) => Promise<T>): Promise<T> {
     const path = join(tmpdir(), `orygn-opa-mcp-${randomUUID()}.rego`);
     await writeFile(path, source, 'utf8');
     try {

@@ -409,9 +409,7 @@ describe('rego_compile_query', () => {
       unknowns: ['input.user', 'input.action'],
     });
     const args = mockRun.mock.calls[0]![1].args;
-    const unknownIdxs = args
-      .map((a, i) => (a === '--unknowns' ? i : -1))
-      .filter((i) => i !== -1);
+    const unknownIdxs = args.map((a, i) => (a === '--unknowns' ? i : -1)).filter((i) => i !== -1);
     expect(unknownIdxs).toHaveLength(2);
     expect(args[unknownIdxs[0]! + 1]).toBe('input.user');
     expect(args[unknownIdxs[1]! + 1]).toBe('input.action');

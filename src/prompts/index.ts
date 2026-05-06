@@ -12,9 +12,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../config.js';
 
-const policyAuthoringAssistantPrompt = (
-  args: { description?: string; package_name?: string },
-): string => {
+const policyAuthoringAssistantPrompt = (args: {
+  description?: string;
+  package_name?: string;
+}): string => {
   const description = args.description ?? '<not provided>';
   const packageName = args.package_name ?? '<choose a package, e.g. authz>';
   return `You are a Rego policy authoring assistant.
@@ -70,9 +71,10 @@ Apply this checklist, calling tools as needed:
 Return a concise review with: pass/fail per item, recommended diffs.`;
 };
 
-const decisionDebuggingWorkflowPrompt = (
-  args: { query?: string; expectation?: string },
-): string => {
+const decisionDebuggingWorkflowPrompt = (args: {
+  query?: string;
+  expectation?: string;
+}): string => {
   return `You are debugging an unexpected Rego decision.
 
 Query: ${args.query ?? '<not provided — ask the user>'}
@@ -113,10 +115,7 @@ export function registerPrompts(server: McpServer, _config: Config): void {
         'Guides an agent through writing a new Rego policy: clarify decision shape, draft, format, check, lint, test, iterate.',
       argsSchema: {
         description: z.string().optional().describe('What the policy needs to enforce.'),
-        package_name: z
-          .string()
-          .optional()
-          .describe('Suggested package path (e.g. "authz").'),
+        package_name: z.string().optional().describe('Suggested package path (e.g. "authz").'),
       },
     },
     (args) => ({
@@ -159,7 +158,10 @@ export function registerPrompts(server: McpServer, _config: Config): void {
       description:
         'Diagnostic flow for an unexpected Rego decision: reproduce, explain trace, identify input vs logic vs default cause, propose minimal fix.',
       argsSchema: {
-        query: z.string().optional().describe('The Rego query that produced the unexpected result.'),
+        query: z
+          .string()
+          .optional()
+          .describe('The Rego query that produced the unexpected result.'),
         expectation: z.string().optional().describe('What the user expected to happen.'),
       },
     },

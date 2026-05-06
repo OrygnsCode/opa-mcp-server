@@ -101,21 +101,23 @@ describe('runBinary signal handling', () => {
     // path. SIGKILL cannot be caught.
     const start = Date.now();
     const result = await runBinary(NODE, {
-      args: [
-        '-e',
-        "process.on('SIGTERM', () => {}); setTimeout(() => {}, 60_000)",
-      ],
+      args: ['-e', "process.on('SIGTERM', () => {}); setTimeout(() => {}, 60_000)"],
       timeoutMs: 100,
     });
     const elapsed = Date.now() - start;
 
     expect(result.timedOut).toBe(true);
     // SIGTERM fires at 100ms, SIGKILL at 100+2000=2100ms; the child
-    // ignores SIGTERM so we have to wait for SIGKILL. Allow a
-    // generous upper bound for CI variance.
+    // ignores SIGTERM so we have to wait for SIGKILL. Slow CI runners
+    // (especially shared GitHub Actions Linux runners) can pause the
+    // event loop for several seconds during process spawn, so the
+    // upper bound is generous. The deterministic timer logic itself
+    // is verified by the unit-level tests/unit/lib/subprocess.test.ts
+    // — this integration test only checks that the escalation reaches
+    // a real child process within a reasonable window.
     expect(elapsed).toBeGreaterThan(100);
-    expect(elapsed).toBeLessThan(8_000);
-  }, 15_000);
+    expect(elapsed).toBeLessThan(20_000);
+  }, 30_000);
 });
 
 // Assert spawn is what the test depends on at module level so this

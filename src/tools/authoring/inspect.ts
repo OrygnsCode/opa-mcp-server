@@ -65,11 +65,9 @@ export function registerRegoInspect(server: McpServer, config: Config): void {
 
         const parsed = tryParseJson<RegoInspectOutput>(result.stdout);
         if (parsed === undefined) {
-          return err(
-            'UNKNOWN_ERROR',
-            'opa inspect produced no parseable JSON output.',
-            { details: { stdout: result.stdout.trim() } },
-          );
+          return err('UNKNOWN_ERROR', 'opa inspect produced no parseable JSON output.', {
+            details: { stdout: result.stdout.trim() },
+          });
         }
         return ok<RegoInspectOutput>(parsed);
       });

@@ -11,11 +11,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import {
-  mapSubprocessFailure,
-  tryParseJson,
-  withToolEnvelope,
-} from '../../lib/tool-helpers.js';
+import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/tool-helpers.js';
 
 const RegoGenerateTestSkeletonInput = {
   source: z.string().min(1).describe('Rego source to generate tests for.'),

@@ -12,11 +12,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import {
-  mapSubprocessFailure,
-  tryParseJson,
-  withToolEnvelope,
-} from '../../lib/tool-helpers.js';
+import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/tool-helpers.js';
 
 const RegoCapabilitiesInput = {
   current: z
@@ -83,11 +79,9 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
 
         const parsed = tryParseJson<RegoCapabilitiesOutput>(trimmed);
         if (parsed === undefined) {
-          return err(
-            'UNKNOWN_ERROR',
-            'opa capabilities produced no parseable JSON output.',
-            { details: { stdout: trimmed } },
-          );
+          return err('UNKNOWN_ERROR', 'opa capabilities produced no parseable JSON output.', {
+            details: { stdout: trimmed },
+          });
         }
         return ok<RegoCapabilitiesOutput>(parsed);
       });

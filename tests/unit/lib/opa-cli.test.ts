@@ -166,13 +166,7 @@ describe('OpaCli', () => {
     it('emits the basic argv form for a simple query against paths', async () => {
       await opa.eval({ query: 'data.x.allow', paths: ['/abs/p'] });
       const [, opts] = mockRun.mock.calls[0]!;
-      expect(opts.args).toEqual([
-        'eval',
-        '--format=json',
-        '--data',
-        '/abs/p',
-        'data.x.allow',
-      ]);
+      expect(opts.args).toEqual(['eval', '--format=json', '--data', '/abs/p', 'data.x.allow']);
     });
 
     it('writes inline source to a temp file and adds it to --data', async () => {

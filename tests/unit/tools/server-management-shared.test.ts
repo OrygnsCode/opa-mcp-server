@@ -7,11 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import {
-  OpaAuthError,
-  OpaHttpError,
-  OpaUnreachableError,
-} from '../../../src/lib/opa-client.js';
+import { OpaAuthError, OpaHttpError, OpaUnreachableError } from '../../../src/lib/opa-client.js';
 import { mapOpaClientError } from '../../../src/tools/server-management/_shared.js';
 
 describe('mapOpaClientError', () => {
@@ -48,9 +44,7 @@ describe('mapOpaClientError', () => {
   });
 
   it('maps OpaHttpError 5xx to UNKNOWN_ERROR with status + body in details', () => {
-    const env = mapOpaClientError(
-      new OpaHttpError(500, { error: 'internal' }),
-    );
+    const env = mapOpaClientError(new OpaHttpError(500, { error: 'internal' }));
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
     expect(env.error?.message).toContain('HTTP 500');
     const details = env.error?.details as { status?: number; body?: unknown };

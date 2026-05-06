@@ -4,15 +4,15 @@ Drop-in MCP client configurations for `@orygn/opa-mcp`. Pick the file that
 matches your client, copy the relevant entry into your client's config, and
 edit the environment variables to match your environment.
 
-| File | Client | Config location |
-| --- | --- | --- |
-| [`claude-desktop.json`](./claude-desktop.json) | Claude Desktop | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`<br>Windows: `%APPDATA%\Claude\claude_desktop_config.json` |
-| [`claude-code.json`](./claude-code.json) | Claude Code (CLI) | Project: `.mcp.json` &nbsp;·&nbsp; User: `~/.claude.json` |
-| [`cursor.json`](./cursor.json) | Cursor | Project: `.cursor/mcp.json` &nbsp;·&nbsp; User: `~/.cursor/mcp.json` |
-| [`vscode.json`](./vscode.json) | VS Code (GitHub Copilot Chat) | Project: `.vscode/mcp.json` &nbsp;·&nbsp; User: settings.json under `"mcp.servers"` |
-| [`windsurf.json`](./windsurf.json) | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-| [`zed.json`](./zed.json) | Zed | `~/.config/zed/settings.json` (under `"context_servers"`) |
-| [`docker.json`](./docker.json) | Any client, Docker transport | Substitute `command`/`args` in your client's existing config |
+| File                                           | Client                        | Config location                                                                                                                    |
+| ---------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| [`claude-desktop.json`](./claude-desktop.json) | Claude Desktop                | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`<br>Windows: `%APPDATA%\Claude\claude_desktop_config.json` |
+| [`claude-code.json`](./claude-code.json)       | Claude Code (CLI)             | Project: `.mcp.json` &nbsp;·&nbsp; User: `~/.claude.json`                                                                          |
+| [`cursor.json`](./cursor.json)                 | Cursor                        | Project: `.cursor/mcp.json` &nbsp;·&nbsp; User: `~/.cursor/mcp.json`                                                               |
+| [`vscode.json`](./vscode.json)                 | VS Code (GitHub Copilot Chat) | Project: `.vscode/mcp.json` &nbsp;·&nbsp; User: settings.json under `"mcp.servers"`                                                |
+| [`windsurf.json`](./windsurf.json)             | Windsurf                      | `~/.codeium/windsurf/mcp_config.json`                                                                                              |
+| [`zed.json`](./zed.json)                       | Zed                           | `~/.config/zed/settings.json` (under `"context_servers"`)                                                                          |
+| [`docker.json`](./docker.json)                 | Any client, Docker transport  | Substitute `command`/`args` in your client's existing config                                                                       |
 
 If you do not see your client here, the server itself is just stdio — any
 MCP-compliant client can run it via:

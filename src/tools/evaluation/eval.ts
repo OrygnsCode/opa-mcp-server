@@ -23,9 +23,7 @@ export function registerRegoEval(server: McpServer, config: Config): void {
       inputSchema: SharedEvalInput,
     },
     async (args) => {
-      return withToolEnvelope<RegoEvalOutput>(config, () =>
-        runEval(opa, config, args, {}),
-      );
+      return withToolEnvelope<RegoEvalOutput>(config, () => runEval(opa, config, args, {}));
     },
   );
 
@@ -34,7 +32,7 @@ export function registerRegoEval(server: McpServer, config: Config): void {
     {
       title: 'Evaluate Rego with execution trace',
       description:
-        'Evaluate with `--explain=full` and return a structured trace alongside the result. Use this when an agent needs to see why a rule fired (or didn\'t) — the trace is the basis for `rego_explain_decision`.',
+        "Evaluate with `--explain=full` and return a structured trace alongside the result. Use this when an agent needs to see why a rule fired (or didn't) — the trace is the basis for `rego_explain_decision`.",
       inputSchema: SharedEvalInput,
     },
     async (args) => {
@@ -64,7 +62,7 @@ export function registerRegoEval(server: McpServer, config: Config): void {
     {
       title: 'Evaluate Rego with coverage',
       description:
-        'Evaluate with `--coverage` and return per-line coverage data. Useful for verifying that tests actually exercise the rules they\'re meant to.',
+        "Evaluate with `--coverage` and return per-line coverage data. Useful for verifying that tests actually exercise the rules they're meant to.",
       inputSchema: SharedEvalInput,
     },
     async (args) => {

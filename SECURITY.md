@@ -8,10 +8,10 @@ how to report a vulnerability, and the threat model the project assumes.
 `@orygn/opa-mcp` is in early release. Until `1.0.0` ships, only the latest
 minor release is supported with security fixes.
 
-| Version | Status |
-| --- | --- |
-| `0.x` (latest) | Supported |
-| Older `0.x` | Not supported — please upgrade |
+| Version        | Status                         |
+| -------------- | ------------------------------ |
+| `0.x` (latest) | Supported                      |
+| Older `0.x`    | Not supported — please upgrade |
 
 After `1.0.0`, the most recent two minor versions will receive security fixes.
 

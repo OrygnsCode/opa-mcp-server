@@ -4,11 +4,7 @@
  * envelope contract defines.
  */
 import { err } from '../../lib/errors.js';
-import {
-  OpaAuthError,
-  OpaHttpError,
-  OpaUnreachableError,
-} from '../../lib/opa-client.js';
+import { OpaAuthError, OpaHttpError, OpaUnreachableError } from '../../lib/opa-client.js';
 import type { ToolEnvelope, ToolErrorCode } from '../../types.js';
 
 /**

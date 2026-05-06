@@ -19,10 +19,7 @@ import {
 } from '../../lib/tool-helpers.js';
 
 const RegoLintInput = {
-  source: z
-    .string()
-    .optional()
-    .describe('Inline Rego source. Mutually exclusive with `paths`.'),
+  source: z.string().optional().describe('Inline Rego source. Mutually exclusive with `paths`.'),
   paths: z
     .array(z.string())
     .optional()
@@ -39,10 +36,7 @@ const RegoLintInput = {
     .array(z.string())
     .optional()
     .describe('Disable entire rule categories (e.g. style, idiomatic, bugs).'),
-  enableCategory: z
-    .array(z.string())
-    .optional()
-    .describe('Enable entire rule categories.'),
+  enableCategory: z.array(z.string()).optional().describe('Enable entire rule categories.'),
   failLevel: z
     .enum(['error', 'warning'])
     .optional()
@@ -86,10 +80,7 @@ export function registerRegoLint(server: McpServer, config: Config): void {
           );
         }
         if (source && paths?.length) {
-          return err(
-            'INVALID_INPUT',
-            'rego_lint does not accept both `source` and `paths`.',
-          );
+          return err('INVALID_INPUT', 'rego_lint does not accept both `source` and `paths`.');
         }
 
         let resolvedPaths: string[] | undefined;
@@ -116,11 +107,9 @@ export function registerRegoLint(server: McpServer, config: Config): void {
 
         const parsed = tryParseJson<RegoLintOutput>(result.stdout);
         if (!parsed) {
-          return err(
-            'UNKNOWN_ERROR',
-            'regal lint produced no parseable JSON output.',
-            { details: { stderr: result.stderr.trim(), exitCode: result.exitCode } },
-          );
+          return err('UNKNOWN_ERROR', 'regal lint produced no parseable JSON output.', {
+            details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
+          });
         }
 
         return ok<RegoLintOutput>({

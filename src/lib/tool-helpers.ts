@@ -93,9 +93,6 @@ export async function withToolEnvelope<T>(
   } catch (e) {
     const message = e instanceof Error ? e.message : 'An unknown error occurred';
     const details = e instanceof Error ? { stack: e.stack } : { value: e };
-    return formatEnvelope(
-      err('UNKNOWN_ERROR', message, { details }),
-      config.maxResponseBytes,
-    );
+    return formatEnvelope(err('UNKNOWN_ERROR', message, { details }), config.maxResponseBytes);
   }
 }

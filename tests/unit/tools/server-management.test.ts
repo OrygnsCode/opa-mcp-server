@@ -38,9 +38,7 @@ const lastFetchCall = (): { url: string; init: RequestInit } => {
 
 describe('opa_list_policies', () => {
   it('GETs /v1/policies and returns the array', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okResponse({ result: [{ id: 'rbac', raw: 'package rbac' }] }),
-    );
+    fetchMock.mockResolvedValueOnce(okResponse({ result: [{ id: 'rbac', raw: 'package rbac' }] }));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const env = await callTool<{ policies: Array<{ id: string }> }>(
@@ -76,7 +74,9 @@ describe('opa_list_policies', () => {
 
 describe('opa_get_policy', () => {
   it('URL-encodes the policy ID and returns the policy', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse({ result: { id: 'auth/main', raw: 'package auth' } }));
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ result: { id: 'auth/main', raw: 'package auth' } }),
+    );
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const env = await callTool<{ policy: { id: string } }>(server, 'opa_get_policy', {
@@ -90,9 +90,7 @@ describe('opa_get_policy', () => {
   });
 
   it('maps 404 to POLICY_NOT_FOUND', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okResponse({ message: 'not found' }, { status: 404 }),
-    );
+    fetchMock.mockResolvedValueOnce(okResponse({ message: 'not found' }, { status: 404 }));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const env = await callTool(server, 'opa_get_policy', { id: 'missing' });
@@ -139,9 +137,7 @@ describe('opa_put_policy', () => {
   });
 
   it('surfaces a 5xx as UNKNOWN_ERROR with status in details', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okResponse({ message: 'internal error' }, { status: 500 }),
-    );
+    fetchMock.mockResolvedValueOnce(okResponse({ message: 'internal error' }, { status: 500 }));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const env = await callTool(server, 'opa_put_policy', {
@@ -394,9 +390,7 @@ describe('opa_health', () => {
     // is NOT OpaUnreachableError — opa_health has a special branch that
     // maps these to OPA_UNREACHABLE with an "OPA reported unhealthy"
     // message rather than the generic mapping.
-    fetchMock.mockResolvedValueOnce(
-      okResponse({ status: 'unhealthy' }, { status: 503 }),
-    );
+    fetchMock.mockResolvedValueOnce(okResponse({ status: 'unhealthy' }, { status: 503 }));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const env = await callTool(server, 'opa_health', {});
@@ -447,11 +441,7 @@ describe('opa_status and opa_config', () => {
     fetchMock.mockResolvedValueOnce(okResponse({ default_decision: '/system/main' }));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
-    const env = await callTool<{ config: { default_decision?: string } }>(
-      server,
-      'opa_config',
-      {},
-    );
+    const env = await callTool<{ config: { default_decision?: string } }>(server, 'opa_config', {});
     expect(env.ok).toBe(true);
     expect(env.data?.config.default_decision).toBe('/system/main');
   });

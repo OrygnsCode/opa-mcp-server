@@ -174,18 +174,18 @@ The server reads its configuration from environment variables. Every
 variable is optional; defaults are sensible for a local OPA on
 `http://localhost:8181`.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OPA_URL` | `http://localhost:8181` | Base URL of an OPA REST endpoint, used by `opa_*` tools. |
-| `OPA_TOKEN` | *(unset)* | Bearer token for OPA, if your instance requires auth. Treated as a secret — never echoed in logs or tool responses. |
-| `OPA_BINARY` | `opa` (on `PATH`) | Path to the `opa` CLI, used by `rego_*` tools. |
-| `REGAL_BINARY` | `regal` (on `PATH`) | Path to the `regal` linter. Only required by `rego_lint`. |
-| `OPA_MCP_ALLOWED_PATHS` | *(unset)* | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.** |
-| `OPA_MCP_LOG_FILE` | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout — that channel is reserved for the MCP protocol. |
-| `OPA_MCP_LOG_LEVEL` | `info` | One of `debug`, `info`, `warn`, `error`. |
-| `OPA_MCP_MAX_RESPONSE_BYTES` | `100000` | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker. |
-| `OPA_MCP_TIMEOUT_MS` | `30000` | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`. |
-| `OPA_MCP_HTTP_TIMEOUT_MS` | `15000` | Timeout for HTTP requests to the OPA REST API. |
+| Variable                     | Default                      | Purpose                                                                                                                                                   |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPA_URL`                    | `http://localhost:8181`      | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                  |
+| `OPA_TOKEN`                  | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret — never echoed in logs or tool responses.                                       |
+| `OPA_BINARY`                 | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools.                                                                                                            |
+| `REGAL_BINARY`               | `regal` (on `PATH`)          | Path to the `regal` linter. Only required by `rego_lint`.                                                                                                 |
+| `OPA_MCP_ALLOWED_PATHS`      | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.** |
+| `OPA_MCP_LOG_FILE`           | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout — that channel is reserved for the MCP protocol.                                       |
+| `OPA_MCP_LOG_LEVEL`          | `info`                       | One of `debug`, `info`, `warn`, `error`.                                                                                                                  |
+| `OPA_MCP_MAX_RESPONSE_BYTES` | `100000`                     | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker.                                                      |
+| `OPA_MCP_TIMEOUT_MS`         | `30000`                      | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`.                                        |
+| `OPA_MCP_HTTP_TIMEOUT_MS`    | `15000`                      | Timeout for HTTP requests to the OPA REST API.                                                                                                            |
 
 Paths in `OPA_MCP_ALLOWED_PATHS` and the `*_BINARY` variables must be
 absolute. Relative paths and missing binaries are rejected with structured
@@ -213,15 +213,15 @@ Operate on Rego source code without needing a running OPA server. Wrap
 `opa fmt`, `opa parse`, `opa check`, `opa inspect`, `opa capabilities`,
 `opa deps`, and `regal`.
 
-| Tool | What it does |
-| --- | --- |
-| `rego_format` | Format Rego source. Wraps `opa fmt`. Idempotent. |
-| `rego_check` | Type-check and validate Rego. Wraps `opa check`. |
-| `rego_lint` | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.** |
-| `rego_parse_ast` | Parse Rego to AST JSON. Wraps `opa parse`. |
-| `rego_inspect` | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`. |
-| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA. |
-| `rego_deps` | Static dependency analysis: rule-level data references and cross-package calls. |
+| Tool                | What it does                                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                  |
+| `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                  |
+| `rego_lint`         | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.** |
+| `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                        |
+| `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                 |
+| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                               |
+| `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                   |
 
 #### Featured: `rego_format`
 
@@ -264,15 +264,15 @@ Operate on Rego source code without needing a running OPA server. Wrap
 Run a query against a policy + input. Wrap `opa eval`, `opa test`, and
 `opa bench`.
 
-| Tool | What it does |
-| --- | --- |
-| `rego_eval` | Evaluate a query against a policy and input. The bread-and-butter tool. |
-| `rego_eval_with_explain` | Evaluate with `--explain=full` and return a structured trace. |
-| `rego_eval_with_profile` | Evaluate with `--profile` and return per-rule timing & evaluation counts. |
-| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage. |
-| `rego_test` | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage. |
-| `rego_bench` | Run `opa bench` and return statistical timing data. |
-| `rego_compile_query` | Partially evaluate a query against a policy. |
+| Tool                      | What it does                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.              |
+| `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                        |
+| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing & evaluation counts.            |
+| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                             |
+| `rego_test`               | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage. |
+| `rego_bench`              | Run `opa bench` and return statistical timing data.                                  |
+| `rego_compile_query`      | Partially evaluate a query against a policy.                                         |
 
 #### Featured: `rego_eval`
 
@@ -297,42 +297,42 @@ Run a query against a policy + input. Wrap `opa eval`, `opa test`, and
 
 Package and sign deployable bundles. Wrap `opa build` and `opa sign`.
 
-| Tool | What it does |
-| --- | --- |
+| Tool               | What it does                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------- |
 | `opa_bundle_build` | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`. |
-| `opa_bundle_sign` | Sign a bundle with a private key. Returns `.signatures.json` content. |
+| `opa_bundle_sign`  | Sign a bundle with a private key. Returns `.signatures.json` content.                 |
 
 ### D — OPA server management
 
 Talk to a running OPA server over its REST API. Require `OPA_URL` to
 point at a reachable server.
 
-| Tool | What it does |
-| --- | --- |
-| `opa_list_policies` | List policies registered on the server. |
-| `opa_get_policy` | Get a single policy by ID. |
-| `opa_put_policy` | Upload or replace a policy. |
-| `opa_delete_policy` | Delete a policy by ID. |
-| `opa_get_data` | Read a path from the data hierarchy. |
-| `opa_put_data` | Write to a path in the data hierarchy. |
-| `opa_patch_data` | Apply a JSON Patch to the data hierarchy. |
+| Tool                 | What it does                                           |
+| -------------------- | ------------------------------------------------------ |
+| `opa_list_policies`  | List policies registered on the server.                |
+| `opa_get_policy`     | Get a single policy by ID.                             |
+| `opa_put_policy`     | Upload or replace a policy.                            |
+| `opa_delete_policy`  | Delete a policy by ID.                                 |
+| `opa_get_data`       | Read a path from the data hierarchy.                   |
+| `opa_put_data`       | Write to a path in the data hierarchy.                 |
+| `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.              |
 | `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input. |
-| `opa_compile_query` | Partially evaluate a query against the running server. |
-| `opa_health` | Liveness / readiness check. |
-| `opa_status` | Bundle / decision-log status. |
-| `opa_config` | Server configuration (without secrets). |
+| `opa_compile_query`  | Partially evaluate a query against the running server. |
+| `opa_health`         | Liveness / readiness check.                            |
+| `opa_status`         | Bundle / decision-log status.                          |
+| `opa_config`         | Server configuration (without secrets).                |
 
 ### E — Higher-level helpers
 
 The differentiation surface — these compose lower-level primitives into
 the tasks agents are actually asked to do.
 
-| Tool | What it does |
-| --- | --- |
-| `rego_explain_decision` | Walk through every rule that fired (and didn't) for a given query. Wraps `rego_eval_with_explain` and produces a step-by-step natural-language trace. |
-| `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule. |
-| `rego_describe_policy` | Summarize what a policy does, its inputs, decisions, and assumptions. |
-| `rego_suggest_fix` | For a failed `rego_check` or `rego_lint`, propose minimal patches. |
+| Tool                          | What it does                                                                                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rego_explain_decision`       | Walk through every rule that fired (and didn't) for a given query. Wraps `rego_eval_with_explain` and produces a step-by-step natural-language trace. |
+| `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule.                                                                                  |
+| `rego_describe_policy`        | Summarize what a policy does, its inputs, decisions, and assumptions.                                                                                 |
+| `rego_suggest_fix`            | For a failed `rego_check` or `rego_lint`, propose minimal patches.                                                                                    |
 
 ## Prompts
 
@@ -340,22 +340,22 @@ Three [MCP prompts](https://modelcontextprotocol.io/specification/server/prompts
 ship with the server. Clients surface them as slash commands or workflow
 templates.
 
-| Prompt | Purpose |
-| --- | --- |
-| `policy_authoring_assistant` | Walks the agent through writing a new policy: ask about the decision surface, draft, review, format, lint, test. |
-| `policy_review_checklist` | Review checklist for an existing policy: completeness, edge cases, performance, security pitfalls. |
-| `decision_debugging_workflow` | Diagnostic flow when a decision is unexpected: gather input, run with explain, isolate the rule, propose a fix. |
+| Prompt                        | Purpose                                                                                                          |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `policy_authoring_assistant`  | Walks the agent through writing a new policy: ask about the decision surface, draft, review, format, lint, test. |
+| `policy_review_checklist`     | Review checklist for an existing policy: completeness, edge cases, performance, security pitfalls.               |
+| `decision_debugging_workflow` | Diagnostic flow when a decision is unexpected: gather input, run with explain, isolate the rule, propose a fix.  |
 
 ## Resources
 
 Three [MCP resources](https://modelcontextprotocol.io/specification/server/resources)
 expose curated reference data the agent can read at any time.
 
-| Resource URI | What's there |
-| --- | --- |
-| `opa://builtins` | Categorized OPA built-in function reference. ~22 categories, 200+ functions. Security-sensitive functions (`http.send`, `crypto.x509.*`, `opa.runtime`) are flagged. |
-| `opa://style-guide` | The official Rego style guide, formatted for LLM consumption. |
-| `opa://patterns` | Curated common-pattern library: RBAC, ABAC, Kubernetes admission, IaC gates, API authz, rate limiting. Each pattern includes when-to-use, full Rego, a test, and common pitfalls. |
+| Resource URI        | What's there                                                                                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `opa://builtins`    | Categorized OPA built-in function reference. ~22 categories, 200+ functions. Security-sensitive functions (`http.send`, `crypto.x509.*`, `opa.runtime`) are flagged.              |
+| `opa://style-guide` | The official Rego style guide, formatted for LLM consumption.                                                                                                                     |
+| `opa://patterns`    | Curated common-pattern library: RBAC, ABAC, Kubernetes admission, IaC gates, API authz, rate limiting. Each pattern includes when-to-use, full Rego, a test, and common pitfalls. |
 
 ## Cookbook
 

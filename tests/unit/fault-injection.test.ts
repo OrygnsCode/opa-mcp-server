@@ -74,9 +74,7 @@ describe('OpaClient under fault: HTTP response shape lies', () => {
 
   it('returns text content verbatim when Content-Type is missing', async () => {
     // No Content-Type header → defaults to '' → not JSON → text path.
-    fetchMock.mockResolvedValueOnce(
-      new Response('hello world', { status: 200 }),
-    );
+    fetchMock.mockResolvedValueOnce(new Response('hello world', { status: 200 }));
     const client = new OpaClient(baseConfig);
     // With no Content-Type, fetch's Response defaults to text/plain.
     // Our isJson check is "contains application/json", so we go to text.

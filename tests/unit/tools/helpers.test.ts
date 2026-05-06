@@ -138,9 +138,7 @@ describe('rego_explain_decision', () => {
   });
 
   it('returns undefined result when the eval result array is empty', async () => {
-    mockRun.mockResolvedValueOnce(
-      spawnSuccess(JSON.stringify({ result: [], explanation: [] })),
-    );
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ result: [], explanation: [] })));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     const env = await callTool<{ result: unknown }>(server, 'rego_explain_decision', {
@@ -157,7 +155,12 @@ describe('rego_explain_decision', () => {
 describe('rego_generate_test_skeleton', () => {
   it('emits one test stub per rule in the parsed AST', async () => {
     const ast = {
-      package: { path: [{ value: 'data', type: 'var' }, { value: 'rbac', type: 'string' }] },
+      package: {
+        path: [
+          { value: 'data', type: 'var' },
+          { value: 'rbac', type: 'string' },
+        ],
+      },
       rules: [
         { head: { name: 'allow' } },
         { head: { name: 'deny_reasons' } },
@@ -200,7 +203,12 @@ describe('rego_generate_test_skeleton', () => {
 
   it('reports INVALID_INPUT when no rules are found', async () => {
     const ast = {
-      package: { path: [{ value: 'data', type: 'var' }, { value: 'empty', type: 'string' }] },
+      package: {
+        path: [
+          { value: 'data', type: 'var' },
+          { value: 'empty', type: 'string' },
+        ],
+      },
       rules: [],
     };
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
@@ -260,11 +268,9 @@ describe('rego_generate_test_skeleton', () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
-    const env = await callTool<{ ruleNames: string[] }>(
-      server,
-      'rego_generate_test_skeleton',
-      { source: 'package x' },
-    );
+    const env = await callTool<{ ruleNames: string[] }>(server, 'rego_generate_test_skeleton', {
+      source: 'package x',
+    });
     expect(env.data?.ruleNames).toEqual(['good']);
   });
 
@@ -361,11 +367,9 @@ describe('rego_describe_policy', () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
-    const env = await callTool<{ rules: Array<{ name: string }> }>(
-      server,
-      'rego_describe_policy',
-      { source: 'package mixed' },
-    );
+    const env = await callTool<{ rules: Array<{ name: string }> }>(server, 'rego_describe_policy', {
+      source: 'package mixed',
+    });
     expect(env.data?.rules.map((r) => r.name)).toEqual(['real_rule']);
   });
 
@@ -406,9 +410,7 @@ describe('rego_suggest_fix', () => {
     const env = await callTool<{
       suggestions: Array<{ code: string; suggestion: string; confidence: string }>;
     }>(server, 'rego_suggest_fix', {
-      diagnostics: [
-        { code: 'rego_unsafe_var_error', message: 'var x is unsafe' },
-      ],
+      diagnostics: [{ code: 'rego_unsafe_var_error', message: 'var x is unsafe' }],
     });
     expect(env.ok).toBe(true);
     expect(env.data?.suggestions).toHaveLength(1);

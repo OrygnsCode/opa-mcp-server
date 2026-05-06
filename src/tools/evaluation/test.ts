@@ -26,14 +26,8 @@ const RegoTestInput = {
       'Test directories or files. `opa test` looks for `*_test.rego` siblings of source files.',
     ),
   verbose: z.boolean().optional().describe('Emit per-test pass/fail details.'),
-  coverage: z
-    .boolean()
-    .optional()
-    .describe('Include per-line coverage data in the output.'),
-  runPattern: z
-    .string()
-    .optional()
-    .describe('Run only tests whose names match this regex.'),
+  coverage: z.boolean().optional().describe('Include per-line coverage data in the output.'),
+  runPattern: z.string().optional().describe('Run only tests whose names match this regex.'),
 };
 
 interface TestRecord {

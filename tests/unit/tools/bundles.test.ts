@@ -94,9 +94,7 @@ describe('opa_bundle_build', () => {
     const args = mockRun.mock.calls[0]![1].args;
     expect(args).toContain('--target');
     expect(args).toContain('wasm');
-    const entryIdxs = args
-      .map((a, i) => (a === '--entrypoint' ? i : -1))
-      .filter((i) => i !== -1);
+    const entryIdxs = args.map((a, i) => (a === '--entrypoint' ? i : -1)).filter((i) => i !== -1);
     expect(entryIdxs).toHaveLength(2);
     expect(args[entryIdxs[0]! + 1]).toBe('rbac/allow');
   });

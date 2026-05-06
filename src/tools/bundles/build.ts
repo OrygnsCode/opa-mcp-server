@@ -9,11 +9,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import {
-  mapSubprocessFailure,
-  validatePaths,
-  withToolEnvelope,
-} from '../../lib/tool-helpers.js';
+import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
 
 const OpaBundleBuildInput = {
   paths: z

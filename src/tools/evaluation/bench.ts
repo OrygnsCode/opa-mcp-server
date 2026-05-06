@@ -31,7 +31,7 @@ const RegoBenchInput = {
     .int()
     .positive()
     .optional()
-    .describe('Number of benchmark iterations. Defaults to OPA\'s built-in default.'),
+    .describe("Number of benchmark iterations. Defaults to OPA's built-in default."),
 };
 
 export interface RegoBenchOutput {
@@ -54,7 +54,10 @@ export function registerRegoBench(server: McpServer, config: Config): void {
     async ({ query, paths, input, inputPath, count }) => {
       return withToolEnvelope<RegoBenchOutput>(config, async () => {
         if (input !== undefined && inputPath) {
-          return err('INVALID_INPUT', 'rego_bench accepts either `input` or `inputPath`, not both.');
+          return err(
+            'INVALID_INPUT',
+            'rego_bench accepts either `input` or `inputPath`, not both.',
+          );
         }
         let resolvedPaths: string[] | undefined;
         if (paths?.length) {

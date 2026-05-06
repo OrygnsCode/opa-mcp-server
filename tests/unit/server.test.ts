@@ -17,12 +17,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import type { Config } from '../../src/config.js';
-import {
-  buildServer,
-  main,
-  SERVER_NAME,
-  SERVER_VERSION,
-} from '../../src/server.js';
+import { buildServer, main, SERVER_NAME, SERVER_VERSION } from '../../src/server.js';
 
 const ENV_KEYS = [
   'OPA_URL',
@@ -131,11 +126,9 @@ describe('main()', () => {
   it('propagates errors from invalid configuration via process.exit', async () => {
     process.env['OPA_URL'] = 'not-a-url';
 
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation(((_code?: number) => {
-        throw new Error('process.exit called');
-      }) as never);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      throw new Error('process.exit called');
+    }) as never);
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const [s] = InMemoryTransport.createLinkedPair();

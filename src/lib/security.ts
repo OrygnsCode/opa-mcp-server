@@ -36,9 +36,13 @@ export function validatePath(
   if (allowedRoots.length === 0) {
     return {
       ok: false,
-      error: err('PATH_NOT_ALLOWED', 'File-based tools are disabled because OPA_MCP_ALLOWED_PATHS is empty.', {
-        hint: 'Set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories the server may read or write.',
-      }),
+      error: err(
+        'PATH_NOT_ALLOWED',
+        'File-based tools are disabled because OPA_MCP_ALLOWED_PATHS is empty.',
+        {
+          hint: 'Set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories the server may read or write.',
+        },
+      ),
     };
   }
 

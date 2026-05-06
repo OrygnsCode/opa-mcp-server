@@ -116,9 +116,7 @@ describe('Concurrent tool dispatch through one MCP server', () => {
 
     // Every call returned something parseable and ok.
     for (const r of results) {
-      const env = readEnvelope<{ formatted: string; changed: boolean }>(
-        r as CallToolResult,
-      );
+      const env = readEnvelope<{ formatted: string; changed: boolean }>(r as CallToolResult);
       expect(env.ok).toBe(true);
       expect(env.data?.formatted).toMatch(/^package call_\d+/);
     }
@@ -266,9 +264,7 @@ describe('OpaCli temp-file collision under high parallelism', () => {
     const { OpaCli } = await import('../../src/lib/opa-cli.js');
     const opa = new OpaCli(baseConfig);
 
-    await Promise.all(
-      Array.from({ length: 10 }, () => opa.fmt({ source: 'package x' })),
-    );
+    await Promise.all(Array.from({ length: 10 }, () => opa.fmt({ source: 'package x' })));
 
     const { existsSync } = await import('node:fs');
     const stragglers = writtenPaths.filter((p) => existsSync(p));
@@ -335,15 +331,12 @@ describe('OpaClient HTTP concurrency', () => {
       );
     });
 
-    const { OpaClient, OpaUnreachableError, OpaHttpError } = await import(
-      '../../src/lib/opa-client.js'
-    );
+    const { OpaClient, OpaUnreachableError, OpaHttpError } =
+      await import('../../src/lib/opa-client.js');
     const client = new OpaClient(baseConfig);
 
     const settled = await Promise.allSettled(
-      Array.from({ length: 30 }, () =>
-        client.request({ method: 'GET', path: '/v1/policies' }),
-      ),
+      Array.from({ length: 30 }, () => client.request({ method: 'GET', path: '/v1/policies' })),
     );
 
     let unreachable = 0;

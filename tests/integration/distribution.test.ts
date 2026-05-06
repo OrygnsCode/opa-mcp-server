@@ -113,9 +113,7 @@ describe('built dist/ tree', () => {
       'resources/index.js',
     ];
     for (const rel of expected) {
-      expect(existsSync(join(REPO_ROOT, 'dist', rel)), `missing dist/${rel}`).toBe(
-        true,
-      );
+      expect(existsSync(join(REPO_ROOT, 'dist', rel)), `missing dist/${rel}`).toBe(true);
     }
   });
 
@@ -259,56 +257,52 @@ describe.skipIf(process.env['OPA_MCP_DOCKER_SMOKE'] !== '1')(
 
 // ─── 5. Optional MCPB pack smoke (runs if @anthropic-ai/mcpb is installed) ──
 
-describe.skipIf(runSync('mcpb', ['--version']).exitCode !== 0)(
-  'MCPB bundle pack',
-  () => {
-    let bundlePath: string;
-    let workDir: string;
+describe.skipIf(runSync('mcpb', ['--version']).exitCode !== 0)('MCPB bundle pack', () => {
+  let bundlePath: string;
+  let workDir: string;
 
-    beforeAll(() => {
-      workDir = join(tmpdir(), `orygn-mcpb-smoke-${Date.now()}`);
-      mkdirSync(workDir, { recursive: true });
-      bundlePath = join(workDir, 'opa-mcp.mcpb');
-    });
+  beforeAll(() => {
+    workDir = join(tmpdir(), `orygn-mcpb-smoke-${Date.now()}`);
+    mkdirSync(workDir, { recursive: true });
+    bundlePath = join(workDir, 'opa-mcp.mcpb');
+  });
 
-    afterAll(() => {
-      if (workDir && existsSync(workDir)) {
-        rmSync(workDir, { recursive: true, force: true });
-      }
-    });
+  afterAll(() => {
+    if (workDir && existsSync(workDir)) {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  });
 
-    it('mcpb validate accepts our manifest.json', () => {
-      // `mcpb validate` checks a manifest.json against the MCPB schema —
-      // a separate concern from packing. Run it standalone so any
-      // schema regression in our manifest fails fast.
-      const r = runSync('mcpb', ['validate', join(REPO_ROOT, 'manifest.json')]);
-      expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
-    });
+  it('mcpb validate accepts our manifest.json', () => {
+    // `mcpb validate` checks a manifest.json against the MCPB schema —
+    // a separate concern from packing. Run it standalone so any
+    // schema regression in our manifest fails fast.
+    const r = runSync('mcpb', ['validate', join(REPO_ROOT, 'manifest.json')]);
+    expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
+  });
 
-    it('mcpb pack produces a non-empty bundle', () => {
-      const r = runSync('mcpb', ['pack', '.', bundlePath], { timeoutMs: 90_000 });
-      expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
-      expect(existsSync(bundlePath)).toBe(true);
-      const stat = readFileSync(bundlePath);
-      expect(stat.length).toBeGreaterThan(1000);
-    }, 120_000);
+  it('mcpb pack produces a non-empty bundle', () => {
+    const r = runSync('mcpb', ['pack', '.', bundlePath], { timeoutMs: 90_000 });
+    expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
+    expect(existsSync(bundlePath)).toBe(true);
+    const stat = readFileSync(bundlePath);
+    expect(stat.length).toBeGreaterThan(1000);
+  }, 120_000);
 
-    it('mcpb info reads the produced bundle without error', () => {
-      const r = runSync('mcpb', ['info', bundlePath]);
-      expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
-      // `mcpb info` reports file metadata only (size, signature
-      // status). Verifying it exits 0 confirms the bundle is a
-      // recognized .mcpb file, which is what we care about here.
-      expect(r.stdout).toMatch(/Size:/);
-    });
+  it('mcpb info reads the produced bundle without error', () => {
+    const r = runSync('mcpb', ['info', bundlePath]);
+    expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
+    // `mcpb info` reports file metadata only (size, signature
+    // status). Verifying it exits 0 confirms the bundle is a
+    // recognized .mcpb file, which is what we care about here.
+    expect(r.stdout).toMatch(/Size:/);
+  });
 
-    it('mcpb unpack restores a manifest containing our package name', () => {
-      const unpackDir = join(workDir, 'unpacked');
-      const r = runSync('mcpb', ['unpack', bundlePath, unpackDir]);
-      expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
-      const manifest = readFileSync(join(unpackDir, 'manifest.json'), 'utf8');
-      expect(manifest).toContain('@orygn/opa-mcp');
-    });
-  },
-);
-
+  it('mcpb unpack restores a manifest containing our package name', () => {
+    const unpackDir = join(workDir, 'unpacked');
+    const r = runSync('mcpb', ['unpack', bundlePath, unpackDir]);
+    expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
+    const manifest = readFileSync(join(unpackDir, 'manifest.json'), 'utf8');
+    expect(manifest).toContain('@orygn/opa-mcp');
+  });
+});

@@ -68,11 +68,9 @@ export function registerRegoDeps(server: McpServer, config: Config): void {
 
         const parsed = tryParseJson<RegoDepsOutput>(result.stdout);
         if (parsed === undefined) {
-          return err(
-            'UNKNOWN_ERROR',
-            'opa deps produced no parseable JSON output.',
-            { details: { stdout: result.stdout.trim() } },
-          );
+          return err('UNKNOWN_ERROR', 'opa deps produced no parseable JSON output.', {
+            details: { stdout: result.stdout.trim() },
+          });
         }
         return ok<RegoDepsOutput>(parsed);
       });

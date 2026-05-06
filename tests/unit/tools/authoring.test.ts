@@ -35,11 +35,9 @@ describe('rego_format', () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(source));
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
-    const env = await callTool<{ formatted: string; changed: boolean }>(
-      server,
-      'rego_format',
-      { source },
-    );
+    const env = await callTool<{ formatted: string; changed: boolean }>(server, 'rego_format', {
+      source,
+    });
     expect(env.ok).toBe(true);
     expect(env.data?.formatted).toBe(source);
     expect(env.data?.changed).toBe(false);
@@ -89,11 +87,9 @@ describe('rego_check', () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
-    const env = await callTool<{ valid: boolean; errors: unknown[] }>(
-      server,
-      'rego_check',
-      { source: 'package x' },
-    );
+    const env = await callTool<{ valid: boolean; errors: unknown[] }>(server, 'rego_check', {
+      source: 'package x',
+    });
     expect(env.ok).toBe(true);
     expect(env.data?.valid).toBe(true);
     expect(env.data?.errors).toEqual([]);
@@ -278,9 +274,7 @@ describe('rego_parse_ast', () => {
 
 describe('rego_inspect', () => {
   it('returns inspect JSON for a valid target', async () => {
-    mockRun.mockResolvedValueOnce(
-      spawnSuccess(JSON.stringify({ namespaces: { 'data.x': [] } })),
-    );
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ namespaces: { 'data.x': [] } })));
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
     const env = await callTool<{ namespaces?: unknown }>(server, 'rego_inspect', {

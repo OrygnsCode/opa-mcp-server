@@ -26,7 +26,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
     {
       title: 'Read data from OPA',
       description:
-        'Read a path from OPA\'s data hierarchy. The `path` argument may be in dotted form (`users.alice`) or slash form (`users/alice`).',
+        "Read a path from OPA's data hierarchy. The `path` argument may be in dotted form (`users.alice`) or slash form (`users/alice`).",
       inputSchema: {
         path: z.string().min(1).describe('Data path under `data.`, e.g. "users" or "users/alice".'),
       },
@@ -79,10 +79,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
       description:
         'Apply a JSON Patch (RFC 6902) to the data document. Each operation is `{ op, path, value? }`.',
       inputSchema: {
-        path: z
-          .string()
-          .min(1)
-          .describe('Data path the patch is applied to. Use "" for the root.'),
+        path: z.string().min(1).describe('Data path the patch is applied to. Use "" for the root.'),
         operations: z
           .array(
             z.object({

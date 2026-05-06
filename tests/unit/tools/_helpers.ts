@@ -18,9 +18,7 @@ import type { ToolEnvelope } from '../../../src/types.js';
  * Resolve the absolute path to `tests/fixtures/`. Real files there
  * satisfy `mustExist` checks the tool layer makes via validatePath.
  */
-export const fixturesDir = resolve(
-  fileURLToPath(new URL('../../fixtures/', import.meta.url)),
-);
+export const fixturesDir = resolve(fileURLToPath(new URL('../../fixtures/', import.meta.url)));
 
 export const baseConfig: Config = {
   opaUrl: 'http://localhost:8181',
@@ -38,8 +36,7 @@ export const baseConfig: Config = {
  * Resolve a path beneath the fixtures directory. Returned paths are
  * absolute and exist on disk.
  */
-export const fixturePath = (...segments: string[]): string =>
-  resolve(fixturesDir, ...segments);
+export const fixturePath = (...segments: string[]): string => resolve(fixturesDir, ...segments);
 
 export const okSpawn = {
   exitCode: 0,

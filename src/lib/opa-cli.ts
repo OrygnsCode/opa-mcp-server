@@ -230,9 +230,7 @@ export class OpaCli {
    * Parse Rego source to a JSON AST. Stdout is the AST as JSON.
    */
   async parse(input: ParseInput): Promise<SpawnResult> {
-    return this.withTempSource(input.source, (path) =>
-      this.run(['parse', '--format=json', path]),
-    );
+    return this.withTempSource(input.source, (path) => this.run(['parse', '--format=json', path]));
   }
 
   /**
@@ -407,10 +405,7 @@ export class OpaCli {
    * failure). The path is unique per call so concurrent invocations do
    * not collide.
    */
-  private async withTempSource<T>(
-    source: string,
-    fn: (path: string) => Promise<T>,
-  ): Promise<T> {
+  private async withTempSource<T>(source: string, fn: (path: string) => Promise<T>): Promise<T> {
     const path = join(tmpdir(), `orygn-opa-mcp-${randomUUID()}.rego`);
     await writeFile(path, source, 'utf8');
     try {

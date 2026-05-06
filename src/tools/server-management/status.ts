@@ -21,10 +21,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
       description:
         'Hit the OPA `/health` endpoint. Returns `{ healthy: true }` on 200. Supports `bundles` and `plugins` query flags to require those subsystems to also be healthy.',
       inputSchema: {
-        bundles: z
-          .boolean()
-          .optional()
-          .describe('Require bundle plugin to be healthy as well.'),
+        bundles: z.boolean().optional().describe('Require bundle plugin to be healthy as well.'),
         plugins: z.boolean().optional().describe('Require all plugins to be healthy.'),
       },
     },

@@ -119,9 +119,9 @@ To add a tool:
 
 ## Naming conventions
 
-- **Tools that wrap the OPA *binary*** are prefixed `rego_` (e.g.
+- **Tools that wrap the OPA _binary_** are prefixed `rego_` (e.g.
   `rego_eval`, `rego_format`).
-- **Tools that talk to an OPA *server*** are prefixed `opa_` (e.g.
+- **Tools that talk to an OPA _server_** are prefixed `opa_` (e.g.
   `opa_query`, `opa_status`).
 - **Bundle operations** are prefixed `opa_bundle_` (e.g.
   `opa_bundle_build`).
@@ -150,7 +150,7 @@ We do not enforce conventional-commits, but we do prefer:
 
 - A short, imperative subject line (≤ 72 characters).
 - A blank line.
-- A body that explains *why* the change is needed, not *what* the diff
+- A body that explains _why_ the change is needed, not _what_ the diff
   already shows.
 
 Reference issues with `Fixes #123` or `Refs #123` so they auto-close on merge
