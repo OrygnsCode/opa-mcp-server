@@ -5,7 +5,8 @@
   "type": "module",
   "license": "MIT",
   "author": {
-    "name": "Orygn",
+    "name": "Daniel Okwor",
+    "email": "daniel@orygn.tech",
     "url": "https://orygn.tech"
   },
   "repository": {
