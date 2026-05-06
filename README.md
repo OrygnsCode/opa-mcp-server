@@ -3,7 +3,7 @@
 [![CI](https://github.com/OrygnsCode/opa-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/OrygnsCode/opa-mcp-server/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/OrygnsCode/opa-mcp-server/actions/workflows/codeql.yml/badge.svg)](https://github.com/OrygnsCode/opa-mcp-server/actions/workflows/codeql.yml)
 [![npm version](https://img.shields.io/npm/v/@orygn/opa-mcp.svg)](https://www.npmjs.com/package/@orygn/opa-mcp)
-[![Docker pulls](https://img.shields.io/docker/pulls/orygnscode/opa-mcp.svg)](https://hub.docker.com/r/orygnscode/opa-mcp)
+[![Docker pulls](https://img.shields.io/docker/pulls/orygn/opa-mcp.svg)](https://hub.docker.com/r/orygn/opa-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/node/v/@orygn/opa-mcp.svg)](./package.json)
 
@@ -157,11 +157,11 @@ then point your client at the `opa-mcp` binary.
 ### Docker
 
 ```bash
-docker pull orygnscode/opa-mcp:latest
+docker pull orygn/opa-mcp:latest
 docker run --rm -i \
   -v /path/to/your/policies:/policies:ro \
   -e OPA_MCP_ALLOWED_PATHS=/policies \
-  orygnscode/opa-mcp
+  orygn/opa-mcp
 ```
 
 The image is multi-arch (`linux/amd64`, `linux/arm64`), bundles pinned

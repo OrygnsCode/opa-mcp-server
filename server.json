@@ -51,7 +51,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "docker.io/orygnscode/opa-mcp:0.1.0",
+      "identifier": "docker.io/orygn/opa-mcp:0.1.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {

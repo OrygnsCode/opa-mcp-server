@@ -173,7 +173,7 @@ Releases are tag-driven. Pushing a `v*.*.*` tag triggers
 1. Re-runs lint, typecheck, build, and tests.
 2. Publishes `@orygn/opa-mcp` to npm with provenance.
 3. Builds and pushes a multi-arch Docker image to
-   `orygnscode/opa-mcp`.
+   `orygn/opa-mcp`.
 4. Builds the `opa-mcp.mcpb` bundle and attaches it to the GitHub release.
 
 Maintainers cut releases — see the launch playbook for the exact procedure.

@@ -73,7 +73,7 @@ a test, and common pitfalls.
 #### Distribution
 
 - npm package `@orygn/opa-mcp`
-- Multi-arch Docker image `orygnscode/opa-mcp` bundling pinned `opa`
+- Multi-arch Docker image `orygn/opa-mcp` bundling pinned `opa`
   0.69.0 and `regal` 0.30.0 binaries
 - MCPB bundle (`opa-mcp.mcpb`) attached to GitHub releases
 - MCP registry entry under `io.github.orygnscode/opa-mcp`

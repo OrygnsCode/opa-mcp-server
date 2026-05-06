@@ -13,7 +13,7 @@
         "OPA_URL=http://localhost:8181",
         "-e",
         "OPA_MCP_ALLOWED_PATHS=/policies",
-        "orygnscode/opa-mcp:latest"
+        "orygn/opa-mcp:latest"
       ]
     }
   }
