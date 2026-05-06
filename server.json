@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.orygnscode/opa-mcp",
+  "name": "io.github.OrygnsCode/opa-mcp",
   "title": "OPA MCP",
-  "description": "Author, validate, debug, and explain Open Policy Agent (OPA) Rego policies through any MCP-compatible client. Wraps the OPA CLI, REST API, and the Regal linter.",
+  "description": "Author, validate, debug, and explain OPA Rego policies through any MCP-compatible client.",
   "websiteUrl": "https://orygn.tech",
   "repository": {
     "url": "https://github.com/OrygnsCode/opa-mcp-server",
