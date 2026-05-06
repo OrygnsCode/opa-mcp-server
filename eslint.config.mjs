@@ -6,7 +6,16 @@ import globals from 'globals';
 
 export default [
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', '*.config.mjs', '*.config.ts'],
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      '*.config.mjs',
+      '*.config.ts',
+      // Manual smoke / debug scripts — gitignored, never committed,
+      // intentionally console-heavy for human-readable output.
+      'smoke-*.mjs',
+    ],
   },
   js.configs.recommended,
   {

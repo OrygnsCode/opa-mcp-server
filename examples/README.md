@@ -4,6 +4,25 @@ Drop-in MCP client configurations for `@orygn/opa-mcp`. Pick the file that
 matches your client, copy the relevant entry into your client's config, and
 edit the environment variables to match your environment.
 
+> ⚠ **Before you save:** the example configs ship with placeholder
+> `OPA_BINARY` and `REGAL_BINARY` paths set to `/usr/local/bin/opa` and
+> `/usr/local/bin/regal`. **You almost certainly need to change these.**
+> Many MCP clients (notably Claude Desktop on Windows and macOS) launch
+> with a reduced `PATH` that does not include user-local bin directories,
+> so the server cannot find `opa` even when it works fine in your shell.
+> Find the absolute paths with:
+>
+> ```bash
+> which opa && which regal                                    # macOS / Linux
+> ```
+>
+> ```powershell
+> Get-Command opa, regal | Select-Object Source              # Windows
+> ```
+>
+> Substitute those into the `env` block. Skip this step and you will see
+> `OPA_BINARY_NOT_FOUND` on the first tool call.
+
 | File                                           | Client                        | Config location                                                                                                                    |
 | ---------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | [`claude-desktop.json`](./claude-desktop.json) | Claude Desktop                | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`<br>Windows: `%APPDATA%\Claude\claude_desktop_config.json` |
@@ -31,10 +50,13 @@ All examples use the same environment variables. The most important are:
 - **`OPA_TOKEN`** — bearer token for OPA, if your instance requires auth.
   **Never commit this to source control.** Use your client's secret-storage
   feature where available.
-- **`OPA_BINARY`** — path to the `opa` CLI (default: `opa` on `PATH`).
-  Required by the `rego_*` tools.
-- **`REGAL_BINARY`** — path to the `regal` linter (default: `regal` on
-  `PATH`). Only required by `rego_lint`.
+- **`OPA_BINARY`** — absolute path to the `opa` CLI. The default is
+  `opa` (relying on `PATH`), but **you almost always need to set this
+  explicitly** — most MCP clients launch the server with a reduced
+  `PATH` that omits the directory `opa` lives in.
+- **`REGAL_BINARY`** — absolute path to the `regal` linter. Same caveat
+  as `OPA_BINARY`. Only used by the `rego_lint` tool, but worth setting
+  alongside.
 - **`OPA_MCP_ALLOWED_PATHS`** — comma- or semicolon-separated list of
   directories the server is allowed to read policies from. **Required for
   any tool that reads policy files from disk.** When unset, file-based

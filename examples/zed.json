@@ -5,6 +5,8 @@
         "path": "npx",
         "args": ["-y", "@orygn/opa-mcp"],
         "env": {
+          "OPA_BINARY": "/usr/local/bin/opa",
+          "REGAL_BINARY": "/usr/local/bin/regal",
           "OPA_URL": "http://localhost:8181",
           "OPA_MCP_ALLOWED_PATHS": "/path/to/your/policies"
         }

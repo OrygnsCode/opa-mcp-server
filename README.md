@@ -122,6 +122,8 @@ lives in [`examples/claude-desktop.json`](./examples/claude-desktop.json):
       "command": "npx",
       "args": ["-y", "@orygn/opa-mcp"],
       "env": {
+        "OPA_BINARY": "/usr/local/bin/opa",
+        "REGAL_BINARY": "/usr/local/bin/regal",
         "OPA_URL": "http://localhost:8181",
         "OPA_MCP_ALLOWED_PATHS": "/path/to/your/policies"
       }
@@ -129,6 +131,10 @@ lives in [`examples/claude-desktop.json`](./examples/claude-desktop.json):
   }
 }
 ```
+
+> Replace the `/usr/local/bin/...` paths with your real ones — see the
+> [first-time install gotcha](#-first-time-install-gotcha-read-this-if-you-used-npx-or-the-global-install)
+> below. Windows users substitute `C:\\path\\to\\opa.exe`.
 
 ### Cursor
 
@@ -167,6 +173,29 @@ docker run --rm -i \
 The image is multi-arch (`linux/amd64`, `linux/arm64`), bundles pinned
 versions of `opa` and `regal`, and runs as a non-root user. No host
 install of OPA or Regal is required.
+
+### ⚠ First-time install gotcha (read this if you used `npx` or the global install)
+
+If your client's `PATH` doesn't include the directory where `opa` lives
+(this happens with Claude Desktop on Windows and macOS by default), the
+server boots fine but every tool call returns `OPA_BINARY_NOT_FOUND`.
+
+**Fix:** add `OPA_BINARY` and `REGAL_BINARY` env entries to your client
+config with the absolute path to each binary. The example configs under
+[`examples/`](./examples) ship with placeholder paths you replace —
+find the real paths with:
+
+```bash
+which opa && which regal                                    # macOS / Linux
+```
+
+```powershell
+Get-Command opa, regal | Select-Object Source              # Windows
+```
+
+This does not affect the **Docker** or **MCPB** install paths — those
+ship `opa` and `regal` inside the bundle, bypassing `PATH` entirely.
+See [Troubleshooting](#troubleshooting) for full detail.
 
 ## Configuration
 
@@ -463,17 +492,41 @@ do not open a public issue for security problems.**
 
 Common issues, fast fixes.
 
+**`OPA_BINARY_NOT_FOUND` even though `opa` is installed.** *(most common
+first-day issue — read this first)*
+
+MCP clients (notably **Claude Desktop on Windows and macOS**) launch the
+server with a deliberately reduced `PATH` that omits user-local bin
+directories — even ones that work fine in your interactive shell. The
+binary is on your machine; the spawned MCP server just can't see it.
+
+Find the absolute path to `opa`:
+
+```bash
+# macOS / Linux
+which opa
+# → /usr/local/bin/opa  (or /opt/homebrew/bin/opa, or ~/.local/bin/opa)
+```
+
+```powershell
+# Windows
+Get-Command opa | Select-Object -ExpandProperty Source
+# → C:\Users\you\bin\opa.exe  (or wherever)
+```
+
+Then set `OPA_BINARY` to that absolute path in your client's MCP `env`
+block. Same for `REGAL_BINARY` if you use the `rego_lint` tool. The
+[`examples/`](./examples) configs already include both env vars — just
+edit the placeholder paths.
+
+This issue does **not** affect the Docker or MCPB install paths — those
+bundle `opa` and `regal` and bypass `PATH` entirely.
+
 **The server starts, then the client says "disconnected."**
 The most likely cause is something in the process writing to stdout
 besides MCP frames. If you've added a custom tool, check that no library
 it calls prints to stdout. The fixed-position safety net is
 `lib/logger.ts` — use it, not `console.log`.
-
-**`OPA_BINARY_NOT_FOUND` even though `opa` is installed.**
-The MCP client launches the server with its own `PATH`, which often
-omits user-local bin directories like `~/.local/bin` or
-`/opt/homebrew/bin`. Set `OPA_BINARY` to the absolute path you got
-from `which opa`.
 
 **`PATH_NOT_ALLOWED` on a file under my project.**
 `OPA_MCP_ALLOWED_PATHS` is empty by default. Set it to the absolute
