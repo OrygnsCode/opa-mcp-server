@@ -2,34 +2,393 @@
  * Wrapper around the local `opa` binary.
  *
  * Tool implementations call into this module rather than spawning
- * subprocesses directly — keeps argv construction and error mapping
- * in one place.
+ * subprocesses directly. Every method here builds argv with the flags
+ * `opa` actually expects so each tool above can ignore CLI minutiae and
+ * just describe its inputs.
  *
- * NOTE: Tool implementations are added incrementally. This module
- * defines the surface contract; the per-tool methods are filled in
- * during the build phase.
+ * Inline Rego source is always written to a temp file before invocation.
+ * The `-` (read-from-stdin) convention some opa subcommands document is
+ * unreliable on Windows, where `-` is treated as a literal filename.
+ *
+ * The methods do not parse stdout into typed result objects — different
+ * tools need different shapes of the same output and a one-size parser
+ * would force conversions both ways. Stdout is JSON whenever
+ * `--format=json` is set, and tools call `JSON.parse` on it themselves.
  */
+import { randomUUID } from 'node:crypto';
+import { rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { Config } from '../config.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
 
+/** Input for the formatter. */
+export interface FmtInput {
+  /** Rego source code to format. */
+  source: string;
+}
+
+/** Input for `opa check`. */
+export interface CheckInput {
+  /** Inline Rego source. Mutually exclusive with `paths`. */
+  source?: string;
+  /** File or directory paths to check. */
+  paths?: string[];
+  /** Path to a capabilities JSON file (restrict allowed builtins). */
+  capabilities?: string;
+  /** Run in strict mode (fail on unused vars, deprecated builtins, etc.). */
+  strict?: boolean;
+  /** Schema directory for input/data validation. */
+  schemaDir?: string;
+}
+
+/** Input for `opa parse`. */
+export interface ParseInput {
+  /** Rego source to parse. */
+  source: string;
+}
+
+/** Input for `opa inspect`. */
+export interface InspectInput {
+  /** Path to a bundle archive, directory, or single Rego file. */
+  target: string;
+}
+
+/** Input for `opa capabilities`. */
+export interface CapabilitiesInput {
+  /** Print the capabilities of the running OPA instead of a named version. */
+  current?: boolean;
+  /** A specific capabilities version (e.g. "v0.50.0"). */
+  version?: string;
+}
+
+/** Input for `opa deps`. */
+export interface DepsInput {
+  /** Policy/data paths to load before computing dependencies. */
+  paths: string[];
+  /** Reference to compute dependencies for, e.g. "data.example.allow". */
+  ref: string;
+}
+
+/** Input for `opa eval`. */
+export interface EvalInput {
+  /** The query string, e.g. "data.example.allow" or "x := 1; x > 0". */
+  query: string;
+  /** Inline Rego source. Written to a temp file and added to `--data`. */
+  source?: string;
+  /** Policy / data file or directory paths. */
+  paths?: string[];
+  /** Inline input document. JSON-stringified and piped via `--stdin-input`. */
+  input?: unknown;
+  /** Path to an input JSON file. Mutually exclusive with `input`. */
+  inputPath?: string;
+  /** Add a trace at the requested level. */
+  explain?: 'full' | 'notes' | 'fails' | 'debug';
+  /** Add per-rule timing data. */
+  profile?: boolean;
+  /** Add per-line coverage data. */
+  coverage?: boolean;
+  /** Add evaluation metrics. */
+  metrics?: boolean;
+  /** Add detailed instrumentation. */
+  instrument?: boolean;
+  /** Run partial evaluation. */
+  partial?: boolean;
+  /** Refs treated as unknown during partial evaluation, e.g. ["input.user"]. */
+  unknowns?: string[];
+  /** Treat builtin errors as fatal instead of returning undefined. */
+  strictBuiltinErrors?: boolean;
+  /** Path to a capabilities JSON file. */
+  capabilities?: string;
+  /** Schema directory for input/data validation. */
+  schemaDir?: string;
+}
+
+/** Input for `opa test`. */
+export interface TestInput {
+  /** Test directories or files. Tests live in `*_test.rego` siblings. */
+  paths: string[];
+  /** Verbose output (per-test pass/fail details). */
+  verbose?: boolean;
+  /** Emit per-line coverage. */
+  coverage?: boolean;
+  /** Run only tests whose names match this regex. */
+  runPattern?: string;
+  /** Bench-style timing alongside test results. */
+  bench?: boolean;
+}
+
+/** Input for `opa bench`. */
+export interface BenchInput {
+  /** The query to benchmark. */
+  query: string;
+  /** Policy / data paths to load. */
+  paths?: string[];
+  /** Inline input document. JSON-stringified and piped via `--stdin-input`. */
+  input?: unknown;
+  /** Path to an input JSON file. */
+  inputPath?: string;
+  /** Number of benchmark iterations. */
+  count?: number;
+}
+
+/** Input for `opa build`. */
+export interface BuildInput {
+  /** Policy / data paths to bundle. */
+  paths: string[];
+  /** Output bundle path (typically `*.tar.gz`). */
+  output: string;
+  /** Optimization level (0 = none, 2 = aggressive). */
+  optimize?: 0 | 1 | 2;
+  /** Bundle revision string written to the manifest. */
+  revision?: string;
+  /** Build target (`rego` for source, `wasm` for compiled WASM). */
+  target?: 'rego' | 'wasm';
+  /** Entrypoint refs (required when `target=wasm` or `optimize > 0`). */
+  entrypoints?: string[];
+  /** Path to a signing key for inline signing. */
+  signingKey?: string;
+  /** Signing algorithm (e.g. `RS256`). */
+  signingAlg?: string;
+  /** Path to a claims file for inline signing. */
+  claimsFile?: string;
+  /** Path to a capabilities JSON file. */
+  capabilities?: string;
+}
+
+/** Input for `opa sign`. */
+export interface SignInput {
+  /** Path to a bundle directory or archive. */
+  bundle: string;
+  /** Path to the signing key. */
+  signingKey: string;
+  /** Signing algorithm (e.g. `RS256`). Defaults to `RS256` in OPA. */
+  signingAlg?: string;
+  /** Path to a claims file (extra signed claims). */
+  claimsFile?: string;
+}
+
+/**
+ * Wrapper around the local `opa` binary.
+ *
+ * Methods do not throw on `opa` errors — non-zero exit codes are
+ * surfaced on the returned `SpawnResult` so tools can map them to
+ * structured error envelopes at their layer. They DO throw on
+ * caller-side bugs (e.g. an empty `paths` array passed where one is
+ * required), since those represent contract violations.
+ */
 export class OpaCli {
   constructor(private readonly config: Config) {}
 
   /**
    * Verify the binary is present and report its version.
-   * Returns null if the binary is unreachable.
+   * Returns null if the binary is unreachable or output is malformed.
    */
   async version(): Promise<string | null> {
     const result = await this.run(['version']);
     if (result.exitCode !== 0) return null;
-    // OPA prints `Version: x.y.z` followed by other build info.
     const match = /Version:\s*(\S+)/i.exec(result.stdout);
     return match?.[1] ?? null;
   }
 
+  // ─── Authoring ───────────────────────────────────────────────────────
+
   /**
-   * Low-level escape hatch. Most tools should call a typed method
-   * (added in the build phase) rather than this directly.
+   * Format Rego source. Stdout contains the formatted output. Reports
+   * `exitCode: 0` even when no changes are needed — callers compare
+   * input vs output to detect a no-op.
+   */
+  async fmt(input: FmtInput): Promise<SpawnResult> {
+    return this.withTempSource(input.source, (path) => this.run(['fmt', path]));
+  }
+
+  /**
+   * Type-check Rego. Returns `exitCode: 0` and empty `stdout` when the
+   * policy is valid. On failure, `exitCode` is non-zero and the JSON
+   * error report is written to **stderr** (this is OPA's actual
+   * behavior — tools must read `stderr`, not `stdout`, for `check`
+   * diagnostics). Either inline `source` or one or more `paths` must be
+   * provided.
+   */
+  async check(input: CheckInput): Promise<SpawnResult> {
+    if (!input.source && !input.paths?.length) {
+      throw new Error('opa check requires either source or at least one path');
+    }
+    const args = ['check', '--format=json'];
+    if (input.strict) args.push('--strict');
+    if (input.capabilities) args.push('--capabilities', input.capabilities);
+    if (input.schemaDir) args.push('--schema', input.schemaDir);
+    if (input.source !== undefined) {
+      return this.withTempSource(input.source, (path) => this.run([...args, path]));
+    }
+    args.push(...(input.paths ?? []));
+    return this.run(args);
+  }
+
+  /**
+   * Parse Rego source to a JSON AST. Stdout is the AST as JSON.
+   */
+  async parse(input: ParseInput): Promise<SpawnResult> {
+    return this.withTempSource(input.source, (path) =>
+      this.run(['parse', '--format=json', path]),
+    );
+  }
+
+  /**
+   * Inspect a bundle, directory, or single Rego file. Returns its
+   * packages, namespaces, manifest, and annotations as JSON on stdout.
+   */
+  async inspect(input: InspectInput): Promise<SpawnResult> {
+    return this.run(['inspect', '--format=json', input.target]);
+  }
+
+  /**
+   * Print available capabilities. With `current=true`, prints the
+   * capabilities of the running OPA. With a `version`, prints those of
+   * a specific named version. Without either, lists available named
+   * versions.
+   */
+  async capabilities(input: CapabilitiesInput = {}): Promise<SpawnResult> {
+    const args = ['capabilities'];
+    if (input.current) args.push('--current');
+    if (input.version) args.push('--version', input.version);
+    return this.run(args);
+  }
+
+  /**
+   * Static dependency analysis for a Rego ref. Stdout is JSON with the
+   * `base` and `virtual` document references the ref depends on.
+   */
+  async deps(input: DepsInput): Promise<SpawnResult> {
+    if (input.paths.length === 0) {
+      throw new Error('opa deps requires at least one path');
+    }
+    const args = ['deps', '--format=json'];
+    for (const path of input.paths) {
+      args.push('--data', path);
+    }
+    args.push(input.ref);
+    return this.run(args);
+  }
+
+  // ─── Evaluation ──────────────────────────────────────────────────────
+
+  /**
+   * Evaluate a query against a policy + input. Stdout is JSON with the
+   * standard `{result: [...]}` shape (plus optional explain, profile,
+   * coverage, and metrics sections).
+   */
+  async eval(input: EvalInput): Promise<SpawnResult> {
+    // Inline source becomes a temp file added to --data.
+    if (input.source !== undefined) {
+      const { source, ...rest } = input;
+      void source;
+      return this.withTempSource(input.source, (sourcePath) =>
+        this.eval({
+          ...rest,
+          paths: [...(input.paths ?? []), sourcePath],
+        }),
+      );
+    }
+
+    const args = ['eval', '--format=json'];
+    for (const path of input.paths ?? []) args.push('--data', path);
+    if (input.inputPath) args.push('--input', input.inputPath);
+    if (input.explain) args.push('--explain', input.explain);
+    if (input.profile) args.push('--profile');
+    if (input.coverage) args.push('--coverage');
+    if (input.metrics) args.push('--metrics');
+    if (input.instrument) args.push('--instrument');
+    if (input.partial) args.push('--partial');
+    for (const ref of input.unknowns ?? []) args.push('--unknowns', ref);
+    if (input.strictBuiltinErrors) args.push('--strict-builtin-errors');
+    if (input.capabilities) args.push('--capabilities', input.capabilities);
+    if (input.schemaDir) args.push('--schema', input.schemaDir);
+
+    let stdin: string | undefined;
+    if (input.input !== undefined) {
+      args.push('--stdin-input');
+      stdin = JSON.stringify(input.input);
+    }
+
+    args.push(input.query);
+    return this.run(args, stdin);
+  }
+
+  /**
+   * Run Rego unit tests. Stdout is JSON with per-test pass/fail.
+   */
+  async test(input: TestInput): Promise<SpawnResult> {
+    if (input.paths.length === 0) {
+      throw new Error('opa test requires at least one path');
+    }
+    const args = ['test', '--format=json'];
+    if (input.verbose) args.push('--verbose');
+    if (input.coverage) args.push('--coverage');
+    if (input.bench) args.push('--bench');
+    if (input.runPattern) args.push('--run', input.runPattern);
+    args.push(...input.paths);
+    return this.run(args);
+  }
+
+  /**
+   * Benchmark a query. Stdout is JSON with iteration timing statistics.
+   */
+  async bench(input: BenchInput): Promise<SpawnResult> {
+    const args = ['bench', '--format=json'];
+    for (const path of input.paths ?? []) args.push('--data', path);
+    if (input.inputPath) args.push('--input', input.inputPath);
+    if (input.count !== undefined) args.push('--count', String(input.count));
+
+    let stdin: string | undefined;
+    if (input.input !== undefined) {
+      args.push('--stdin-input');
+      stdin = JSON.stringify(input.input);
+    }
+
+    args.push(input.query);
+    return this.run(args, stdin);
+  }
+
+  // ─── Bundles ─────────────────────────────────────────────────────────
+
+  /** Build a deployable bundle from policy + data paths. */
+  async build(input: BuildInput): Promise<SpawnResult> {
+    if (input.paths.length === 0) {
+      throw new Error('opa build requires at least one input path');
+    }
+    const args = ['build', '-o', input.output];
+    if (input.optimize !== undefined) args.push('--optimize', String(input.optimize));
+    if (input.revision) args.push('--revision', input.revision);
+    if (input.target) args.push('--target', input.target);
+    for (const ep of input.entrypoints ?? []) args.push('--entrypoint', ep);
+    if (input.signingKey) args.push('--signing-key', input.signingKey);
+    if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
+    if (input.claimsFile) args.push('--claims-file', input.claimsFile);
+    if (input.capabilities) args.push('--capabilities', input.capabilities);
+    args.push(...input.paths);
+    return this.run(args);
+  }
+
+  /**
+   * Sign a bundle. Writes a `.signatures.json` next to the bundle
+   * directory.
+   */
+  async sign(input: SignInput): Promise<SpawnResult> {
+    const args = ['sign', '--signing-key', input.signingKey];
+    if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
+    if (input.claimsFile) args.push('--claims-file', input.claimsFile);
+    args.push('--bundle', input.bundle);
+    return this.run(args);
+  }
+
+  // ─── Low-level escape hatch ──────────────────────────────────────────
+
+  /**
+   * Run `opa` with the given argv and optional stdin. Tools should
+   * prefer the typed methods above, but this exists for the rare cases
+   * the typed surface does not yet cover.
    */
   async run(args: string[], stdin?: string): Promise<SpawnResult> {
     const opts: Parameters<typeof runBinary>[1] = {
@@ -37,6 +396,27 @@ export class OpaCli {
       timeoutMs: this.config.subprocessTimeoutMs,
     };
     if (stdin !== undefined) opts.stdin = stdin;
-    return await runBinary(this.config.opaBinary, opts);
+    return runBinary(this.config.opaBinary, opts);
+  }
+
+  // ─── Internal: temp file management ──────────────────────────────────
+
+  /**
+   * Write `source` to a uniquely named `.rego` file in the OS tmp dir,
+   * pass its path to `fn`, and remove it on completion (success or
+   * failure). The path is unique per call so concurrent invocations do
+   * not collide.
+   */
+  private async withTempSource<T>(
+    source: string,
+    fn: (path: string) => Promise<T>,
+  ): Promise<T> {
+    const path = join(tmpdir(), `orygn-opa-mcp-${randomUUID()}.rego`);
+    await writeFile(path, source, 'utf8');
+    try {
+      return await fn(path);
+    } finally {
+      await rm(path, { force: true });
+    }
   }
 }
