@@ -332,6 +332,53 @@ describe('rego_bench', () => {
     });
     expect(env.error?.code).toBe('EVAL_ERROR');
   });
+
+  it('rejects inputPath outside the allow-list', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_bench', {
+      query: 'data.x',
+      paths: [validRegoPath()],
+      inputPath: '/outside/i.json',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects paths outside the allow-list', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_bench', {
+      query: 'data.x',
+      paths: ['/outside/p.rego'],
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('returns UNKNOWN_ERROR when bench output is unparseable', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('not json'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_bench', {
+      query: 'data.x',
+      paths: [validRegoPath()],
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
+
+  it('uses --input file when inputPath is provided (no --stdin-input)', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ iterations: 1 })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_bench', {
+      query: 'data.x',
+      paths: [validRegoPath()],
+      inputPath: validInputPath(),
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--input');
+    expect(args).toContain(validInputPath());
+    expect(args).not.toContain('--stdin-input');
+  });
 });
 
 // ─── rego_compile_query (partial eval) ────────────────────────────────────

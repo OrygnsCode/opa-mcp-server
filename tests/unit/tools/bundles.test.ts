@@ -138,6 +138,20 @@ describe('opa_bundle_build', () => {
     expect(env.error?.code).toBe('INVALID_REGO');
   });
 
+  it('rejects auxiliary signingKey path outside the allow-list', async () => {
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    const env = await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+      signingKey: '/outside/key.pem',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
   it('maps missing binary to OPA_BINARY_NOT_FOUND', async () => {
     mockRun.mockResolvedValueOnce(spawnUnreachable());
     const server = makeServer();
@@ -207,5 +221,41 @@ describe('opa_bundle_sign', () => {
       signingKey,
     });
     expect(env.error?.code).toBe('INVALID_BUNDLE');
+  });
+
+  it('passes signingAlg and claimsFile through to opa sign', async () => {
+    const claimsFile = join(workDir, 'claims.json');
+    await writeFile(claimsFile, '{"keyid":"k1"}');
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    await callTool(server, 'opa_bundle_sign', {
+      bundle: outputBundle,
+      signingKey,
+      signingAlg: 'RS256',
+      claimsFile,
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--signing-alg');
+    expect(args).toContain('RS256');
+    expect(args).toContain('--claims-file');
+    expect(args).toContain(claimsFile);
+  });
+
+  it('maps missing binary to OPA_BINARY_NOT_FOUND', async () => {
+    mockRun.mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    const env = await callTool(server, 'opa_bundle_sign', {
+      bundle: outputBundle,
+      signingKey,
+    });
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
   });
 });

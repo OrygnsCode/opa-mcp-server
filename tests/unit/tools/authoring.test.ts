@@ -192,6 +192,67 @@ describe('rego_lint', () => {
     const env = await callTool(server, 'rego_lint', {});
     expect(env.error?.code).toBe('INVALID_INPUT');
   });
+
+  it('rejects calls with both source and paths', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_lint', {
+      source: 'package x',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('rejects paths outside allowed roots', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_lint', { paths: ['/outside/x.rego'] });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('accepts a fixture path that exists', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ violations: [] })));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ violations: unknown[] }>(server, 'rego_lint', {
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.violations).toEqual([]);
+  });
+
+  it('returns UNKNOWN_ERROR when regal stdout is not parseable JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('not json from regal'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_lint', { source: 'package x' });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
+
+  it('forwards every rule-level enable/disable flag and config-file path', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ violations: [] })));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    await callTool(server, 'rego_lint', {
+      source: 'package x',
+      configFile: '/abs/.regal.yaml',
+      disable: ['print-or-trace-call'],
+      enable: ['no-defined-rule'],
+      disableCategory: ['style'],
+      enableCategory: ['bugs'],
+      failLevel: 'warning',
+      ignoreFiles: ['vendor/**'],
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--config-file');
+    expect(args).toContain('--disable');
+    expect(args).toContain('--enable');
+    expect(args).toContain('--disable-category');
+    expect(args).toContain('--enable-category');
+    expect(args).toContain('--fail-level');
+    expect(args).toContain('warning');
+    expect(args).toContain('--ignore-files');
+  });
 });
 
 describe('rego_parse_ast', () => {
@@ -277,6 +338,61 @@ describe('rego_capabilities', () => {
       version: 'v0.69.0',
     });
     expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+});
+
+describe('authoring tools — common-error coverage', () => {
+  it('rego_check returns INVALID_REGO with stderr fallback when stderr is not JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(1, 'plain text error from check'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check', { source: 'broken' });
+    expect(env.error?.code).toBe('INVALID_REGO');
+  });
+
+  it('rego_capabilities returns INVALID_INPUT when version is unrecognized', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(1, 'unknown capabilities version'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_capabilities', { version: 'v999.0.0' });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('rego_capabilities returns UNKNOWN_ERROR when stdout is not parseable JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('garbage', ''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_capabilities', { current: true });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
+
+  it('rego_parse_ast returns UNKNOWN_ERROR when opa parse stdout is unparseable', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('also garbage'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_parse_ast', { source: 'package x' });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
+
+  it('rego_inspect returns UNKNOWN_ERROR when opa inspect stdout is unparseable', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('not json'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_inspect', {
+      target: fixturePath('policies', 'valid', 'rbac.rego'),
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
+
+  it('rego_deps returns UNKNOWN_ERROR when opa deps stdout is unparseable', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('not json'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_deps', {
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+      ref: 'data.x',
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
   });
 });
 

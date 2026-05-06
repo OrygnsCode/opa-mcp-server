@@ -126,6 +126,32 @@ describe('opa_put_policy', () => {
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer secret-token');
   });
+
+  it('surfaces a connection failure as OPA_UNREACHABLE through the catch path', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_put_policy', {
+      id: 'rbac',
+      source: 'package rbac',
+    });
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+  });
+
+  it('surfaces a 5xx as UNKNOWN_ERROR with status in details', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ message: 'internal error' }, { status: 500 }),
+    );
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_put_policy', {
+      id: 'rbac',
+      source: 'package rbac',
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+    const details = env.error?.details as { status?: number };
+    expect(details.status).toBe(500);
+  });
 });
 
 describe('opa_delete_policy', () => {
@@ -191,6 +217,71 @@ describe('opa_put_data', () => {
     expect(url).toBe('http://localhost:8181/v1/data/users/alice');
     expect(init.method).toBe('PUT');
     expect(JSON.parse(init.body as string)).toEqual({ roles: ['admin'] });
+  });
+});
+
+describe('data tools — error paths', () => {
+  it('opa_get_data surfaces OPA_UNREACHABLE on connection failure', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_get_data', { path: 'users.alice' });
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+  });
+
+  it('opa_put_data surfaces a 5xx as UNKNOWN_ERROR with details', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ error: 'oops' }, { status: 500 }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_put_data', {
+      path: 'users.alice',
+      value: { roles: ['admin'] },
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+    expect((env.error?.details as { status?: number }).status).toBe(500);
+  });
+
+  it('opa_patch_data surfaces a 4xx as UNKNOWN_ERROR', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ error: 'bad patch' }, { status: 400 }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_patch_data', {
+      path: 'users',
+      operations: [{ op: 'add', path: '/x', value: 1 }],
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
+});
+
+describe('opa_query_decision and opa_compile_query — error paths', () => {
+  it('opa_query_decision surfaces OPA_UNREACHABLE on connection failure', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_query_decision', {
+      path: 'rbac.allow',
+      input: { user: 'alice' },
+    });
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+  });
+
+  it('opa_query_decision sends an empty body when no input is provided', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ result: true }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_query_decision', { path: 'rbac.allow' });
+    const body = JSON.parse(lastFetchCall().init.body as string) as Record<string, unknown>;
+    expect(body).toEqual({});
+  });
+
+  it('opa_compile_query surfaces OPA_AUTH_FAILED on 401', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ error: 'no auth' }, { status: 401 }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_compile_query', {
+      query: 'data.rbac.allow',
+    });
+    expect(env.error?.code).toBe('OPA_AUTH_FAILED');
   });
 });
 
@@ -297,6 +388,31 @@ describe('opa_health', () => {
     const env = await callTool(server, 'opa_health', {});
     expect(env.error?.code).toBe('OPA_UNREACHABLE');
   });
+
+  it('reports unhealthy with a non-Unreachable error (e.g. /health 503)', async () => {
+    // /health responses below 2xx are propagated as OpaHttpError, which
+    // is NOT OpaUnreachableError — opa_health has a special branch that
+    // maps these to OPA_UNREACHABLE with an "OPA reported unhealthy"
+    // message rather than the generic mapping.
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ status: 'unhealthy' }, { status: 503 }),
+    );
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_health', {});
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+    expect(env.error?.message).toMatch(/unhealthy/i);
+  });
+
+  it('forwards both bundles and plugins when both are set', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_health', { bundles: true, plugins: true });
+    const url = lastFetchCall().url;
+    expect(url).toContain('bundles=true');
+    expect(url).toContain('plugins=true');
+  });
 });
 
 describe('opa_status and opa_config', () => {
@@ -310,6 +426,14 @@ describe('opa_status and opa_config', () => {
     expect(lastFetchCall().url).toBe('http://localhost:8181/v1/config');
   });
 
+  it('opa_status surfaces OPA_UNREACHABLE through the catch path', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_status', {});
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+  });
+
   it('opa_config returns the unwrapped result', async () => {
     fetchMock.mockResolvedValueOnce(okResponse({ result: { plugins: { bundle: {} } } }));
     const server = makeServer();
@@ -317,5 +441,26 @@ describe('opa_status and opa_config', () => {
     const env = await callTool<{ config: { plugins?: unknown } }>(server, 'opa_config', {});
     expect(env.ok).toBe(true);
     expect(env.data?.config).toEqual({ plugins: { bundle: {} } });
+  });
+
+  it('opa_config falls back to the raw response when there is no result wrapper', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ default_decision: '/system/main' }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ config: { default_decision?: string } }>(
+      server,
+      'opa_config',
+      {},
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.config.default_decision).toBe('/system/main');
+  });
+
+  it('opa_config surfaces OPA_AUTH_FAILED on 401', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ error: 'no auth' }, { status: 401 }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_config', {});
+    expect(env.error?.code).toBe('OPA_AUTH_FAILED');
   });
 });

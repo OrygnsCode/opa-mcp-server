@@ -101,6 +101,55 @@ describe('rego_explain_decision', () => {
     expect(env.data?.summary.totalEvents).toBe(0);
     expect(env.data?.rulesFired).toEqual([]);
   });
+
+  it('handles trace events without a recognizable rule message', async () => {
+    // enter/exit events whose message does not match eval/enter/
+    // exit/matched regex must still increment the counters but not
+    // populate the rule sets.
+    const trace = [
+      { op: 'enter' },
+      { op: 'enter', message: 'unrelated note' },
+      { op: 'exit' },
+      { op: 'fail', message: 'expr fail' },
+    ];
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({
+          result: [{ expressions: [{ value: null }] }],
+          explanation: trace,
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      summary: { enterEvents: number; exitEvents: number; failEvents: number };
+      rulesEvaluated: string[];
+      rulesFired: string[];
+    }>(server, 'rego_explain_decision', {
+      query: 'data.x',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.data?.summary.enterEvents).toBe(2);
+    expect(env.data?.summary.exitEvents).toBe(1);
+    expect(env.data?.summary.failEvents).toBe(1);
+    expect(env.data?.rulesEvaluated).toEqual([]);
+    expect(env.data?.rulesFired).toEqual([]);
+  });
+
+  it('returns undefined result when the eval result array is empty', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ result: [], explanation: [] })),
+    );
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ result: unknown }>(server, 'rego_explain_decision', {
+      query: 'data.x',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.result).toBeUndefined();
+  });
 });
 
 // ─── rego_generate_test_skeleton ───────────────────────────────────────────
@@ -169,6 +218,64 @@ describe('rego_generate_test_skeleton', () => {
     registerHelperTools(server, baseConfig);
     const env = await callTool(server, 'rego_generate_test_skeleton', { source: 'broken' });
     expect(env.error?.code).toBe('INVALID_REGO');
+  });
+
+  it('extracts rule names from the head.ref array form (no head.name)', async () => {
+    // OPA emits multi-segment rule heads as a `ref` array: e.g. for
+    // `allow.read := true`, head.ref is [{value: "allow"}, {value: "read"}].
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'multi' }] },
+      rules: [
+        {
+          head: {
+            ref: [
+              { value: 'allow', type: 'var' },
+              { value: 'read', type: 'string' },
+            ],
+          },
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ ruleNames: string[]; testFile: string }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package multi' },
+    );
+    expect(env.data?.ruleNames).toEqual(['allow.read']);
+    // Sanitization: `.` in rule name becomes `_` in the test name.
+    expect(env.data?.testFile).toContain('test_allow_read if {');
+  });
+
+  it('skips rules where neither head.name nor head.ref yields a name', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'x' }] },
+      rules: [
+        { head: {} }, // no name, no ref
+        { head: { name: 'good' } },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ ruleNames: string[] }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package x' },
+    );
+    expect(env.data?.ruleNames).toEqual(['good']);
+  });
+
+  it('returns INVALID_REGO when opa parse outputs unparseable JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('definitely not json'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_generate_test_skeleton', {
+      source: 'package x',
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
   });
 });
 
@@ -242,6 +349,52 @@ describe('rego_describe_policy', () => {
     const env = await callTool(server, 'rego_describe_policy', { source: 'broken' });
     expect(env.error?.code).toBe('INVALID_REGO');
   });
+
+  it('skips rules with no resolvable name', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'mixed' }] },
+      rules: [
+        { head: {} }, // unnamed, skipped
+        { head: { name: 'real_rule' } },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ rules: Array<{ name: string }> }>(
+      server,
+      'rego_describe_policy',
+      { source: 'package mixed' },
+    );
+    expect(env.data?.rules.map((r) => r.name)).toEqual(['real_rule']);
+  });
+
+  it('handles undefined rule body when merging duplicates (defaults to 0)', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'd' }] },
+      rules: [
+        { head: { name: 'allow' }, body: [{ a: 1 }] },
+        { head: { name: 'allow' } }, // no body field
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ rules: Array<{ bodyLength: number }> }>(
+      server,
+      'rego_describe_policy',
+      { source: 'package d' },
+    );
+    expect(env.data?.rules[0]?.bodyLength).toBe(1);
+  });
+
+  it('returns UNKNOWN_ERROR when parse produces unparseable JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('garbage'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_describe_policy', { source: 'package x' });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
 });
 
 // ─── rego_suggest_fix ─────────────────────────────────────────────────────
@@ -305,6 +458,62 @@ describe('rego_suggest_fix', () => {
     });
     expect(env.data?.suggestions[0]?.confidence).toBe('low');
     expect(env.data?.suggestions[0]?.suggestion).toMatch(/No automated suggestion/);
+  });
+
+  it('produces medium-confidence suggestion for rego_type_error', async () => {
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      suggestions: Array<{ suggestion: string; confidence: string }>;
+    }>(server, 'rego_suggest_fix', {
+      diagnostics: [
+        { code: 'rego_type_error', message: 'rego_type_error: cannot compare string and number' },
+      ],
+    });
+    expect(env.data?.suggestions[0]?.confidence).toBe('medium');
+    expect(env.data?.suggestions[0]?.suggestion).toMatch(/Type mismatch/);
+    // Suggestion should strip the `rego_type_error:` prefix from the message.
+    expect(env.data?.suggestions[0]?.suggestion).not.toContain('rego_type_error:');
+  });
+
+  it('produces high-confidence suggestion for rego_recursion_error', async () => {
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      suggestions: Array<{ confidence: string; suggestion: string }>;
+    }>(server, 'rego_suggest_fix', {
+      diagnostics: [{ code: 'rego_recursion_error', message: 'recursion detected' }],
+    });
+    expect(env.data?.suggestions[0]?.confidence).toBe('high');
+    expect(env.data?.suggestions[0]?.suggestion).toMatch(/cycle|recursion/i);
+  });
+
+  it('produces high-confidence suggestion for directory-package-mismatch (Regal)', async () => {
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      suggestions: Array<{ confidence: string; suggestion: string }>;
+    }>(server, 'rego_suggest_fix', {
+      diagnostics: [
+        {
+          code: 'directory-package-mismatch',
+          message: 'package does not match path',
+        },
+      ],
+    });
+    expect(env.data?.suggestions[0]?.confidence).toBe('high');
+    expect(env.data?.suggestions[0]?.suggestion).toMatch(/package/);
+  });
+
+  it('produces low-confidence suggestion for rego_compile_error (catch-all)', async () => {
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      suggestions: Array<{ confidence: string; suggestion: string }>;
+    }>(server, 'rego_suggest_fix', {
+      diagnostics: [{ code: 'rego_compile_error', message: 'unresolved import' }],
+    });
+    expect(env.data?.suggestions[0]?.confidence).toBe('low');
   });
 
   it('produces one suggestion per diagnostic and preserves order', async () => {

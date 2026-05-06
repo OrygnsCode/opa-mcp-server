@@ -56,7 +56,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --config vitest.coverage.config.ts --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build",
     "clean": "rimraf dist coverage .vitest-cache"
