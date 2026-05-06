@@ -387,11 +387,11 @@ templates.
 Three [MCP resources](https://modelcontextprotocol.io/specification/server/resources)
 expose curated reference data the agent can read at any time.
 
-| Resource URI        | What's there                                                                                                                                                                      |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resource URI        | What's there                                                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `opa://builtins`    | Categorized OPA built-in function reference, derived at read time from `opa capabilities --current`. Security-sensitive functions (`http.send`, `crypto.x509.*`, `opa.runtime`) are flagged. |
-| `opa://style-guide` | Condensed Rego style guide, formatted for LLM consumption.                                                                                                                        |
-| `opa://patterns`    | Curated common-pattern library: RBAC, ABAC, Kubernetes admission, IaC gates, API authz, rate limiting. Each pattern includes when-to-use, full Rego, a test, and common pitfalls. |
+| `opa://style-guide` | Condensed Rego style guide, formatted for LLM consumption.                                                                                                                                   |
+| `opa://patterns`    | Curated common-pattern library: RBAC, ABAC, Kubernetes admission, IaC gates, API authz, rate limiting. Each pattern includes when-to-use, full Rego, a test, and common pitfalls.            |
 
 ## Cookbook
 
@@ -499,8 +499,8 @@ do not open a public issue for security problems.**
 
 Common issues, fast fixes.
 
-**`OPA_BINARY_NOT_FOUND` even though `opa` is installed.** *(most common
-first-day issue, read this first)*
+**`OPA_BINARY_NOT_FOUND` even though `opa` is installed.** _(most common
+first-day issue, read this first)_
 
 MCP clients (notably **Claude Desktop on Windows and macOS**) launch the
 server with a deliberately reduced `PATH` that omits user-local bin
