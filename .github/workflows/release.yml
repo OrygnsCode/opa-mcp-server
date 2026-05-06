@@ -50,6 +50,12 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           registry-url: 'https://registry.npmjs.org'
+      # OIDC trusted-publisher auth requires npm CLI >= 11.5.1; the
+      # version bundled with Node 20 (npm 10.x) only does provenance,
+      # not the trusted-publisher token exchange, and the publish PUT
+      # falls back to the placeholder _authToken setup-node writes,
+      # which the registry answers with a 404.
+      - run: npm install -g npm@latest
       - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run build
       - name: Publish via OIDC (provenance auto-attached)
