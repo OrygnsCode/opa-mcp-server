@@ -7,7 +7,16 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci
+# `npm install` rather than `npm ci` so the build is robust to
+# cross-platform lockfile drift — npm's platform-specific optional
+# dependencies (e.g. @emnapi on Linux) are written into the lockfile
+# only on the platform where `npm install` was last run, which makes
+# `npm ci` brittle when the Dockerfile is built locally on Windows /
+# macOS. CI runs `npm ci` separately for the package itself; this
+# install is for the build stage only and `npm prune --omit=dev`
+# below trims it back to the production tree before the runtime
+# stage copies node_modules in.
+RUN npm install --no-audit --no-fund --loglevel=error
 
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src

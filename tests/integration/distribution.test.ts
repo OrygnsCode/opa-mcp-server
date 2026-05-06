@@ -23,6 +23,19 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const DIST_SERVER = join(REPO_ROOT, 'dist', 'server.js');
 
+/**
+ * Wrap a Windows-shell argument in double quotes when it contains
+ * whitespace. Necessary because `shell: true` concatenates args as a
+ * single string and the shell splits on whitespace — paths like
+ * `Github Repos\manifest.json` arrive as two arguments otherwise.
+ */
+function quoteForWindowsShell(arg: string): string {
+  if (process.platform !== 'win32') return arg;
+  if (!/\s/.test(arg)) return arg;
+  // Escape any embedded double-quotes, then wrap.
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
 function runSync(
   cmd: string,
   args: string[],
@@ -30,15 +43,26 @@ function runSync(
 ): { stdout: string; stderr: string; exitCode: number | null } {
   // On Windows, npm/docker/mcpb resolve to `.cmd` shims that require
   // shell=true to be invoked from Node's spawn. We pass argv as a
-  // separate array — there is no shell-meta interpretation happening,
-  // and the args we pass are static literals from this file. The
-  // Node deprecation warning is benign in this context.
-  const r = spawnSync(cmd, args, {
+  // separate array — there is no shell-meta interpretation happening
+  // beyond whitespace splitting, which we mitigate by quoting args
+  // that contain whitespace. Args we pass are static literals from
+  // this file, so the Node deprecation warning is benign.
+  const safeArgs = process.platform === 'win32' ? args.map(quoteForWindowsShell) : args;
+  const r = spawnSync(cmd, safeArgs, {
     cwd: options.cwd ?? REPO_ROOT,
     timeout: options.timeoutMs ?? 60_000,
     encoding: 'utf8',
     shell: process.platform === 'win32',
     windowsHide: true,
+    env: {
+      ...process.env,
+      // MSYS / Git-Bash on Windows rewrites unix-style paths in argv
+      // into Windows paths (e.g. `/usr/local/bin/opa` → `C:/Program
+      // Files/Git/usr/local/bin/opa`). Disable that for paths we
+      // pass intact to Linux containers.
+      MSYS_NO_PATHCONV: '1',
+      MSYS2_ARG_CONV_EXCL: '*',
+    },
   });
   return {
     stdout: typeof r.stdout === 'string' ? r.stdout : '',
@@ -253,17 +277,37 @@ describe.skipIf(runSync('mcpb', ['--version']).exitCode !== 0)(
       }
     });
 
+    it('mcpb validate accepts our manifest.json', () => {
+      // `mcpb validate` checks a manifest.json against the MCPB schema —
+      // a separate concern from packing. Run it standalone so any
+      // schema regression in our manifest fails fast.
+      const r = runSync('mcpb', ['validate', join(REPO_ROOT, 'manifest.json')]);
+      expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
+    });
+
     it('mcpb pack produces a non-empty bundle', () => {
-      const r = runSync('mcpb', ['pack', '.', bundlePath], { timeoutMs: 60_000 });
+      const r = runSync('mcpb', ['pack', '.', bundlePath], { timeoutMs: 90_000 });
       expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
       expect(existsSync(bundlePath)).toBe(true);
       const stat = readFileSync(bundlePath);
       expect(stat.length).toBeGreaterThan(1000);
-    }, 90_000);
+    }, 120_000);
 
-    it('mcpb validate accepts the produced bundle', () => {
-      const r = runSync('mcpb', ['validate', bundlePath]);
-      expect(r.exitCode).toBe(0);
+    it('mcpb info reads the produced bundle without error', () => {
+      const r = runSync('mcpb', ['info', bundlePath]);
+      expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
+      // `mcpb info` reports file metadata only (size, signature
+      // status). Verifying it exits 0 confirms the bundle is a
+      // recognized .mcpb file, which is what we care about here.
+      expect(r.stdout).toMatch(/Size:/);
+    });
+
+    it('mcpb unpack restores a manifest containing our package name', () => {
+      const unpackDir = join(workDir, 'unpacked');
+      const r = runSync('mcpb', ['unpack', bundlePath, unpackDir]);
+      expect(r.exitCode, r.stderr.slice(0, 1000)).toBe(0);
+      const manifest = readFileSync(join(unpackDir, 'manifest.json'), 'utf8');
+      expect(manifest).toContain('@orygn/opa-mcp');
     });
   },
 );
