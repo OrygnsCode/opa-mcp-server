@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/node/v/@orygn/opa-mcp.svg)](./package.json)
 
-A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that
-turns any MCP-compatible client — Claude Desktop, Claude Code, Cursor, VS Code,
-Windsurf, Zed, and others — into a first-class
+A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server
+that turns any MCP-compatible client (Claude Desktop, Claude Code, Cursor,
+VS Code, Windsurf, Zed, and others) into a first-class
 [Open Policy Agent](https://www.openpolicyagent.org/) and Rego authoring
 environment.
 
@@ -17,10 +17,10 @@ environment.
 ┌────────────────────┐  MCP / stdio  ┌─────────────────┐  spawn / HTTP  ┌──────────────────┐
 │  Claude · Cursor · │ ────────────▶ │  @orygn/opa-mcp │ ─────────────▶ │  opa · regal ·   │
 │   VS Code · ...    │ ◀──────────── │                 │ ◀───────────── │  OPA REST API    │
-└────────────────────┘   30 tools    └─────────────────┘                └──────────────────┘
+└────────────────────┘   32 tools    └─────────────────┘                └──────────────────┘
 ```
 
-> **Status:** v0.1.0 — first stable release. Tool surface, error codes, and
+> **Status:** v0.1.0. First stable release. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from this
 > version forward.
 
@@ -47,26 +47,26 @@ environment.
 
 Once an MCP client is connected, an agent can:
 
-- **Author Rego** — generate, format, and refactor policies. The server runs
-  the real `opa fmt` and `opa parse` so output is byte-identical to what
-  you'd get on the command line, and `regal` (optional) surfaces idiomatic
-  suggestions.
-- **Evaluate against data** — run a query against a policy and an input
+- **Author Rego.** Generate, format, and refactor policies. The server
+  runs the real `opa fmt` and `opa parse` so output is byte-identical to
+  what you'd get on the command line, and `regal` (optional) surfaces
+  idiomatic suggestions.
+- **Evaluate against data.** Run a query against a policy and an input
   document. Optional `--explain`, `--profile`, and `--coverage` flags
   surface execution traces, hot rules, and per-line coverage.
-- **Debug a deny** — `rego_explain_decision` walks the agent through every
-  rule that fired (and every one that didn't) so it can answer "why was
+- **Debug a deny.** `rego_explain_decision` walks the agent through every
+  rule that fired (and every one that didn't), so it can answer "why was
   this rejected" without you reading the trace by hand.
-- **Manage policies on a running OPA** — list, get, put, delete policies on
+- **Manage policies on a running OPA.** List, get, put, delete policies on
   an OPA server through its REST API. Works against a local
   `opa run --server` or a production deployment with bearer-token auth.
-- **Build & sign bundles** — package a directory of policies into a
+- **Build & sign bundles.** Package a directory of policies into a
   deployable bundle, optionally signing it. Output is a regular `.tar.gz`
   the agent can hand to your delivery system.
-- **Lint** — `rego_lint` runs Regal across a directory or a single file
+- **Lint.** `rego_lint` runs Regal across a directory or a single file
   and returns categorized findings (style, bugs, performance, idioms).
 
-A walk-through of a typical session is in [Cookbook](#cookbook).
+A walk-through of a typical session lives in [Cookbook](#cookbook).
 
 ## Why this MCP
 
@@ -74,7 +74,7 @@ OPA already has a perfectly good CLI and REST API. So why an MCP wrapper?
 
 - **Schema-shaped tool surface.** An agent calling `rego_eval` gets a
   validated input schema, a structured output envelope, and stable error
-  codes — instead of parsing free-form CLI text and inventing its own
+  codes, instead of parsing free-form CLI text and inventing its own
   failure taxonomy. That alone makes Rego usable to an agent the way a
   language server makes a language usable to an IDE.
 - **Higher-level helpers.** `rego_explain_decision`,
@@ -84,21 +84,21 @@ OPA already has a perfectly good CLI and REST API. So why an MCP wrapper?
 - **Curated knowledge.** The bundled MCP **resources** expose the OPA
   built-in function catalog, the official Rego style guide (formatted for
   LLMs), and a curated pattern library covering RBAC, ABAC, Kubernetes
-  admission, IaC gates, API authz, and rate limiting — so the agent has
+  admission, IaC gates, API authz, and rate limiting, so the agent has
   authoritative context without needing to scrape it.
-- **Safety boundaries the agent can rely on.** Path allow-list, subprocess
-  timeouts, response-size caps, and an explicit `HTTP_SEND_BLOCKED` error
-  for the dangerous OPA built-ins. Defaults are conservative; running the
-  server doesn't quietly grant the agent more reach than the operator
-  intended.
+- **Safety boundaries the agent can rely on.** Path allow-list,
+  subprocess timeouts, response-size caps, and an explicit
+  `HTTP_SEND_BLOCKED` error for the dangerous OPA built-ins. Defaults are
+  conservative; running the server doesn't quietly grant the agent more
+  reach than the operator intended.
 
 If you've ever watched an agent fight `opa eval`'s argument order, you'll
 recognize the gap this fills.
 
 ## Install
 
-The server runs locally over stdio. Pick the install path that matches your
-client.
+The server runs locally over stdio. Pick the install path that matches
+your client.
 
 ### Claude Desktop / Claude Code
 
@@ -132,7 +132,7 @@ lives in [`examples/claude-desktop.json`](./examples/claude-desktop.json):
 }
 ```
 
-> Replace the `/usr/local/bin/...` paths with your real ones — see the
+> Replace the `/usr/local/bin/...` paths with your real ones. See the
 > [first-time install gotcha](#-first-time-install-gotcha-read-this-if-you-used-npx-or-the-global-install)
 > below. Windows users substitute `C:\\path\\to\\opa.exe`.
 
@@ -182,8 +182,8 @@ server boots fine but every tool call returns `OPA_BINARY_NOT_FOUND`.
 
 **Fix:** add `OPA_BINARY` and `REGAL_BINARY` env entries to your client
 config with the absolute path to each binary. The example configs under
-[`examples/`](./examples) ship with placeholder paths you replace —
-find the real paths with:
+[`examples/`](./examples) ship with placeholder paths you replace.
+Find the real paths with:
 
 ```bash
 which opa && which regal                                    # macOS / Linux
@@ -193,8 +193,8 @@ which opa && which regal                                    # macOS / Linux
 Get-Command opa, regal | Select-Object Source              # Windows
 ```
 
-This does not affect the **Docker** or **MCPB** install paths — those
-ship `opa` and `regal` inside the bundle, bypassing `PATH` entirely.
+This does not affect the **Docker** or **MCPB** install paths; those
+ship `opa` and `regal` inside the bundle and bypass `PATH` entirely.
 See [Troubleshooting](#troubleshooting) for full detail.
 
 ## Configuration
@@ -206,11 +206,11 @@ variable is optional; defaults are sensible for a local OPA on
 | Variable                     | Default                      | Purpose                                                                                                                                                   |
 | ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPA_URL`                    | `http://localhost:8181`      | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                  |
-| `OPA_TOKEN`                  | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret — never echoed in logs or tool responses.                                       |
+| `OPA_TOKEN`                  | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret. Never echoed in logs or tool responses.                                        |
 | `OPA_BINARY`                 | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools.                                                                                                            |
 | `REGAL_BINARY`               | `regal` (on `PATH`)          | Path to the `regal` linter. Only required by `rego_lint`.                                                                                                 |
 | `OPA_MCP_ALLOWED_PATHS`      | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.** |
-| `OPA_MCP_LOG_FILE`           | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout — that channel is reserved for the MCP protocol.                                       |
+| `OPA_MCP_LOG_FILE`           | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                        |
 | `OPA_MCP_LOG_LEVEL`          | `info`                       | One of `debug`, `info`, `warn`, `error`.                                                                                                                  |
 | `OPA_MCP_MAX_RESPONSE_BYTES` | `100000`                     | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker.                                                      |
 | `OPA_MCP_TIMEOUT_MS`         | `30000`                      | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`.                                        |
@@ -236,7 +236,7 @@ Stable error codes: `INVALID_INPUT`, `INVALID_REGO`, `INVALID_BUNDLE`,
 `DEPENDENCY_CONFLICT`, `NO_TESTS_FOUND`, `HTTP_SEND_BLOCKED`, `TIMEOUT`,
 `UNKNOWN_ERROR`.
 
-### A — Authoring & static analysis
+### Category A: Authoring & static analysis
 
 Operate on Rego source code without needing a running OPA server. Wrap
 `opa fmt`, `opa parse`, `opa check`, `opa inspect`, `opa capabilities`,
@@ -257,8 +257,7 @@ Operate on Rego source code without needing a running OPA server. Wrap
 ```jsonc
 // Input
 {
-  "source": "package x\nallow{input.user==\"admin\"}",
-  "list_files": false
+  "source": "package x\nallow{input.user==\"admin\"}"
 }
 
 // Output (ok)
@@ -275,29 +274,37 @@ Operate on Rego source code without needing a running OPA server. Wrap
 
 ```jsonc
 // Input
-{ "source": "package x\nallow if y", "imports": ["data.helpers"] }
-
-// Output (error path)
 {
-  "ok": false,
-  "error": {
-    "code": "INVALID_REGO",
-    "message": "1 error occurred: example.rego:2: rego_unsafe_var_error: var y is unsafe",
-    "details": { "errors": [{ "line": 2, "code": "rego_unsafe_var_error", "rule": "y" }] }
+  "source": "package x\nallow if y",
+  "strict": true
+}
+
+// Output (error path; the JSON diagnostics arrive on stderr from opa)
+{
+  "ok": true,
+  "data": {
+    "valid": false,
+    "errors": [
+      {
+        "code": "rego_unsafe_var_error",
+        "message": "var y is unsafe",
+        "location": { "row": 2, "col": 11 }
+      }
+    ]
   }
 }
 ```
 
-### B — Evaluation & testing
+### Category B: Evaluation & testing
 
-Run a query against a policy + input. Wrap `opa eval`, `opa test`, and
+Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 `opa bench`.
 
 | Tool                      | What it does                                                                         |
 | ------------------------- | ------------------------------------------------------------------------------------ |
 | `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.              |
 | `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                        |
-| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing & evaluation counts.            |
+| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.          |
 | `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                             |
 | `rego_test`               | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage. |
 | `rego_bench`              | Run `opa bench` and return statistical timing data.                                  |
@@ -309,7 +316,7 @@ Run a query against a policy + input. Wrap `opa eval`, `opa test`, and
 // Input
 {
   "query": "data.rbac.allow",
-  "policy": "package rbac\nimport rego.v1\nallow if input.role == \"admin\"",
+  "source": "package rbac\nimport rego.v1\nallow if input.role == \"admin\"",
   "input": { "role": "admin" }
 }
 
@@ -322,7 +329,7 @@ Run a query against a policy + input. Wrap `opa eval`, `opa test`, and
 }
 ```
 
-### C — Bundle operations
+### Category C: Bundle operations
 
 Package and sign deployable bundles. Wrap `opa build` and `opa sign`.
 
@@ -331,7 +338,7 @@ Package and sign deployable bundles. Wrap `opa build` and `opa sign`.
 | `opa_bundle_build` | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`. |
 | `opa_bundle_sign`  | Sign a bundle with a private key. Returns `.signatures.json` content.                 |
 
-### D — OPA server management
+### Category D: OPA server management
 
 Talk to a running OPA server over its REST API. Require `OPA_URL` to
 point at a reachable server.
@@ -351,9 +358,9 @@ point at a reachable server.
 | `opa_status`         | Bundle / decision-log status.                          |
 | `opa_config`         | Server configuration (without secrets).                |
 
-### E — Higher-level helpers
+### Category E: Higher-level helpers
 
-The differentiation surface — these compose lower-level primitives into
+The differentiation surface. These compose lower-level primitives into
 the tasks agents are actually asked to do.
 
 | Tool                          | What it does                                                                                                                                          |
@@ -382,8 +389,8 @@ expose curated reference data the agent can read at any time.
 
 | Resource URI        | What's there                                                                                                                                                                      |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `opa://builtins`    | Categorized OPA built-in function reference. ~22 categories, 200+ functions. Security-sensitive functions (`http.send`, `crypto.x509.*`, `opa.runtime`) are flagged.              |
-| `opa://style-guide` | The official Rego style guide, formatted for LLM consumption.                                                                                                                     |
+| `opa://builtins`    | Categorized OPA built-in function reference, derived at read time from `opa capabilities --current`. Security-sensitive functions (`http.send`, `crypto.x509.*`, `opa.runtime`) are flagged. |
+| `opa://style-guide` | Condensed Rego style guide, formatted for LLM consumption.                                                                                                                        |
 | `opa://patterns`    | Curated common-pattern library: RBAC, ABAC, Kubernetes admission, IaC gates, API authz, rate limiting. Each pattern includes when-to-use, full Rego, a test, and common pitfalls. |
 
 ## Cookbook
@@ -462,7 +469,7 @@ Three things worth knowing if you're going to operate this:
 
 1. **stdout is the protocol channel.** The server logs to a file via
    `lib/logger.ts` and never writes to stdout. If you see stray stdout
-   bytes, the client will disconnect — the MCP transport layer is strict.
+   bytes, the client disconnects; the MCP transport layer is strict.
 2. **No tool throws.** Every tool catches its own exceptions and returns
    a structured `{ ok: false, error: ... }` envelope. The agent sees a
    stable error vocabulary, not a stack trace.
@@ -493,11 +500,11 @@ do not open a public issue for security problems.**
 Common issues, fast fixes.
 
 **`OPA_BINARY_NOT_FOUND` even though `opa` is installed.** *(most common
-first-day issue — read this first)*
+first-day issue, read this first)*
 
 MCP clients (notably **Claude Desktop on Windows and macOS**) launch the
 server with a deliberately reduced `PATH` that omits user-local bin
-directories — even ones that work fine in your interactive shell. The
+directories, even ones that work fine in your interactive shell. The
 binary is on your machine; the spawned MCP server just can't see it.
 
 Find the absolute path to `opa`:
@@ -516,34 +523,46 @@ Get-Command opa | Select-Object -ExpandProperty Source
 
 Then set `OPA_BINARY` to that absolute path in your client's MCP `env`
 block. Same for `REGAL_BINARY` if you use the `rego_lint` tool. The
-[`examples/`](./examples) configs already include both env vars — just
+[`examples/`](./examples) configs already include both env vars; just
 edit the placeholder paths.
 
-This issue does **not** affect the Docker or MCPB install paths — those
+This issue does **not** affect the Docker or MCPB install paths. Those
 bundle `opa` and `regal` and bypass `PATH` entirely.
 
 **The server starts, then the client says "disconnected."**
+
 The most likely cause is something in the process writing to stdout
 besides MCP frames. If you've added a custom tool, check that no library
 it calls prints to stdout. The fixed-position safety net is
-`lib/logger.ts` — use it, not `console.log`.
+`lib/logger.ts`. Use it, not `console.log`.
 
 **`PATH_NOT_ALLOWED` on a file under my project.**
+
 `OPA_MCP_ALLOWED_PATHS` is empty by default. Set it to the absolute
 path(s) you want the server to read from, comma-separated.
 
 **`OPA_UNREACHABLE` when calling `opa_*` tools.**
+
 `OPA_URL` (default `http://localhost:8181`) must point at a running OPA
-server (`opa run --server ...`). Check with
-`curl $OPA_URL/health`.
+server (`opa run --server ...`). Check with `curl $OPA_URL/health`.
 
 **Regal "version too old."**
+
 We track the current Regal release. If `REGAL_VERSION_TOO_OLD` fires,
 upgrade Regal: `brew upgrade regal` or download from the
 [Regal releases](https://github.com/StyraInc/regal/releases) page.
 
+**`directory-package-mismatch` violation when linting inline source.**
+
+When you pass `source` rather than `paths` to `rego_lint`, Regal sees a
+randomized temp-file path that can't possibly match your declared package
+path. The diagnostic is an artifact of inline linting, not a real issue.
+Disable the rule for inline workflows or lint via `paths` against the
+real on-disk file when you want canonical signal.
+
 **Where are the logs?**
-Default location is `<OS-tmpdir>/orygn-opa-mcp.log` — usually
+
+Default location is `<OS-tmpdir>/orygn-opa-mcp.log`. That's typically
 `/tmp/orygn-opa-mcp.log` on Linux/macOS or `%TEMP%\orygn-opa-mcp.log`
 on Windows. Set `OPA_MCP_LOG_FILE` to override, and
 `OPA_MCP_LOG_LEVEL=debug` to widen the firehose.
@@ -560,20 +579,20 @@ npm run dev
 Common commands:
 
 ```bash
-npm run lint           # ESLint
-npm run typecheck      # tsc --noEmit
-npm test               # unit tests (Vitest)
-npm run test:coverage  # unit + coverage report
+npm run lint              # ESLint
+npm run typecheck         # tsc --noEmit
+npm test                  # unit tests (Vitest)
+npm run test:coverage     # unit + coverage report
 npm run test:integration  # against real opa + regal binaries
-npm run build          # compile to dist/
+npm run build             # compile to dist/
 ```
 
 CI runs lint, typecheck, build, and unit tests on every push and PR
 across Ubuntu, macOS, and Windows on Node 20 and 22. Integration tests
 run on Linux against pinned `opa` and `regal` releases.
 
-For the full contributor workflow — adding tools, naming conventions,
-logging discipline, release process — see [CONTRIBUTING.md](./CONTRIBUTING.md).
+For the full contributor workflow (adding tools, naming conventions,
+logging discipline, release process), see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Versioning & support
 
@@ -588,10 +607,10 @@ Breaking changes will be:
 - preceded by at least one minor release with a deprecation warning,
 - accompanied by a migration note in the release announcement.
 
-Pinned versions of the upstream toolchain — `opa` and `regal` — are
-treated as part of the build, not as a dependency the operator manages.
-The Dockerfile, MCPB bundle, and CI all use the same pin; bumps go
-through Dependabot or a manual PR.
+Pinned versions of the upstream toolchain (`opa` and `regal`) are treated
+as part of the build, not as a dependency the operator manages. The
+Dockerfile, MCPB bundle, and CI all use the same pin; bumps go through
+Dependabot or a manual PR.
 
 ## License
 

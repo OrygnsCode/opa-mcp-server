@@ -67,7 +67,7 @@ export function registerRegoLint(server: McpServer, config: Config): void {
     {
       title: 'Lint Rego',
       description:
-        'Lint Rego source with the Regal linter. Returns categorized violations (style, bugs, idiomatic, performance) with file/line locations. Requires `regal` on PATH or `REGAL_BINARY` set; returns REGAL_NOT_FOUND otherwise.',
+        'Lint Rego source with the Regal linter. Returns categorized violations (style, bugs, idiomatic, performance) with file/line locations. Requires `regal` on PATH or `REGAL_BINARY` set; returns REGAL_NOT_FOUND otherwise. When called with inline `source` rather than `paths`, expect location-bound rules such as `directory-package-mismatch` to fire as artifacts of the randomized temp-file path. Prefer `paths` for canonical signal; for inline workflows, ignore or `disable` those rules.',
       inputSchema: RegoLintInput,
     },
     async (input) => {
