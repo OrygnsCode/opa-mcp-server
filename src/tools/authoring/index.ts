@@ -8,9 +8,20 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import { registerRegoCapabilities } from './capabilities.js';
+import { registerRegoCheck } from './check.js';
+import { registerRegoDeps } from './deps.js';
+import { registerRegoFormat } from './format.js';
+import { registerRegoInspect } from './inspect.js';
+import { registerRegoLint } from './lint.js';
+import { registerRegoParseAst } from './parse.js';
 
-export function registerAuthoringTools(_server: McpServer, _config: Config): void {
-  // Tools are registered incrementally during the build phase.
-  // Planned: rego_format, rego_check, rego_lint, rego_parse_ast,
-  //          rego_inspect, rego_capabilities, rego_deps
+export function registerAuthoringTools(server: McpServer, config: Config): void {
+  registerRegoFormat(server, config);
+  registerRegoCheck(server, config);
+  registerRegoLint(server, config);
+  registerRegoParseAst(server, config);
+  registerRegoInspect(server, config);
+  registerRegoCapabilities(server, config);
+  registerRegoDeps(server, config);
 }

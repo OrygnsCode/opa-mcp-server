@@ -7,6 +7,7 @@
 import type { ToolEnvelope } from '../types.js';
 
 export interface McpToolResult {
+  [key: string]: unknown;
   content: Array<{ type: 'text'; text: string }>;
   isError?: boolean;
 }
