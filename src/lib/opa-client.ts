@@ -40,7 +40,18 @@ export class OpaHttpError extends Error {
 export interface RequestOptions {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
+  /**
+   * JSON body to serialize. Mutually exclusive with `rawBody`.
+   */
   body?: unknown;
+  /**
+   * Raw string body sent verbatim. Used for endpoints that accept
+   * non-JSON content — notably `PUT /v1/policies/{id}` which expects
+   * Rego source as `text/plain`.
+   */
+  rawBody?: string;
+  /** Content-Type for `rawBody`. Defaults to `text/plain`. */
+  rawContentType?: string;
   query?: Record<string, string | number | boolean | undefined>;
   headers?: Record<string, string>;
 }
@@ -58,8 +69,21 @@ export class OpaClient {
     if (this.config.opaToken) {
       headers['Authorization'] = `Bearer ${this.config.opaToken}`;
     }
-    if (opts.body !== undefined && !headers['Content-Type']) {
-      headers['Content-Type'] = 'application/json';
+
+    let bodyToSend: string | undefined;
+    if (opts.rawBody !== undefined) {
+      if (opts.body !== undefined) {
+        throw new Error('OpaClient.request: pass either `body` or `rawBody`, not both.');
+      }
+      bodyToSend = opts.rawBody;
+      if (!headers['Content-Type']) {
+        headers['Content-Type'] = opts.rawContentType ?? 'text/plain';
+      }
+    } else if (opts.body !== undefined) {
+      bodyToSend = JSON.stringify(opts.body);
+      if (!headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+      }
     }
 
     const controller = new AbortController();
@@ -70,8 +94,8 @@ export class OpaClient {
       headers,
       signal: controller.signal,
     };
-    if (opts.body !== undefined) {
-      init.body = JSON.stringify(opts.body);
+    if (bodyToSend !== undefined) {
+      init.body = bodyToSend;
     }
 
     let response: Response;

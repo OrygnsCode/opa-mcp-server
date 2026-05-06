@@ -1,15 +1,22 @@
 /**
  * Category E — Higher-level helpers.
  *
- * These tools compose lower-level primitives and add AI-enabling logic.
- * They're the differentiation surface — what makes this MCP useful
- * beyond a thin CLI wrapper.
+ * These tools compose lower-level primitives or do mechanical AST
+ * analysis to provide endpoints agents can call directly without
+ * stitching together rego_eval / rego_check / rego_parse_ast
+ * themselves.
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import { registerRegoDescribePolicy } from './describe-policy.js';
+import { registerRegoExplainDecision } from './explain-decision.js';
+import { registerRegoGenerateTestSkeleton } from './generate-test-skeleton.js';
+import { registerRegoSuggestFix } from './suggest-fix.js';
 
-export function registerHelperTools(_server: McpServer, _config: Config): void {
-  // Planned: rego_explain_decision, rego_generate_test_skeleton,
-  //          rego_describe_policy, rego_suggest_fix
+export function registerHelperTools(server: McpServer, config: Config): void {
+  registerRegoExplainDecision(server, config);
+  registerRegoGenerateTestSkeleton(server, config);
+  registerRegoDescribePolicy(server, config);
+  registerRegoSuggestFix(server, config);
 }

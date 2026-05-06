@@ -7,7 +7,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import { registerOpaBundleBuild } from './build.js';
+import { registerOpaBundleSign } from './sign.js';
 
-export function registerBundleTools(_server: McpServer, _config: Config): void {
-  // Planned: opa_bundle_build, opa_bundle_sign
+export function registerBundleTools(server: McpServer, config: Config): void {
+  registerOpaBundleBuild(server, config);
+  registerOpaBundleSign(server, config);
 }
