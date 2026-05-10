@@ -105,6 +105,44 @@ describe('RegalCli', () => {
       expect(args).toContain('--enable-all');
     });
 
+    it('auto-disables directory-package-mismatch when source is inline', async () => {
+      await regal.lint({ source: 'package x' });
+      const args = mockRun.mock.calls[0]![1].args;
+      const disabledRules = args
+        .map((a, i) => (a === '--disable' ? args[i + 1] : null))
+        .filter((r): r is string => r !== null);
+      expect(disabledRules).toContain('directory-package-mismatch');
+    });
+
+    it('does NOT auto-disable directory-package-mismatch when paths are used', async () => {
+      await regal.lint({ paths: ['/abs/p'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      const disabledRules = args
+        .map((a, i) => (a === '--disable' ? args[i + 1] : null))
+        .filter((r): r is string => r !== null);
+      expect(disabledRules).not.toContain('directory-package-mismatch');
+    });
+
+    it('respects an explicit enable for directory-package-mismatch on inline source', async () => {
+      await regal.lint({ source: 'package x', enable: ['directory-package-mismatch'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      const disabledRules = args
+        .map((a, i) => (a === '--disable' ? args[i + 1] : null))
+        .filter((r): r is string => r !== null);
+      const enabledRules = args
+        .map((a, i) => (a === '--enable' ? args[i + 1] : null))
+        .filter((r): r is string => r !== null);
+      expect(disabledRules).not.toContain('directory-package-mismatch');
+      expect(enabledRules).toContain('directory-package-mismatch');
+    });
+
+    it('does not double-emit --disable when caller already disabled the rule', async () => {
+      await regal.lint({ source: 'package x', disable: ['directory-package-mismatch'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      const occurrences = args.filter((a) => a === 'directory-package-mismatch').length;
+      expect(occurrences).toBe(1);
+    });
+
     it('emits --config-file, --fail-level, and --ignore-files when set', async () => {
       await regal.lint({
         paths: ['/abs/p'],

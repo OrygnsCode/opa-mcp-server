@@ -14,15 +14,15 @@ VS Code, Windsurf, Zed, and others) into a first-class
 environment.
 
 ```
-┌────────────────────┐  MCP / stdio  ┌─────────────────┐  spawn / HTTP  ┌──────────────────┐
-│  Claude · Cursor · │ ────────────▶ │  @orygn/opa-mcp │ ─────────────▶ │  opa · regal ·   │
-│   VS Code · ...    │ ◀──────────── │                 │ ◀───────────── │  OPA REST API    │
-└────────────────────┘   32 tools    └─────────────────┘                └──────────────────┘
++--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------+
+|  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal ·   |
+|   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API    |
++--------------------+   32 tools    +-----------------+                +------------------+
 ```
 
-> **Status:** v0.1.0. First stable release. Tool surface, error codes, and
-> environment variables follow [SemVer](https://semver.org/) from this
-> version forward.
+> **Status:** v0.1.1. Tool surface, error codes, and
+> environment variables follow [SemVer](https://semver.org/) from
+> v0.1.0 forward.
 
 ---
 

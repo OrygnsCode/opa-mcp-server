@@ -59,6 +59,31 @@ export interface RegoLintOutput {
   summary?: unknown;
 }
 
+/**
+ * Matches the temp filenames RegalCli writes inline source to. The
+ * basename anchor (`$`) is intentional: any path ending in our
+ * temp-file pattern is ours, regardless of whether the OS reports it
+ * with forward or back slashes or what tmpdir() resolves to.
+ */
+const INLINE_TEMP_PATH = /orygn-opa-mcp-[0-9a-f-]+\.rego$/i;
+
+/**
+ * Replace the leaking temp-file path in violation locations with
+ * `<inline>` when the call used inline source, so users see "this came
+ * from your inline source" instead of `/tmp/...orygn-opa-mcp-<uuid>.rego`.
+ * Returns a new array; the input is not mutated.
+ */
+function rewriteInlineLocations(violations: LintViolation[]): LintViolation[] {
+  return violations.map((violation) => {
+    const loc = violation.location;
+    if (!loc || typeof loc !== 'object') return violation;
+    const locObj = loc as Record<string, unknown>;
+    const file = locObj['file'];
+    if (typeof file !== 'string' || !INLINE_TEMP_PATH.test(file)) return violation;
+    return { ...violation, location: { ...locObj, file: '<inline>' } };
+  });
+}
+
 export function registerRegoLint(server: McpServer, config: Config): void {
   const regal = new RegalCli(config);
 
@@ -67,7 +92,7 @@ export function registerRegoLint(server: McpServer, config: Config): void {
     {
       title: 'Lint Rego',
       description:
-        'Lint Rego source with the Regal linter. Returns categorized violations (style, bugs, idiomatic, performance) with file/line locations. Requires `regal` on PATH or `REGAL_BINARY` set; returns REGAL_NOT_FOUND otherwise. When called with inline `source` rather than `paths`, expect location-bound rules such as `directory-package-mismatch` to fire as artifacts of the randomized temp-file path. Prefer `paths` for canonical signal; for inline workflows, ignore or `disable` those rules.',
+        'Lint Rego source with the Regal linter. Returns categorized violations (style, bugs, idiomatic, performance) with file/line locations. Requires `regal` on PATH or `REGAL_BINARY` set; returns REGAL_NOT_FOUND otherwise. When called with inline `source`, location-bound rules whose verdict depends on the on-disk path (`directory-package-mismatch`) are auto-disabled to avoid temp-file false positives, and `location.file` is reported as `<inline>` instead of the randomized temp path. Re-enable those rules via `enable` if your workflow actually needs them.',
       inputSchema: RegoLintInput,
     },
     async (input) => {
@@ -112,8 +137,12 @@ export function registerRegoLint(server: McpServer, config: Config): void {
           });
         }
 
+        const rawViolations = parsed.violations ?? [];
+        const violations =
+          source !== undefined ? rewriteInlineLocations(rawViolations) : rawViolations;
+
         return ok<RegoLintOutput>({
-          violations: parsed.violations ?? [],
+          violations,
           notices: parsed.notices,
           summary: parsed.summary,
         });

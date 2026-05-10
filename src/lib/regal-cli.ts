@@ -13,6 +13,15 @@ import { join } from 'node:path';
 import type { Config } from '../config.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
 
+/**
+ * Rules whose verdict depends on the on-disk path of the file being
+ * linted. When a caller passes inline `source`, the file lives at a
+ * randomized temp path that can never match the source's declared
+ * package, so these rules always fire as false positives. Auto-disabled
+ * for inline source unless the caller explicitly re-enables them.
+ */
+export const INLINE_SOURCE_FALSE_POSITIVE_RULES = ['directory-package-mismatch'] as const;
+
 /** Input for `regal lint`. */
 export interface LintInput {
   /** Inline Rego source. Mutually exclusive with `paths`. */
@@ -74,6 +83,12 @@ export class RegalCli {
    * - 0 — no findings at or above `failLevel`
    * - 3 — findings present
    * - non-zero other — Regal-internal failure (config error, etc.)
+   *
+   * When called with inline `source`, location-bound rules whose
+   * verdict depends on the on-disk path (currently
+   * `directory-package-mismatch`) are auto-disabled because the
+   * randomized temp-file path makes those rules false positives.
+   * Callers that want them anyway can re-enable via `enable`.
    */
   async lint(input: LintInput): Promise<SpawnResult> {
     if (!input.source && !input.paths?.length) {
@@ -84,8 +99,18 @@ export class RegalCli {
     if (input.failLevel) args.push('--fail-level', input.failLevel);
     if (input.disableAll) args.push('--disable-all');
     if (input.enableAll) args.push('--enable-all');
-    for (const rule of input.disable ?? []) args.push('--disable', rule);
-    for (const rule of input.enable ?? []) args.push('--enable', rule);
+
+    const userEnable = new Set(input.enable ?? []);
+    const userDisable = new Set(input.disable ?? []);
+    const effectiveDisable = new Set(userDisable);
+    if (input.source !== undefined) {
+      for (const rule of INLINE_SOURCE_FALSE_POSITIVE_RULES) {
+        if (!userEnable.has(rule)) effectiveDisable.add(rule);
+      }
+    }
+
+    for (const rule of effectiveDisable) args.push('--disable', rule);
+    for (const rule of userEnable) args.push('--enable', rule);
     for (const cat of input.disableCategory ?? []) args.push('--disable-category', cat);
     for (const cat of input.enableCategory ?? []) args.push('--enable-category', cat);
     for (const pattern of input.ignoreFiles ?? []) args.push('--ignore-files', pattern);

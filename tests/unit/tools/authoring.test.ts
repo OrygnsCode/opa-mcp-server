@@ -249,6 +249,63 @@ describe('rego_lint', () => {
     expect(args).toContain('warning');
     expect(args).toContain('--ignore-files');
   });
+
+  it('rewrites temp-file paths in violation locations to <inline> for inline source', async () => {
+    const violations = [
+      {
+        title: 'use-rego-v1',
+        category: 'imports',
+        level: 'error',
+        location: {
+          file: '/tmp/orygn-opa-mcp-9b1a4e2c-d4f3-4f8b-9e3a-1c2d3e4f5a6b.rego',
+          row: 1,
+          col: 1,
+        },
+      },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ violations })));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{
+      violations: Array<{ location?: { file?: string; row?: number } }>;
+    }>(server, 'rego_lint', { source: 'package x' });
+    expect(env.ok).toBe(true);
+    expect(env.data?.violations[0]?.location?.file).toBe('<inline>');
+    expect(env.data?.violations[0]?.location?.row).toBe(1);
+  });
+
+  it('preserves on-disk paths in violation locations when paths are used', async () => {
+    const violations = [
+      {
+        title: 'use-rego-v1',
+        category: 'imports',
+        level: 'error',
+        location: { file: '/abs/policies/rbac.rego', row: 1, col: 1 },
+      },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ violations })));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ violations: Array<{ location?: { file?: string } }> }>(
+      server,
+      'rego_lint',
+      { paths: [fixturePath('policies', 'valid', 'rbac.rego')] },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.violations[0]?.location?.file).toBe('/abs/policies/rbac.rego');
+  });
+
+  it('handles violations with no location field gracefully', async () => {
+    const violations = [{ title: 'orphaned', category: 'bugs', level: 'error' }];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ violations })));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ violations: typeof violations }>(server, 'rego_lint', {
+      source: 'package x',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.violations[0]).toMatchObject({ title: 'orphaned' });
+  });
 });
 
 describe('rego_parse_ast', () => {

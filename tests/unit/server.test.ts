@@ -17,7 +17,16 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import type { Config } from '../../src/config.js';
-import { buildServer, main, SERVER_NAME, SERVER_VERSION } from '../../src/server.js';
+import {
+  buildServer,
+  main,
+  runStartupSelfCheck,
+  SERVER_NAME,
+  SERVER_VERSION,
+} from '../../src/server.js';
+import { OpaCli } from '../../src/lib/opa-cli.js';
+import { RegalCli } from '../../src/lib/regal-cli.js';
+import { logger } from '../../src/lib/logger.js';
 
 const ENV_KEYS = [
   'OPA_URL',
@@ -87,6 +96,72 @@ describe('buildServer()', () => {
 
   it('initializes the file logger so log writes do not crash', () => {
     expect(() => buildServer(baseConfig)).not.toThrow();
+  });
+});
+
+describe('runStartupSelfCheck()', () => {
+  it('logs info-level when both binaries respond', async () => {
+    vi.spyOn(OpaCli.prototype, 'version').mockResolvedValueOnce('1.0.0');
+    vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce('0.30.0');
+    const infoSpy = vi.spyOn(logger, 'info');
+    const warnSpy = vi.spyOn(logger, 'warn');
+
+    await runStartupSelfCheck(baseConfig);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    const opaCall = infoSpy.mock.calls.find((c) => c[0] === 'startup self-check: opa OK');
+    const regalCall = infoSpy.mock.calls.find((c) => c[0] === 'startup self-check: regal OK');
+    expect(opaCall?.[1]).toMatchObject({ version: '1.0.0' });
+    expect(regalCall?.[1]).toMatchObject({ version: '0.30.0' });
+  });
+
+  it('logs a warn with hint when opa binary is unreachable', async () => {
+    vi.spyOn(OpaCli.prototype, 'version').mockResolvedValueOnce(null);
+    vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce('0.30.0');
+    const warnSpy = vi.spyOn(logger, 'warn');
+
+    await runStartupSelfCheck(baseConfig);
+
+    const opaWarn = warnSpy.mock.calls.find((c) =>
+      String(c[0]).includes('opa binary not reachable'),
+    );
+    expect(opaWarn).toBeDefined();
+    expect(opaWarn?.[1]).toMatchObject({
+      opaBinary: 'opa',
+      hint: expect.stringMatching(/OPA_BINARY/),
+    });
+  });
+
+  it('logs a warn with hint when regal binary is unreachable', async () => {
+    vi.spyOn(OpaCli.prototype, 'version').mockResolvedValueOnce('1.0.0');
+    vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce(null);
+    const warnSpy = vi.spyOn(logger, 'warn');
+
+    await runStartupSelfCheck(baseConfig);
+
+    const regalWarn = warnSpy.mock.calls.find((c) =>
+      String(c[0]).includes('regal binary not reachable'),
+    );
+    expect(regalWarn).toBeDefined();
+    expect(regalWarn?.[1]).toMatchObject({
+      regalBinary: 'regal',
+      hint: expect.stringMatching(/REGAL_BINARY/),
+    });
+  });
+
+  it('catches and logs thrown errors from version() probes', async () => {
+    vi.spyOn(OpaCli.prototype, 'version').mockRejectedValueOnce(new Error('boom'));
+    vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce('0.30.0');
+    const warnSpy = vi.spyOn(logger, 'warn');
+
+    await runStartupSelfCheck(baseConfig);
+
+    // The .catch(() => null) coerces the throw to "unreachable", so we
+    // get a warn just like a clean null return.
+    const opaWarn = warnSpy.mock.calls.find((c) =>
+      String(c[0]).includes('opa binary not reachable'),
+    );
+    expect(opaWarn).toBeDefined();
   });
 });
 

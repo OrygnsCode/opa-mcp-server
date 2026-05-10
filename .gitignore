@@ -52,3 +52,8 @@ LAUNCH-PLAYBOOK.md
 # Manual smoke / debug scripts (one-off local-only)
 smoke-real.mjs
 smoke-test.mjs
+mcp-publisher.exe
+opa-mcp.mcpb
+
+# Claude Code session state (per-machine; never committed)
+.claude/
