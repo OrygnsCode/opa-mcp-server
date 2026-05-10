@@ -73,6 +73,11 @@ LABEL org.opencontainers.image.url="https://github.com/OrygnsCode/opa-mcp-server
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="Orygn LLC"
 
+# Ownership marker required by the official MCP Registry to validate
+# OCI packages. Without this label, `mcp-publisher publish` rejects
+# the OCI entry in server.json with HTTP 400.
+LABEL io.modelcontextprotocol.server.name="io.github.OrygnsCode/opa-mcp"
+
 # Run as non-root.
 RUN addgroup -g 1001 -S app && adduser -u 1001 -S app -G app
 

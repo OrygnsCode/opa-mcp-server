@@ -57,3 +57,4 @@ opa-mcp.mcpb
 
 # Claude Code session state (per-machine; never committed)
 .claude/
+server-registry.json
