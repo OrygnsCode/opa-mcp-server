@@ -3,7 +3,7 @@
 # ----------------------------------------------------------------------
 # Build stage: compile TypeScript to dist/
 # ----------------------------------------------------------------------
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
@@ -64,7 +64,7 @@ RUN set -eux; \
 # ----------------------------------------------------------------------
 # Runtime stage: minimal Node + bundled binaries
 # ----------------------------------------------------------------------
-FROM node:20-alpine AS runtime
+FROM node:26-alpine AS runtime
 
 LABEL org.opencontainers.image.title="orygn-opa-mcp"
 LABEL org.opencontainers.image.description="Model Context Protocol server for Open Policy Agent (OPA)"
