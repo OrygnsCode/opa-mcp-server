@@ -52,6 +52,17 @@ not part of the public surface and may change in minor releases.
   npm's web UI; the previous Unicode corners showed visible gaps in
   npm's font.
 
+### Security
+
+- Pinned the transitive `hono` dependency to `>= 4.12.18` via a
+  `package.json` `overrides` block. This clears three advisories
+  (GHSA series for JSX SSR style injection, JWT NumericDate
+  validation, and Vary-header handling in cache middleware) reported
+  against the version pulled by `@modelcontextprotocol/sdk`. None of
+  the affected code paths execute in this server (we run stdio only,
+  not the HTTP transport that uses hono), but pinning eliminates the
+  `npm audit` noise on user installs.
+
 ### Distribution
 
 - Listed on the official MCP Registry at
