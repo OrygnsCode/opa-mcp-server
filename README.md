@@ -403,6 +403,12 @@ the tasks agents are actually asked to do.
 | `rego_coverage_gaps`          | Run `opa test --coverage` and return per-file uncovered line ranges, sorted worst first. Use `threshold` to focus on files below a target percentage. |
 | `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.        |
 
+### Category F: Meta
+
+| Tool              | What it does                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mcp_server_info` | Return server name, version, resolved `opa`/`regal` versions, transport type, and Node.js version in one call. Useful for verifying which server instance the agent is connected to. |
+
 ## Prompts
 
 Three [MCP prompts](https://modelcontextprotocol.io/specification/server/prompts)
@@ -485,7 +491,8 @@ Agent: Done. Policy `rbac` is live on staging at $OPA_URL.
 │                          ├── tools/evaluation/        ─┤                              │
 │                          ├── tools/bundles/           ─┼─── lib/opa-cli.ts ──┐        │
 │                          ├── tools/server-management/ ─┤                     │        │
-│                          ├── tools/helpers/           ─┘                     │        │
+│                          ├── tools/helpers/           ─┤                     │        │
+│                          ├── tools/meta/              ─┘                     │        │
 │                          │                                                   ▼        │
 │                          │                              lib/subprocess.ts ──┴── opa   │
 │                          │                              lib/regal-cli.ts   ───── regal│
