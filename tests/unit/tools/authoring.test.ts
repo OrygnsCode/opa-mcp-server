@@ -360,17 +360,74 @@ describe('rego_inspect', () => {
 });
 
 describe('rego_capabilities', () => {
-  it('returns the parsed capabilities for current=true', async () => {
+  it('returns builtin names and count by default (names_only: true)', async () => {
     mockRun.mockResolvedValueOnce(
-      spawnSuccess(JSON.stringify({ builtins: [{ name: 'http.send' }] })),
+      spawnSuccess(
+        JSON.stringify({
+          builtins: [{ name: 'http.send' }, { name: 'plus' }],
+          future_keywords: ['every'],
+          features: ['rego_v1'],
+        }),
+      ),
     );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{
+      builtin_names?: string[];
+      builtin_count?: number;
+      future_keywords?: unknown[];
+      features?: unknown[];
+    }>(server, 'rego_capabilities', { current: true });
+    expect(env.ok).toBe(true);
+    expect(env.data?.builtin_names).toEqual(['http.send', 'plus']);
+    expect(env.data?.builtin_count).toBe(2);
+    expect(env.data?.future_keywords).toEqual(['every']);
+    expect(env.data?.features).toEqual(['rego_v1']);
+  });
+
+  it('does not include full builtin specs in the default names_only response', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ builtins: [{ name: 'http.send', decl: { type: 'function' } }] })),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ builtins?: unknown[]; builtin_names?: string[] }>(
+      server,
+      'rego_capabilities',
+      { current: true },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.builtins).toBeUndefined();
+    expect(env.data?.builtin_names).toEqual(['http.send']);
+  });
+
+  it('returns full builtins when names_only: false', async () => {
+    const builtins = [{ name: 'http.send', decl: { type: 'function' } }];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ builtins })));
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
     const env = await callTool<{ builtins?: unknown[] }>(server, 'rego_capabilities', {
       current: true,
+      names_only: false,
     });
     expect(env.ok).toBe(true);
-    expect(env.data?.builtins).toBeDefined();
+    expect(env.data?.builtins).toEqual(builtins);
+  });
+
+  it('handles builtins array with entries missing a name field gracefully', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ builtins: [{ name: 'valid' }, { decl: {} }] })),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ builtin_names?: string[]; builtin_count?: number }>(
+      server,
+      'rego_capabilities',
+      { current: true },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.builtin_names).toEqual(['valid']);
+    expect(env.data?.builtin_count).toBe(1);
   });
 
   it('parses newline-separated versions when neither flag is set', async () => {

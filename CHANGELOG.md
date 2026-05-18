@@ -17,6 +17,18 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-18
+
+### Fixed
+
+- `rego_capabilities` with `current: true` or a `version` argument now
+  returns only builtin names, a count, future keywords, and features by
+  default (`names_only: true`). Previously the full spec payload -- type
+  signatures, documentation, and metadata for every builtin -- routinely
+  exceeded the 100 KB `maxResponseBytes` cap and returned a useless
+  `__truncated` envelope. Pass `names_only: false` to retrieve the
+  complete payload when type signatures or documentation are needed.
+
 ## [0.1.1] - 2026-05-09
 
 ### Fixed
@@ -145,6 +157,7 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.2
 [0.1.1]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.1
 [0.1.0]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.0

@@ -27,10 +27,19 @@ const RegoCapabilitiesInput = {
     .describe(
       'A specific OPA capabilities version (e.g. "v0.69.0"). When neither flag is set, lists available versions.',
     ),
+  names_only: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      'When true (default), return only builtin names, count, future keywords, and features. The full spec payload routinely exceeds client response size limits. Set to false to retrieve complete type signatures, documentation, and metadata for every builtin.',
+    ),
 };
 
 export interface RegoCapabilitiesOutput {
   builtins?: unknown[];
+  builtin_names?: string[];
+  builtin_count?: number;
   future_keywords?: unknown[];
   features?: unknown[];
   wasm_abi_versions?: unknown[];
@@ -45,10 +54,10 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
     {
       title: 'OPA capabilities',
       description:
-        'Return OPA capabilities — the available builtins, future keywords, features, and WASM ABI versions. With `current: true`, returns the running OPA\'s capabilities. With `version: "v0.69.0"`, returns those of a specific version. With neither, lists available named versions.',
+        'Return OPA capabilities -- the available builtins, future keywords, features, and WASM ABI versions. With `current: true`, returns the running OPA\'s capabilities. With `version: "v0.69.0"`, returns those of a specific version. With neither, lists available named versions. By default (`names_only: true`), returns only builtin names and count to stay within response size limits; pass `names_only: false` for full type signatures and documentation.',
       inputSchema: RegoCapabilitiesInput,
     },
-    async ({ current, version }) => {
+    async ({ current, version, names_only }) => {
       return withToolEnvelope<RegoCapabilitiesOutput>(config, async () => {
         if (current && version) {
           return err(
@@ -64,7 +73,7 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
         if (result.exitCode !== 0) {
           return err(
             'INVALID_INPUT',
-            'opa capabilities exited non-zero — `version` is likely unrecognized.',
+            'opa capabilities exited non-zero -- `version` is likely unrecognized.',
             { details: { stderr: result.stderr.trim(), version } },
           );
         }
@@ -83,6 +92,23 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
             details: { stdout: trimmed },
           });
         }
+
+        // names_only defaults to true; treat undefined as true so the default
+        // applies even when the MCP SDK's schema validation is bypassed.
+        if (names_only !== false) {
+          const builtins = parsed.builtins ?? [];
+          const builtin_names = builtins
+            .map((b) => (b as { name?: string }).name)
+            .filter((n): n is string => typeof n === 'string');
+          return ok<RegoCapabilitiesOutput>({
+            builtin_names,
+            builtin_count: builtin_names.length,
+            future_keywords: parsed.future_keywords,
+            features: parsed.features,
+            wasm_abi_versions: parsed.wasm_abi_versions,
+          });
+        }
+
         return ok<RegoCapabilitiesOutput>(parsed);
       });
     },

@@ -8,13 +8,13 @@
     "url": "https://github.com/OrygnsCode/opa-mcp-server",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@orygn/opa-mcp",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "runtimeHint": "npx",
       "transport": { "type": "stdio" },
       "environmentVariables": [
@@ -51,7 +51,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "docker.io/orygn/opa-mcp:0.1.1",
+      "identifier": "docker.io/orygn/opa-mcp:0.1.2",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
@@ -72,7 +72,7 @@
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
       "tool": "manual",
-      "version": "0.1.1"
+      "version": "0.1.2"
     }
   }
 }

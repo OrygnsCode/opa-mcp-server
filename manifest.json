@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "@orygn/opa-mcp",
   "display_name": "OPA MCP",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Author, validate, debug, and explain Open Policy Agent (OPA) Rego policies through any MCP-compatible client.",
   "long_description": "Wraps the OPA CLI (opa fmt, check, eval, test, build, sign, etc.), the OPA REST API (policies, data, decisions, compile), and the Regal linter. Provides higher-level helper tools that use AI to explain decisions, generate test skeletons, describe policies, and suggest fixes.",
   "author": {
