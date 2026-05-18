@@ -387,7 +387,9 @@ describe('rego_capabilities', () => {
 
   it('does not include full builtin specs in the default names_only response', async () => {
     mockRun.mockResolvedValueOnce(
-      spawnSuccess(JSON.stringify({ builtins: [{ name: 'http.send', decl: { type: 'function' } }] })),
+      spawnSuccess(
+        JSON.stringify({ builtins: [{ name: 'http.send', decl: { type: 'function' } }] }),
+      ),
     );
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
