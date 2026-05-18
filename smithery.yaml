@@ -8,6 +8,8 @@
 #
 # See: https://smithery.ai/docs/build/publish
 runtime: typescript
+build:
+  command: npm install && npm run build
 startCommand:
   type: stdio
   configSchema:
