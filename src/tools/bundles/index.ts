@@ -1,5 +1,5 @@
 /**
- * Category C — Bundle operations.
+ * Category C -- Bundle operations.
  *
  * Wraps `opa build` and `opa sign` for packaging and signing
  * deployable bundles.

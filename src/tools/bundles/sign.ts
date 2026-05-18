@@ -1,5 +1,5 @@
 /**
- * `opa_bundle_sign` — sign an existing bundle directory or archive
+ * `opa_bundle_sign` -- sign an existing bundle directory or archive
  * via `opa sign`.
  */
 import { z } from 'zod';

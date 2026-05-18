@@ -10,7 +10,7 @@
  * The `-` (read-from-stdin) convention some opa subcommands document is
  * unreliable on Windows, where `-` is treated as a literal filename.
  *
- * The methods do not parse stdout into typed result objects — different
+ * The methods do not parse stdout into typed result objects -- different
  * tools need different shapes of the same output and a one-size parser
  * would force conversions both ways. Stdout is JSON whenever
  * `--format=json` is set, and tools call `JSON.parse` on it themselves.
@@ -172,7 +172,7 @@ export interface SignInput {
 /**
  * Wrapper around the local `opa` binary.
  *
- * Methods do not throw on `opa` errors — non-zero exit codes are
+ * Methods do not throw on `opa` errors -- non-zero exit codes are
  * surfaced on the returned `SpawnResult` so tools can map them to
  * structured error envelopes at their layer. They DO throw on
  * caller-side bugs (e.g. an empty `paths` array passed where one is
@@ -196,7 +196,7 @@ export class OpaCli {
 
   /**
    * Format Rego source. Stdout contains the formatted output. Reports
-   * `exitCode: 0` even when no changes are needed — callers compare
+   * `exitCode: 0` even when no changes are needed -- callers compare
    * input vs output to detect a no-op.
    */
   async fmt(input: FmtInput): Promise<SpawnResult> {
@@ -207,7 +207,7 @@ export class OpaCli {
    * Type-check Rego. Returns `exitCode: 0` and empty `stdout` when the
    * policy is valid. On failure, `exitCode` is non-zero and the JSON
    * error report is written to **stderr** (this is OPA's actual
-   * behavior — tools must read `stderr`, not `stdout`, for `check`
+   * behavior -- tools must read `stderr`, not `stdout`, for `check`
    * diagnostics). Either inline `source` or one or more `paths` must be
    * provided.
    */

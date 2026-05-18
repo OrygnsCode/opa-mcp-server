@@ -1,7 +1,7 @@
 /**
  * Centralized configuration loaded from environment variables.
  *
- * Environment variables are the only configuration surface — there is no
+ * Environment variables are the only configuration surface -- there is no
  * config file, no flags. This matches how MCP clients (Claude Desktop,
  * Cursor, VS Code) pass config via the `env` object in their JSON.
  */
@@ -32,7 +32,7 @@ const ConfigSchema = z.object({
   /**
    * Allow-listed root directories for file path inputs. Tools that accept
    * filesystem paths reject anything outside these roots. Empty by
-   * default — file-based tools refuse to read from disk until the
+   * default -- file-based tools refuse to read from disk until the
    * operator explicitly opts in via `OPA_MCP_ALLOWED_PATHS`.
    */
   allowedPaths: z.array(z.string()).default([]),

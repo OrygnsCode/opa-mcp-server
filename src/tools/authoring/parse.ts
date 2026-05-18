@@ -1,5 +1,5 @@
 /**
- * `rego_parse_ast` — parse Rego source to a JSON AST.
+ * `rego_parse_ast` -- parse Rego source to a JSON AST.
  *
  * Wraps `opa parse --format=json`. Useful for tools that want to walk
  * the structure of a policy programmatically (rule discovery, ref

@@ -1,8 +1,8 @@
 /**
- * `rego_generate_test_skeleton` — given a policy, parse its AST and
+ * `rego_generate_test_skeleton` -- given a policy, parse its AST and
  * emit a `*_test.rego` skeleton with one stub test per rule.
  *
- * The skeleton is mechanical — the agent fills in real assertions.
+ * The skeleton is mechanical -- the agent fills in real assertions.
  */
 import { z } from 'zod';
 
@@ -120,7 +120,7 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
         );
 
         if (ruleNames.length === 0) {
-          return err('INVALID_INPUT', 'No rules found in the source — nothing to test.');
+          return err('INVALID_INPUT', 'No rules found in the source -- nothing to test.');
         }
 
         const testFile = makeSkeleton(packageName, ruleNames);

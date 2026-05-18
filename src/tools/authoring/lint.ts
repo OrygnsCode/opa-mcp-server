@@ -1,5 +1,5 @@
 /**
- * `rego_lint` — lint Rego with the optional `regal` binary.
+ * `rego_lint` -- lint Rego with the optional `regal` binary.
  *
  * The only authoring tool that requires Regal. Returns
  * `REGAL_NOT_FOUND` with an install hint if the binary is missing.

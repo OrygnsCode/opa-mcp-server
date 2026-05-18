@@ -1,7 +1,7 @@
 /**
  * Subprocess wrapper used by `opa-cli.ts` and `regal-cli.ts`.
  *
- * - Uses argv arrays only (never shell strings) — prevents injection.
+ * - Uses argv arrays only (never shell strings) -- prevents injection.
  * - Hard timeout per invocation, defaulting to config.subprocessTimeoutMs.
  * - Captures stdout / stderr / exit code separately.
  * - Optional stdin payload for piping source code.
@@ -31,7 +31,7 @@ export interface SpawnResult {
 }
 
 /**
- * Run a binary and return its captured output. Never throws — failures
+ * Run a binary and return its captured output. Never throws -- failures
  * are reflected in `exitCode` / `timedOut`.
  */
 export async function runBinary(binary: string, opts: SpawnOptions): Promise<SpawnResult> {

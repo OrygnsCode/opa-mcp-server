@@ -1,5 +1,5 @@
 /**
- * `rego_capabilities` — list OPA's built-in functions and feature flags.
+ * `rego_capabilities` -- list OPA's built-in functions and feature flags.
  *
  * Useful as a reference when authoring policies, especially for
  * answering "is `crypto.x509.parse_certificates` available?" without

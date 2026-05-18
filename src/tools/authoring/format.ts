@@ -1,5 +1,5 @@
 /**
- * `rego_format` — format Rego source via `opa fmt`.
+ * `rego_format` -- format Rego source via `opa fmt`.
  *
  * Idempotent: running it on already-formatted source produces
  * identical output and `changed: false`.

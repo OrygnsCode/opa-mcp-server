@@ -1,5 +1,5 @@
 /**
- * `rego_check` — type-check Rego using `opa check`.
+ * `rego_check` -- type-check Rego using `opa check`.
  *
  * Returns `{ valid: true }` when the policy passes. On failure,
  * returns the structured error report `opa check --format=json` writes
@@ -30,7 +30,7 @@ const RegoCheckInput = {
   strict: z
     .boolean()
     .optional()
-    .describe('Enable strict mode — fail on unused vars, deprecated builtins, etc.'),
+    .describe('Enable strict mode -- fail on unused vars, deprecated builtins, etc.'),
   capabilities: z
     .string()
     .optional()
@@ -71,7 +71,7 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
         if (source && paths?.length) {
           return err(
             'INVALID_INPUT',
-            'rego_check does not accept both `source` and `paths` — pass one or the other.',
+            'rego_check does not accept both `source` and `paths` -- pass one or the other.',
           );
         }
 

@@ -1,9 +1,9 @@
 /**
- * MCP Resources — read-only references the agent can fetch by URI.
+ * MCP Resources -- read-only references the agent can fetch by URI.
  *
- * - opa://builtins      — derived at read-time from `opa capabilities`.
- * - opa://style-guide   — curated Rego style guide content.
- * - opa://patterns      — pattern library: RBAC, ABAC, K8s admission,
+ * - opa://builtins      -- derived at read-time from `opa capabilities`.
+ * - opa://style-guide   -- curated Rego style guide content.
+ * - opa://patterns      -- pattern library: RBAC, ABAC, K8s admission,
  *                         IaC gates, API authz, rate limiting.
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

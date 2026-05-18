@@ -1,7 +1,7 @@
 /**
  * Wrapper around the optional `regal` binary (Rego linter, by Styra).
  *
- * Regal is OPTIONAL — only the `rego_lint` tool requires it. Other
+ * Regal is OPTIONAL -- only the `rego_lint` tool requires it. Other
  * tools work without Regal installed. If absent, `rego_lint` returns a
  * structured `REGAL_NOT_FOUND` error with an install hint.
  */
@@ -54,7 +54,7 @@ export interface LintInput {
 /**
  * Wrapper around the local `regal` binary.
  *
- * Like `OpaCli`, methods do not throw on Regal-side errors — the exit
+ * Like `OpaCli`, methods do not throw on Regal-side errors -- the exit
  * code on the returned `SpawnResult` is the signal. Inline source is
  * always written to a temp file because `regal lint` does not read
  * from stdin.
@@ -80,9 +80,9 @@ export class RegalCli {
    * provided.
    *
    * Regal's exit codes:
-   * - 0 — no findings at or above `failLevel`
-   * - 3 — findings present
-   * - non-zero other — Regal-internal failure (config error, etc.)
+   * - 0 -- no findings at or above `failLevel`
+   * - 3 -- findings present
+   * - non-zero other -- Regal-internal failure (config error, etc.)
    *
    * When called with inline `source`, location-bound rules whose
    * verdict depends on the on-disk path (currently

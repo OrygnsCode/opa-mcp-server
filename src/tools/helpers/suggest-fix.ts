@@ -1,8 +1,8 @@
 /**
- * `rego_suggest_fix` — propose mechanical fixes for common Rego
+ * `rego_suggest_fix` -- propose mechanical fixes for common Rego
  * compile errors and Regal lint findings.
  *
- * The tool is deliberately rule-based — it doesn't call out to an LLM.
+ * The tool is deliberately rule-based -- it doesn't call out to an LLM.
  * Common error codes have well-known mechanical fixes; we surface
  * those, and for everything else we hand back a structured "no
  * automated fix available, here's what we know" envelope so the agent
@@ -73,7 +73,7 @@ const KNOWN_FIXES: Array<{
   {
     match: (code) => code === 'rego_type_error',
     suggest: (message) => ({
-      suggestion: `Type mismatch: ${message.replace(/^rego_type_error:\s*/, '')}. Reconcile the operand types — most often this is comparing a string with a number, or indexing a value with the wrong key shape.`,
+      suggestion: `Type mismatch: ${message.replace(/^rego_type_error:\s*/, '')}. Reconcile the operand types -- most often this is comparing a string with a number, or indexing a value with the wrong key shape.`,
       confidence: 'medium',
     }),
   },
@@ -89,7 +89,7 @@ const KNOWN_FIXES: Array<{
     match: (code) => code === 'rego_compile_error',
     suggest: () => ({
       suggestion:
-        'A compile error occurred. Run `rego_check` for the structured diagnostic — the message text usually points at the precise issue (often an unresolved import or capabilities mismatch).',
+        'A compile error occurred. Run `rego_check` for the structured diagnostic -- the message text usually points at the precise issue (often an unresolved import or capabilities mismatch).',
       confidence: 'low',
     }),
   },
@@ -98,7 +98,7 @@ const KNOWN_FIXES: Array<{
     match: (code) => code === 'print-or-trace-call',
     suggest: () => ({
       suggestion:
-        'Remove the `print(...)` or `trace(...)` call before shipping — it slows evaluation and is rarely intended in production policy.',
+        'Remove the `print(...)` or `trace(...)` call before shipping -- it slows evaluation and is rarely intended in production policy.',
       confidence: 'high',
     }),
   },
@@ -142,7 +142,7 @@ export function registerRegoSuggestFix(server: McpServer, config: Config): void 
             code,
             message: diag.message,
             suggestion:
-              'No automated suggestion available for this diagnostic. Read the message text and the location for context — most Rego errors have an obvious mechanical fix once the trigger is identified.',
+              'No automated suggestion available for this diagnostic. Read the message text and the location for context -- most Rego errors have an obvious mechanical fix once the trigger is identified.',
             confidence: 'low' as const,
           };
         });

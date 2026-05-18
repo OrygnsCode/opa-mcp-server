@@ -1,5 +1,5 @@
 /**
- * Category B — Evaluation & testing.
+ * Category B -- Evaluation & testing.
  *
  * Tools in this category run Rego queries against policies + input,
  * with optional trace/profile/coverage output. They wrap `opa eval`,

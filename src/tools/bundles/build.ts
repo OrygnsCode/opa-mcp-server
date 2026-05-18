@@ -1,5 +1,5 @@
 /**
- * `opa_bundle_build` — build a deployable bundle from policy + data
+ * `opa_bundle_build` -- build a deployable bundle from policy + data
  * paths via `opa build`.
  */
 import { z } from 'zod';

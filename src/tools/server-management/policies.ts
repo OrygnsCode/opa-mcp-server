@@ -73,7 +73,7 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
     {
       title: 'Upload or replace OPA policy',
       description:
-        'Upload a Rego policy under the given ID. Replaces any existing policy with that ID. The policy is uploaded as raw text/plain — OPA parses it on the server side.',
+        'Upload a Rego policy under the given ID. Replaces any existing policy with that ID. The policy is uploaded as raw text/plain -- OPA parses it on the server side.',
       inputSchema: {
         id: z.string().min(1).describe('Policy ID to create or replace.'),
         source: z.string().min(1).describe('Rego source.'),

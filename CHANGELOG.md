@@ -17,6 +17,41 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-18
+
+### Added
+
+- **`rego_coverage_gaps` tool.** Runs `opa test --coverage` and returns a
+  per-file breakdown of uncovered line ranges, sorted by coverage ascending
+  so the worst-covered files appear first. Accepts an optional `threshold`
+  to limit output to files below a target coverage percentage. Surfaces
+  `testsPassed`, `testsFailed`, `testsSkipped`, and `overallCoverage` in
+  the envelope alongside the gap report.
+
+- **`rego_security_audit` tool.** Runs regal lint restricted to the
+  `security` and `bugs` categories across one or more policy directories.
+  Returns findings grouped by severity (high / medium) with per-finding
+  remediation guidance. Designed for fleet-wide periodic sweeps rather
+  than per-file style review. Requires regal.
+
+- **`mcp_server_info` tool.** Returns the server name, version, resolved
+  `opa` and `regal` versions, transport type, and Node.js version in a
+  single call. Useful for verifying which server instance an agent is
+  talking to and confirming binary paths resolved correctly.
+
+- **Claude Code install section** in README with the `claude mcp add --env`
+  command. Standing-instructions template (`examples/CLAUDE.md`) and
+  PostToolUse hook config (`examples/claude-code-hook.json`) for policy
+  repos using Claude Code.
+
+- **Node 24 added to CI matrix.** Unit tests now run on Node 20, 22, and 24
+  across Ubuntu, macOS, and Windows.
+
+### Changed
+
+- All em dashes in source comments replaced with `--` (U+002D pairs).
+  No behavior change; cosmetic consistency fix.
+
 ## [0.1.2] - 2026-05-18
 
 ### Fixed
@@ -157,7 +192,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.2
 [0.1.1]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.1
 [0.1.0]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.0

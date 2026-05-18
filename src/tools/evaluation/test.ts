@@ -1,5 +1,5 @@
 /**
- * `rego_test` — run Rego unit tests via `opa test`.
+ * `rego_test` -- run Rego unit tests via `opa test`.
  *
  * Returns per-test pass/fail records. With `coverage: true`, returns
  * per-line coverage data alongside the test results.

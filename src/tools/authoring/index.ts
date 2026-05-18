@@ -1,5 +1,5 @@
 /**
- * Category A — Authoring & static analysis.
+ * Category A -- Authoring & static analysis.
  *
  * Tools in this category operate on Rego source code without requiring
  * a running OPA server. They wrap `opa fmt`, `opa check`, `opa parse`,

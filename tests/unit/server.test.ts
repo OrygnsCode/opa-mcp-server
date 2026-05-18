@@ -81,7 +81,7 @@ describe('buildServer()', () => {
     expect(SERVER_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it('registers every tool, prompt, and resource expected at v0.1.0', () => {
+  it('registers every tool, prompt, and resource', () => {
     const server = buildServer(baseConfig);
     interface Registry {
       _registeredTools: Record<string, unknown>;
@@ -89,7 +89,7 @@ describe('buildServer()', () => {
       _registeredResources: Record<string, unknown>;
     }
     const registry = server as unknown as Registry;
-    expect(Object.keys(registry._registeredTools)).toHaveLength(32);
+    expect(Object.keys(registry._registeredTools)).toHaveLength(35);
     expect(Object.keys(registry._registeredPrompts)).toHaveLength(3);
     expect(Object.keys(registry._registeredResources)).toHaveLength(3);
   });
@@ -194,7 +194,7 @@ describe('main()', () => {
     // Confirm the server actually wired up tools (sanity check that
     // env-derived config did not throw).
     const tools = await client.listTools();
-    expect(tools.tools.length).toBe(32);
+    expect(tools.tools.length).toBe(35);
     await client.close();
   });
 

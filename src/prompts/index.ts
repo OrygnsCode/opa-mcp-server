@@ -1,5 +1,5 @@
 /**
- * MCP Prompts — slash-command-like workflow templates.
+ * MCP Prompts -- slash-command-like workflow templates.
  *
  * Each prompt is a stateless instruction set the agent receives when
  * the user invokes it. They orient the agent toward a specific
@@ -77,7 +77,7 @@ const decisionDebuggingWorkflowPrompt = (args: {
 }): string => {
   return `You are debugging an unexpected Rego decision.
 
-Query: ${args.query ?? '<not provided — ask the user>'}
+Query: ${args.query ?? '<not provided -- ask the user>'}
 User's expectation: ${args.expectation ?? '<ask the user what they expected>'}
 
 Workflow:
@@ -90,13 +90,13 @@ Workflow:
 3. Re-run with \`rego_explain_decision\` to get a structured trace.
    Identify which rules were evaluated and which fired.
 4. The cause is one of:
-   a. **Input mismatch** — the policy expected a different input shape.
+   a. **Input mismatch** -- the policy expected a different input shape.
       Use \`rego_describe_policy\` to list the refs the policy reads
       and confirm each is present in the input.
-   b. **Rule logic** — a guard fired or didn't fire when it should
+   b. **Rule logic** -- a guard fired or didn't fire when it should
       have. Read the trace and explain which rule's body evaluated to
       true/false and why.
-   c. **Default decision** — no rule produced a value, so the default
+   c. **Default decision** -- no rule produced a value, so the default
       kicked in.
 5. Propose the smallest fix: either an input correction or a policy
    change. If a policy change, run \`rego_check\` and \`rego_test\` on the
@@ -138,7 +138,7 @@ export function registerPrompts(server: McpServer, _config: Config): void {
         source: z
           .string()
           .optional()
-          .describe('Rego source to review. Optional — agent can ask for it.'),
+          .describe('Rego source to review. Optional -- agent can ask for it.'),
       },
     },
     (args) => ({

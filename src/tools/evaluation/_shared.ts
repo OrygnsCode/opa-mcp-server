@@ -2,7 +2,7 @@
  * Shared helpers for the evaluation tool category.
  *
  * `rego_eval` and its three trace/profile/coverage variants all share
- * the same input/output shape and error handling — only the OPA flags
+ * the same input/output shape and error handling -- only the OPA flags
  * differ. The shared `runEval` helper takes the resolved EvalInput and
  * returns an envelope; each tool's handler is a thin adapter that
  * preps inputs and forwards.

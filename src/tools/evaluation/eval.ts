@@ -1,8 +1,8 @@
 /**
  * `rego_eval` and the three flag-extended variants.
  *
- * Each variant is a thin adapter — same input shape, different OPA
- * flags — built on the shared `runEval` helper.
+ * Each variant is a thin adapter -- same input shape, different OPA
+ * flags -- built on the shared `runEval` helper.
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
@@ -32,7 +32,7 @@ export function registerRegoEval(server: McpServer, config: Config): void {
     {
       title: 'Evaluate Rego with execution trace',
       description:
-        "Evaluate with `--explain=full` and return a structured trace alongside the result. Use this when an agent needs to see why a rule fired (or didn't) — the trace is the basis for `rego_explain_decision`.",
+        "Evaluate with `--explain=full` and return a structured trace alongside the result. Use this when an agent needs to see why a rule fired (or didn't) -- the trace is the basis for `rego_explain_decision`.",
       inputSchema: SharedEvalInput,
     },
     async (args) => {

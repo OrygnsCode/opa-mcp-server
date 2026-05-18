@@ -1,7 +1,7 @@
 /**
  * File-only logger.
  *
- * Stdout is reserved for MCP protocol traffic — writing anywhere else
+ * Stdout is reserved for MCP protocol traffic -- writing anywhere else
  * would corrupt the JSON-RPC stream. This logger appends to a file with
  * level filtering, and never touches stdout.
  *
@@ -46,7 +46,7 @@ function write(level: Level, msg: string, ctx?: Record<string, unknown>): void {
     appendFileSync(state.file, `${JSON.stringify(entry)}\n`, 'utf8');
   } catch {
     // Logging must never throw. If the log file is unreachable, drop the
-    // line silently — better than crashing the server.
+    // line silently -- better than crashing the server.
   }
 }
 

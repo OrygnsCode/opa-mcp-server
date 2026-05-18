@@ -1,5 +1,5 @@
 /**
- * `rego_deps` — static dependency analysis for a Rego ref.
+ * `rego_deps` -- static dependency analysis for a Rego ref.
  *
  * Wraps `opa deps`. Given a target like `data.example.allow`, returns
  * the base (input/data) and virtual (rule) document references the
@@ -61,7 +61,7 @@ export function registerRegoDeps(server: McpServer, config: Config): void {
         if (result.exitCode !== 0) {
           return err(
             'INVALID_REGO',
-            'opa deps exited non-zero — the policy did not compile or the ref is invalid.',
+            'opa deps exited non-zero -- the policy did not compile or the ref is invalid.',
             { details: { stderr: result.stderr.trim(), ref } },
           );
         }

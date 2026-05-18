@@ -61,7 +61,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
     async () => {
       return withToolEnvelope<{ status: unknown }>(config, async () => {
         try {
-          // OPA's status comes back through /v1/config — the same call as
+          // OPA's status comes back through /v1/config -- the same call as
           // opa_config, but presented with a simpler envelope here so an
           // agent can ask "what's running" without needing to know the
           // underlying shape of the response.
@@ -79,7 +79,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
     {
       title: 'OPA configuration',
       description:
-        'Return the running OPA server configuration (sanitized — secrets are not included).',
+        'Return the running OPA server configuration (sanitized -- secrets are not included).',
       inputSchema: {},
     },
     async () => {

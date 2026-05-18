@@ -12,7 +12,7 @@ import { withToolEnvelope } from '../../lib/tool-helpers.js';
 import { mapOpaClientError } from './_shared.js';
 
 function dataPath(path: string): string {
-  // Strip leading "data." or "/" — server always prepends /v1/data/.
+  // Strip leading "data." or "/" -- server always prepends /v1/data/.
   const stripped = path.replace(/^data\./, '').replace(/^\/+/, '');
   // Convert dotted form to slash form: "users.alice" -> "users/alice".
   return `/v1/data/${stripped.replace(/\./g, '/')}`;

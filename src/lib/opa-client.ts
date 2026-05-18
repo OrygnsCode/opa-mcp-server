@@ -46,7 +46,7 @@ export interface RequestOptions {
   body?: unknown;
   /**
    * Raw string body sent verbatim. Used for endpoints that accept
-   * non-JSON content — notably `PUT /v1/policies/{id}` which expects
+   * non-JSON content -- notably `PUT /v1/policies/{id}` which expects
    * Rego source as `text/plain`.
    */
   rawBody?: string;

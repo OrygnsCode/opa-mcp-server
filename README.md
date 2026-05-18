@@ -17,10 +17,10 @@ environment.
 +--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------+
 |  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal ·   |
 |   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API    |
-+--------------------+   32 tools    +-----------------+                +------------------+
++--------------------+   35 tools    +-----------------+                +------------------+
 ```
 
-> **Status:** v0.1.2. Tool surface, error codes, and
+> **Status:** v0.1.3. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
@@ -100,7 +100,7 @@ recognize the gap this fills.
 The server runs locally over stdio. Pick the install path that matches
 your client.
 
-### Claude Desktop / Claude Code
+### Claude Desktop
 
 Edit `claude_desktop_config.json` directly (or copy from
 [`examples/claude-desktop.json`](./examples/claude-desktop.json)):
@@ -135,6 +135,37 @@ Alternatively, use the Smithery one-liner:
 ```bash
 npx -y @smithery/cli install @orygn/opa-mcp --client claude
 ```
+
+### Claude Code (CLI)
+
+Register the server for the current project with `claude mcp add`:
+
+```bash
+claude mcp add \
+  --env OPA_BINARY=/usr/local/bin/opa \
+  --env REGAL_BINARY=/usr/local/bin/regal \
+  --env OPA_MCP_ALLOWED_PATHS=/path/to/your/policies \
+  opa -- npx -y @orygn/opa-mcp
+```
+
+This writes the config into `.mcp.json` at your project root and is
+picked up automatically on every `claude` session in that directory.
+Add `--scope user` to register it globally instead.
+
+> Replace the paths with your real absolute paths (same caveat as
+> Claude Desktop above). On Windows use `C:\path\to\opa.exe` syntax.
+
+**Persistent context and auto-checks for policy repos.**
+If you work in an OPA policy repo regularly, two extra files remove
+repetitive setup from every session:
+
+- [`examples/CLAUDE.md`](./examples/CLAUDE.md) -- copy to your repo
+  root or `.claude/CLAUDE.md`. Claude Code loads it every session,
+  so the agent always knows which tools to use and what conventions apply.
+- [`examples/claude-code-hook.json`](./examples/claude-code-hook.json) --
+  merge the `hooks` block into `.claude/settings.json`. Runs `opa check`
+  automatically after any `.rego` file is written, so syntax errors
+  surface immediately without a manual tool call.
 
 ### Cursor
 
@@ -369,6 +400,8 @@ the tasks agents are actually asked to do.
 | `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule.                                                                                  |
 | `rego_describe_policy`        | Summarize what a policy does, its inputs, decisions, and assumptions.                                                                                 |
 | `rego_suggest_fix`            | For a failed `rego_check` or `rego_lint`, propose minimal patches.                                                                                    |
+| `rego_coverage_gaps`          | Run `opa test --coverage` and return per-file uncovered line ranges, sorted worst first. Use `threshold` to focus on files below a target percentage. |
+| `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.        |
 
 ## Prompts
 
@@ -587,8 +620,8 @@ npm run build             # compile to dist/
 ```
 
 CI runs lint, typecheck, build, and unit tests on every push and PR
-across Ubuntu, macOS, and Windows on Node 20 and 22. Integration tests
-run on Linux against pinned `opa` and `regal` releases.
+across Ubuntu, macOS, and Windows on Node 20, 22, and 24. Integration
+tests run on Linux against pinned `opa` and `regal` releases.
 
 For the full contributor workflow (adding tools, naming conventions,
 logging discipline, release process), see [CONTRIBUTING.md](./CONTRIBUTING.md).

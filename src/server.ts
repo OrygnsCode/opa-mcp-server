@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * @orygn/opa-mcp — entry point.
+ * @orygn/opa-mcp -- entry point.
  *
  * Initializes the MCP server, registers tools/prompts/resources,
  * and connects the stdio transport.
  *
- * IMPORTANT: never write to stdout from anywhere in this process —
+ * IMPORTANT: never write to stdout from anywhere in this process --
  * stdout is the MCP protocol channel. Use `logger` (file) or stderr.
  */
 import { pathToFileURL } from 'node:url';
@@ -15,6 +15,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { loadConfig, type Config } from './config.js';
+import { SERVER_NAME, SERVER_VERSION } from './constants.js';
 import { initLogger, logger } from './lib/logger.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
@@ -22,8 +23,7 @@ import { registerPrompts } from './prompts/index.js';
 import { registerResources } from './resources/index.js';
 import { registerTools } from './tools/index.js';
 
-export const SERVER_NAME = 'orygn-opa-mcp';
-export const SERVER_VERSION = '0.1.2';
+export { SERVER_NAME, SERVER_VERSION };
 
 /**
  * Construct an `McpServer`, register every tool / prompt / resource

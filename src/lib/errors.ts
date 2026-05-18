@@ -1,7 +1,7 @@
 /**
  * Helpers for building structured tool errors.
  *
- * Tools should never throw raw exceptions to the MCP layer — every failure
+ * Tools should never throw raw exceptions to the MCP layer -- every failure
  * mode returns a `ToolEnvelope` with `ok: false` and a structured `error`.
  */
 import type { ToolEnvelope, ToolError, ToolErrorCode } from '../types.js';

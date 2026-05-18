@@ -1,5 +1,5 @@
 /**
- * Category E — Higher-level helpers.
+ * Category E -- Higher-level helpers.
  *
  * These tools compose lower-level primitives or do mechanical AST
  * analysis to provide endpoints agents can call directly without
@@ -9,9 +9,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import { registerRegoCoverageGaps } from './coverage-gaps.js';
 import { registerRegoDescribePolicy } from './describe-policy.js';
 import { registerRegoExplainDecision } from './explain-decision.js';
 import { registerRegoGenerateTestSkeleton } from './generate-test-skeleton.js';
+import { registerRegoSecurityAudit } from './security-audit.js';
 import { registerRegoSuggestFix } from './suggest-fix.js';
 
 export function registerHelperTools(server: McpServer, config: Config): void {
@@ -19,4 +21,6 @@ export function registerHelperTools(server: McpServer, config: Config): void {
   registerRegoGenerateTestSkeleton(server, config);
   registerRegoDescribePolicy(server, config);
   registerRegoSuggestFix(server, config);
+  registerRegoCoverageGaps(server, config);
+  registerRegoSecurityAudit(server, config);
 }

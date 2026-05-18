@@ -1,5 +1,5 @@
 /**
- * Category D — OPA server management.
+ * Category D -- OPA server management.
  *
  * Tools in this category talk to a running OPA server via its REST
  * API. They require `OPA_URL` to point at a reachable server (default

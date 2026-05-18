@@ -1,5 +1,5 @@
 /**
- * `rego_inspect` — inspect a bundle, directory, or single Rego file
+ * `rego_inspect` -- inspect a bundle, directory, or single Rego file
  * via `opa inspect`. Returns the manifest (if present), namespaces,
  * and rule annotations as JSON.
  */
@@ -56,7 +56,7 @@ export function registerRegoInspect(server: McpServer, config: Config): void {
         if (result.exitCode !== 0) {
           return err(
             'INVALID_BUNDLE',
-            'opa inspect rejected the target — it is not a valid bundle, directory, or Rego file.',
+            'opa inspect rejected the target -- it is not a valid bundle, directory, or Rego file.',
             {
               details: { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
             },

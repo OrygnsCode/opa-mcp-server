@@ -75,7 +75,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
     {
       title: 'Compile (partially evaluate) a query on OPA',
       description:
-        "Send a query to the OPA server's `/v1/compile` endpoint for partial evaluation. Returns the residual query — what remains after substituting in everything that's known.",
+        "Send a query to the OPA server's `/v1/compile` endpoint for partial evaluation. Returns the residual query -- what remains after substituting in everything that's known.",
       inputSchema: {
         query: z.string().min(1).describe('Rego query to compile, e.g. "data.rbac.allow == true".'),
         input: z.unknown().optional().describe('Optional partial input document.'),

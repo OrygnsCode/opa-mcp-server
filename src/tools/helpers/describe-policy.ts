@@ -1,5 +1,5 @@
 /**
- * `rego_describe_policy` — parse a policy and return a structured
+ * `rego_describe_policy` -- parse a policy and return a structured
  * summary an agent can read without re-implementing AST traversal.
  */
 import { z } from 'zod';

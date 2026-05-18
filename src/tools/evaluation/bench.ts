@@ -1,5 +1,5 @@
 /**
- * `rego_bench` — benchmark a query via `opa bench`.
+ * `rego_bench` -- benchmark a query via `opa bench`.
  *
  * Returns iteration count plus statistical timing data (ns/op,
  * allocations, etc.).

@@ -1,5 +1,5 @@
 /**
- * `rego_explain_decision` — run a query with `--explain=full` and
+ * `rego_explain_decision` -- run a query with `--explain=full` and
  * return a structured trace plus a per-rule summary an agent can
  * narrate.
  *
@@ -80,7 +80,7 @@ export function registerRegoExplainDecision(server: McpServer, config: Config): 
     {
       title: 'Explain Rego decision',
       description:
-        'Evaluate a Rego query with full tracing and return a structured trace plus per-rule fired/not-fired summary. Use this when you need to answer "why was this denied?" — the agent reads the structured trace and narrates the cause without re-implementing the trace parser.',
+        'Evaluate a Rego query with full tracing and return a structured trace plus per-rule fired/not-fired summary. Use this when you need to answer "why was this denied?" -- the agent reads the structured trace and narrates the cause without re-implementing the trace parser.',
       inputSchema: SharedEvalInput,
     },
     async (args) => {

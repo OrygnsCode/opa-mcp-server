@@ -1,7 +1,7 @@
 /**
  * Helpers shared across tool implementations.
  *
- * Each tool follows the same shape — validate input, call into a CLI
+ * Each tool follows the same shape -- validate input, call into a CLI
  * wrapper or HTTP client, map errors to a structured envelope, return
  * the formatted MCP result. The pieces here factor out the parts every
  * tool repeats so each tool file can stay focused on its own logic.

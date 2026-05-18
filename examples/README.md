@@ -33,6 +33,35 @@ edit the environment variables to match your environment.
 | [`zed.json`](./zed.json)                       | Zed                           | `~/.config/zed/settings.json` (under `"context_servers"`)                                                                          |
 | [`docker.json`](./docker.json)                 | Any client, Docker transport  | Substitute `command`/`args` in your client's existing config                                                                       |
 
+## Claude Code extras
+
+Two additional files are provided for Claude Code users working in a policy
+repo day-to-day:
+
+| File                                               | Purpose                                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [`CLAUDE.md`](./CLAUDE.md)                         | Standing instructions template. Copy to your repo root or `.claude/CLAUDE.md`. Claude Code loads it every session.       |
+| [`claude-code-hook.json`](./claude-code-hook.json) | PostToolUse hook config. Merge the `hooks` block into `.claude/settings.json` to run `opa check` on every `.rego` write. |
+
+### Using CLAUDE.md
+
+Copy the file to your policy repo root (or `.claude/CLAUDE.md`) and fill in
+the `## Conventions` section at the bottom with your project-specific package
+naming, input schema location, test runner command, and any other invariants
+you want Claude to know about.
+
+### Using the hook
+
+1. Copy `.claude/settings.json` if it does not already exist in your repo, or
+   open the existing one.
+2. Merge the `"hooks"` key from `claude-code-hook.json` into it.
+3. Ensure `opa` is on `PATH` (or replace `'opa'` in the command string with
+   the absolute path).
+
+After that, every time Claude Code writes a `.rego` file the hook runs
+`opa check` and reports any syntax errors directly in the session -- no
+manual tool call required.
+
 If you do not see your client here, the server itself is just stdio — any
 MCP-compliant client can run it via:
 

@@ -47,9 +47,9 @@ same package or a \`<package>_test\` package.
 ## Naming
 
 - Rule names: \`snake_case\`.
-- Boolean rules: read like predicates — \`allow\`, \`is_admin\`,
+- Boolean rules: read like predicates -- \`allow\`, \`is_admin\`,
   \`should_log\`. Avoid \`is_not_blocked\` (double negative).
-- Set/object rules: read like nouns — \`grants\`, \`roles\`, \`reasons\`.
+- Set/object rules: read like nouns -- \`grants\`, \`roles\`, \`reasons\`.
 - Helper rules: \`_\` prefix is *not* a convention; just give them names
   that explain what they return.
 
@@ -142,7 +142,7 @@ into compile errors instead of runtime undefineds.
 - **\`http.send\` in the decision path.** Each call adds round-trip
   latency. If you must, scope it to a small, cacheable read.
 - **Deep \`with\` chains.** \`x with input as ... with data as ...\` more
-  than two layers deep is a smell — the test is doing too much. Split.
+  than two layers deep is a smell -- the test is doing too much. Split.
 - **\`print\` and \`trace\`.** Useful in development; remove before
   shipping. Regal flags both as \`print-or-trace-call\`.
 - **Mixing \`if\` and the legacy implicit form in the same file.** Pick

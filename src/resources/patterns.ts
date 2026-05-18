@@ -8,7 +8,7 @@
 export const PATTERNS = `# Rego pattern library
 
 Common Rego patterns with working examples, tests, and pitfalls. Each
-pattern is self-contained — copy, adapt, and ship.
+pattern is self-contained -- copy, adapt, and ship.
 
 ---
 
@@ -25,7 +25,7 @@ import rego.v1
 
 default allow := false
 
-# Permissions table — extend as roles evolve.
+# Permissions table -- extend as roles evolve.
 permissions := {
     "admin": {"read", "write", "delete", "manage_users"},
     "editor": {"read", "write"},
@@ -37,7 +37,7 @@ allow if {
     input.action in permissions[role]
 }
 
-# Why was it denied? — useful for audit logs.
+# Why was it denied? -- useful for audit logs.
 deny_reasons contains reason if {
     not allow
     input.user
@@ -91,7 +91,7 @@ test_anonymous_denied if {
 
 ## 2. Attribute-based access control (ABAC)
 
-**When to use:** when "who" alone isn't enough — decisions also depend
+**When to use:** when "who" alone isn't enough -- decisions also depend
 on resource attributes (ownership, tenant, sensitivity) and context
 (time of day, source IP).
 
@@ -250,7 +250,7 @@ deny contains msg if {
 **Pitfalls:**
 - Terraform plan JSON is verbose and version-specific. Pin the
   \`terraform plan -json\` schema you target.
-- \`resource_changes[_].change.after\` may be \`null\` for destroys —
+- \`resource_changes[_].change.after\` may be \`null\` for destroys --
   guard against it.
 - For wide-radius changes, use \`opa exec --decision\` against a plan
   file in CI, not the live API.
@@ -270,7 +270,7 @@ import rego.v1
 
 default allow := false
 
-# Public endpoints — no auth required.
+# Public endpoints -- no auth required.
 public_endpoints := {
     {"method": "GET", "path": ["health"]},
     {"method": "GET", "path": ["version"]},
@@ -353,7 +353,7 @@ deny_reason := sprintf(
 **Pitfalls:**
 - \`data.requests\` grows unbounded unless the writer prunes outside the
   window. Schedule prune on every write.
-- This pattern is *advisory* — under load, two concurrent decisions
+- This pattern is *advisory* -- under load, two concurrent decisions
   can both see \`count == limit - 1\` and both allow. For strict
   limits, use a Lua/Redis token bucket at the gateway and have OPA
   validate the token, not count requests.
