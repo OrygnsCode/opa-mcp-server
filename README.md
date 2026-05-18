@@ -20,7 +20,7 @@ environment.
 +--------------------+   32 tools    +-----------------+                +------------------+
 ```
 
-> **Status:** v0.1.1. Tool surface, error codes, and
+> **Status:** v0.1.2. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
@@ -102,18 +102,8 @@ your client.
 
 ### Claude Desktop / Claude Code
 
-The fastest path is the Smithery one-liner:
-
-```bash
-npx -y @smithery/cli install @orygn/opa-mcp --client claude
-```
-
-Or download `opa-mcp.mcpb` from the
-[latest release](https://github.com/OrygnsCode/opa-mcp-server/releases/latest)
-and double-click it.
-
-If you prefer to edit `claude_desktop_config.json` by hand, the snippet
-lives in [`examples/claude-desktop.json`](./examples/claude-desktop.json):
+Edit `claude_desktop_config.json` directly (or copy from
+[`examples/claude-desktop.json`](./examples/claude-desktop.json)):
 
 ```json
 {
@@ -135,6 +125,16 @@ lives in [`examples/claude-desktop.json`](./examples/claude-desktop.json):
 > Replace the `/usr/local/bin/...` paths with your real ones. See the
 > [first-time install gotcha](#-first-time-install-gotcha-read-this-if-you-used-npx-or-the-global-install)
 > below. Windows users substitute `C:\\path\\to\\opa.exe`.
+
+Or download `opa-mcp.mcpb` from the
+[latest release](https://github.com/OrygnsCode/opa-mcp-server/releases/latest)
+and double-click it.
+
+Alternatively, use the Smithery one-liner:
+
+```bash
+npx -y @smithery/cli install @orygn/opa-mcp --client claude
+```
 
 ### Cursor
 
@@ -554,11 +554,10 @@ upgrade Regal: `brew upgrade regal` or download from the
 
 **`directory-package-mismatch` violation when linting inline source.**
 
-When you pass `source` rather than `paths` to `rego_lint`, Regal sees a
-randomized temp-file path that can't possibly match your declared package
-path. The diagnostic is an artifact of inline linting, not a real issue.
-Disable the rule for inline workflows or lint via `paths` against the
-real on-disk file when you want canonical signal.
+Since v0.1.1, the server auto-disables this rule for inline-source calls.
+If you see it, you are running an older version -- upgrade to v0.1.1 or
+later. To get canonical signal on this rule, lint via `paths` against the
+real on-disk file instead of passing `source` directly.
 
 **Where are the logs?**
 
