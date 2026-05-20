@@ -16,6 +16,7 @@ import { registerRegoFix } from './fix.js';
 import { registerRegoFormatWrite } from './format-write.js';
 import { registerRegoGenerateTestSkeleton } from './generate-test-skeleton.js';
 import { registerRegoInferInputSchema } from './infer-input-schema.js';
+import { registerRegoPolicyDiff } from './policy-diff.js';
 import { registerRegoSecurityAudit } from './security-audit.js';
 import { registerRegoSuggestFix } from './suggest-fix.js';
 
@@ -29,4 +30,5 @@ export function registerHelperTools(server: McpServer, config: Config): void {
   registerRegoInferInputSchema(server, config);
   registerRegoFix(server, config);
   registerRegoFormatWrite(server, config);
+  registerRegoPolicyDiff(server, config);
 }

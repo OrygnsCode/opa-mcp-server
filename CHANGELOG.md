@@ -19,6 +19,16 @@ not part of the public surface and may change in minor releases.
 
 ### Added
 
+- **`rego_policy_diff` tool.** Evaluates the same query against two policies
+  in parallel and compares the results. Returns `equal: true/false`,
+  `resultA` / `resultB` (the extracted expression values), and `changedPaths`
+  (dot/bracket JSON paths that differ, e.g. `["allow", "roles[0]"]`).
+  Each side accepts either inline source (`sourceA` / `sourceB`) or a file /
+  directory path (`pathA` / `pathB`). Supports `input`, `inputPath`, and
+  `dataPaths` for full evaluation context. Both evaluations run concurrently.
+  Exports `extractResultValue` and `diffValues` as standalone functions tested
+  in isolation.
+
 - **`rego_format_write` tool.** Runs `opa fmt --write` to canonically format
   one or more Rego files or directories in place. Uses a two-phase approach:
   `opa fmt --list` identifies which files would change and validates all files
