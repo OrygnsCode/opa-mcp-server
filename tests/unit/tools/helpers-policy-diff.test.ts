@@ -196,9 +196,13 @@ describe('rego_policy_diff tool', () => {
     });
     expect(env.ok).toBe(true);
     expect(env.data?.equal).toBe(false);
-    expect(env.data?.resultA).toBe(true);
-    expect(env.data?.resultB).toBeUndefined();
     expect(env.data?.changedPaths).toEqual(['.']);
+    // Both evals use inline source, so both go through withTempSource()'s async
+    // writeFile. With Promise.all the write completion order is non-deterministic
+    // across platforms -- assert the set of values rather than their assignment.
+    const results = [env.data?.resultA, env.data?.resultB];
+    expect(results).toContain(true);
+    expect(results).toContain(undefined);
   });
 
   it('returns equal: true when both sides return undefined (empty result)', async () => {
