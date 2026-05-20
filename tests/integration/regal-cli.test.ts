@@ -64,6 +64,32 @@ describe('RegalCli integration', () => {
     expect(printViolations).toHaveLength(0);
   });
 
+  it('bugs category surfaces real violations on a policy with known bugs', async () => {
+    // constant-condition and duplicate-rule are confirmed bugs-category violations in regal 0.30.0.
+    const source = [
+      'package bug_test',
+      'import rego.v1',
+      'always_true if { 1 == 1 }',
+      'foo if { input.x == 1 }',
+      'foo if { input.x == 1 }',
+    ].join('\n');
+    const result = await regal.lint({
+      source,
+      disableAll: true,
+      enableCategory: ['security', 'bugs'],
+    });
+    const parsed = JSON.parse(result.stdout) as {
+      violations?: Array<{ title?: string; category?: string }>;
+    };
+    const titles = (parsed.violations ?? []).map((v) => v.title);
+    expect(titles).toContain('constant-condition');
+    expect(titles).toContain('duplicate-rule');
+    // Every violation must be in the bugs category.
+    for (const v of parsed.violations ?? []) {
+      expect(v.category).toBe('bugs');
+    }
+  });
+
   // Read RBAC fixture to ensure the test file path resolution is right.
   it('fixture path is reachable', async () => {
     const source = await readFile(validRbacPath, 'utf8');

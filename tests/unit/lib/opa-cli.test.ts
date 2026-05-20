@@ -121,7 +121,12 @@ describe('OpaCli', () => {
     it('passes the target path positionally', async () => {
       await opa.inspect({ target: '/abs/bundle.tar.gz' });
       const [, opts] = mockRun.mock.calls[0]!;
-      expect(opts.args).toEqual(['inspect', '--format=json', '/abs/bundle.tar.gz']);
+      expect(opts.args).toEqual([
+        'inspect',
+        '--format=json',
+        '--annotations',
+        '/abs/bundle.tar.gz',
+      ]);
     });
   });
 

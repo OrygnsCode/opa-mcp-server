@@ -238,7 +238,7 @@ export class OpaCli {
    * packages, namespaces, manifest, and annotations as JSON on stdout.
    */
   async inspect(input: InspectInput): Promise<SpawnResult> {
-    return this.run(['inspect', '--format=json', input.target]);
+    return this.run(['inspect', '--format=json', '--annotations', input.target]);
   }
 
   /**

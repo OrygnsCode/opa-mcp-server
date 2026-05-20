@@ -97,7 +97,7 @@ const REMEDIATION_HINTS: Record<string, string> = {
     'The condition is always true or always false; remove it or fix the logic so the rule body reflects a real runtime check.',
   'deprecated-builtin':
     'Replace the deprecated builtin with its current equivalent before upgrading OPA, where deprecated functions may be removed.',
-  'duplicate-definition':
+  'duplicate-rule':
     'Remove the duplicate rule definition. Multiple conflicting definitions cause non-deterministic evaluation and can mask security gaps.',
   'impossible-if':
     'The rule condition can never be satisfied; it will never contribute to the decision. Review the logic for a typo or inverted condition.',
@@ -109,9 +109,9 @@ const REMEDIATION_HINTS: Record<string, string> = {
     'The import path does not match any package in the bundle. Remove or fix the import to ensure the policy loads correctly.',
   'unreachable-rule':
     'The rule can never be evaluated given the existing rules. It may represent dead code that masks a missing test case.',
-  'shadowing-builtin':
+  'rule-shadows-builtin':
     'Rename the local variable to avoid shadowing the OPA builtin. Shadowed builtins silently change semantics.',
-  'sprintf-formatting':
+  'sprintf-arguments-mismatch':
     'The sprintf format string and the number of arguments do not match. This produces undefined output at runtime.',
 };
 

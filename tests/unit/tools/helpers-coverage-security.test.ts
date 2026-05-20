@@ -402,6 +402,30 @@ describe('rego_security_audit', () => {
     expect(finding?.severity).toBe('high');
   });
 
+  it('attaches specific hints for real regal bugs-category rule names', async () => {
+    const cases: Array<{ title: string; match: RegExp }> = [
+      { title: 'duplicate-rule', match: /duplicate/ },
+      { title: 'rule-shadows-builtin', match: /shadow/i },
+      { title: 'sprintf-arguments-mismatch', match: /sprintf/i },
+    ];
+    for (const { title, match } of cases) {
+      const violation = {
+        title,
+        description: 'test',
+        category: 'bugs',
+        level: 'error',
+        location: { file: 'p.rego', row: 1, col: 1 },
+      };
+      mockRun.mockResolvedValueOnce(spawnFailure(3, '', mockLintResult([violation])));
+      const server = makeServer();
+      registerRegoSecurityAudit(server, baseConfig);
+      const env = await callTool<RegoSecurityAuditOutput>(server, 'rego_security_audit', {
+        paths: [fixturePath('policies', 'valid')],
+      });
+      expect(env.data?.findings[0]?.remediation).toMatch(match);
+    }
+  });
+
   it('attaches the default remediation hint for unknown rule titles', async () => {
     const unknownViolation = {
       title: 'some-brand-new-rule',
