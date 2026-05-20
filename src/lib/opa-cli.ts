@@ -29,6 +29,18 @@ export interface FmtInput {
   source: string;
 }
 
+/** Input for `opa fmt --list` / `opa fmt --write` (file-based formatting). */
+export interface FmtWriteInput {
+  /** Policy files or directories to format. */
+  paths: string[];
+  /** Format module(s) to be compatible with both Rego v1 and the current OPA version. */
+  regoV1?: boolean;
+  /** Opt-in to OPA behaviors prior to the v1.0 release. */
+  v0Compatible?: boolean;
+  /** Opt-in to OPA v1.0-compatible behaviors. */
+  v1Compatible?: boolean;
+}
+
 /** Input for `opa check`. */
 export interface CheckInput {
   /** Inline Rego source. Mutually exclusive with `paths`. */
@@ -201,6 +213,42 @@ export class OpaCli {
    */
   async fmt(input: FmtInput): Promise<SpawnResult> {
     return this.withTempSource(input.source, (path) => this.run(['fmt', path]));
+  }
+
+  /**
+   * List files that would be reformatted. Stdout is one absolute path per
+   * line for each file that is not already canonical. Exit 0 on success,
+   * non-zero (exit 2) if any file cannot be parsed.
+   *
+   * NOTE: --list and --write are mutually exclusive in OPA: passing both
+   * suppresses the write. Always use separate fmtList + fmtWrite calls.
+   */
+  async fmtList(input: FmtWriteInput): Promise<SpawnResult> {
+    if (input.paths.length === 0) {
+      throw new Error('opa fmt requires at least one path');
+    }
+    const args = ['fmt', '--list'];
+    if (input.regoV1) args.push('--rego-v1');
+    if (input.v0Compatible) args.push('--v0-compatible');
+    if (input.v1Compatible) args.push('--v1-compatible');
+    args.push(...input.paths);
+    return this.run(args);
+  }
+
+  /**
+   * Overwrite each file with its canonically formatted version. Exit 0 on
+   * success, non-zero (exit 2) if any file cannot be parsed.
+   */
+  async fmtWrite(input: FmtWriteInput): Promise<SpawnResult> {
+    if (input.paths.length === 0) {
+      throw new Error('opa fmt requires at least one path');
+    }
+    const args = ['fmt', '--write'];
+    if (input.regoV1) args.push('--rego-v1');
+    if (input.v0Compatible) args.push('--v0-compatible');
+    if (input.v1Compatible) args.push('--v1-compatible');
+    args.push(...input.paths);
+    return this.run(args);
   }
 
   /**

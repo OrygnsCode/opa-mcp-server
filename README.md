@@ -18,7 +18,7 @@ environment.
 +--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------+
 |  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal ·   |
 |   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API    |
-+--------------------+   37 tools    +-----------------+                +------------------+
++--------------------+   38 tools    +-----------------+                +------------------+
 ```
 
 > **Status:** v0.1.4. Tool surface, error codes, and
@@ -405,6 +405,7 @@ the tasks agents are actually asked to do.
 | `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.                                                                                                                                                                                                   |
 | `rego_infer_input_schema`     | Statically analyse a policy (or directory of policies) with `opa parse` and return a JSON Schema describing every `input.*` field the policy reads. No running OPA required. Correct starting point for writing integration tests or configuring `opa check --schema`.                                                                           |
 | `rego_fix`                    | Run `regal fix` to auto-apply mechanical fixes: `opa-fmt`, `use-rego-v1`, `use-assignment-operator`, `no-whitespace-comment`, and `directory-package-mismatch`. Use `dryRun: true` to preview changes first. Returns a per-file breakdown of which rules were applied and, for `directory-package-mismatch`, the new path the file was moved to. |
+| `rego_format_write`           | Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to list which files would change without modifying them. Validates all files parse successfully before writing any. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags. Only requires `opa`.                             |
 
 ### Category F: Meta
 

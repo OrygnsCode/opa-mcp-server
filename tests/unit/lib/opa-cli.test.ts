@@ -73,6 +73,66 @@ describe('OpaCli', () => {
     });
   });
 
+  describe('fmtList()', () => {
+    it('builds [fmt, --list, ...paths]', async () => {
+      await opa.fmtList({ paths: ['/abs/policy.rego'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args.slice(0, 2)).toEqual(['fmt', '--list']);
+      expect(args[args.length - 1]).toBe('/abs/policy.rego');
+    });
+
+    it('does not include --write', async () => {
+      await opa.fmtList({ paths: ['/abs/p.rego'] });
+      expect(mockRun.mock.calls[0]![1].args).not.toContain('--write');
+    });
+
+    it('adds --rego-v1 when set', async () => {
+      await opa.fmtList({ paths: ['/abs/p.rego'], regoV1: true });
+      expect(mockRun.mock.calls[0]![1].args).toContain('--rego-v1');
+    });
+
+    it('adds --v0-compatible and --v1-compatible when set', async () => {
+      await opa.fmtList({ paths: ['/abs/p.rego'], v0Compatible: true, v1Compatible: true });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args).toContain('--v0-compatible');
+      expect(args).toContain('--v1-compatible');
+    });
+
+    it('throws when paths is empty', async () => {
+      await expect(opa.fmtList({ paths: [] })).rejects.toThrow(/at least one path/);
+    });
+  });
+
+  describe('fmtWrite()', () => {
+    it('builds [fmt, --write, ...paths]', async () => {
+      await opa.fmtWrite({ paths: ['/abs/policy.rego'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args.slice(0, 2)).toEqual(['fmt', '--write']);
+      expect(args[args.length - 1]).toBe('/abs/policy.rego');
+    });
+
+    it('does not include --list', async () => {
+      await opa.fmtWrite({ paths: ['/abs/p.rego'] });
+      expect(mockRun.mock.calls[0]![1].args).not.toContain('--list');
+    });
+
+    it('adds --rego-v1 when set', async () => {
+      await opa.fmtWrite({ paths: ['/abs/p.rego'], regoV1: true });
+      expect(mockRun.mock.calls[0]![1].args).toContain('--rego-v1');
+    });
+
+    it('passes multiple paths as positional args', async () => {
+      await opa.fmtWrite({ paths: ['/abs/a.rego', '/abs/b.rego'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args[args.length - 2]).toBe('/abs/a.rego');
+      expect(args[args.length - 1]).toBe('/abs/b.rego');
+    });
+
+    it('throws when paths is empty', async () => {
+      await expect(opa.fmtWrite({ paths: [] })).rejects.toThrow(/at least one path/);
+    });
+  });
+
   describe('check()', () => {
     it('uses inline source via temp file when provided', async () => {
       await opa.check({ source: 'package y' });

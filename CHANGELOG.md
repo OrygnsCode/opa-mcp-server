@@ -19,6 +19,16 @@ not part of the public surface and may change in minor releases.
 
 ### Added
 
+- **`rego_format_write` tool.** Runs `opa fmt --write` to canonically format
+  one or more Rego files or directories in place. Uses a two-phase approach:
+  `opa fmt --list` identifies which files would change and validates all files
+  parse successfully; `opa fmt --write` then rewrites only the dirty files.
+  `dryRun: true` returns the list of files that would be reformatted without
+  touching the filesystem. Supports `regoV1`, `v0Compatible`, and
+  `v1Compatible` flags. If any file fails to parse the entire operation is
+  aborted so no partial writes occur. Returns `OPA_BINARY_NOT_FOUND` if the
+  `opa` binary is absent. Only requires `opa`; does not require `regal`.
+
 - **`rego_fix` tool.** Wraps `regal fix` to auto-apply fixes for the five
   rules regal 0.30.0 supports: `opa-fmt`, `use-rego-v1`,
   `use-assignment-operator`, `no-whitespace-comment`, and

@@ -215,4 +215,75 @@ describe('OpaCli integration', () => {
       expect(stat.length).toBeGreaterThan(0);
     });
   });
+
+  describe('fmtList()', () => {
+    it('returns exit 0 on a valid already-formatted fixture', async () => {
+      const result = await opa.fmtList({ paths: [validRbacPath] });
+      expect(result.exitCode).toBe(0);
+      expect(result.timedOut).toBe(false);
+    });
+
+    it('returns empty stdout when the file is already canonical', async () => {
+      // rbac.rego in fixtures is kept formatted; --list should produce no output.
+      const result = await opa.fmtList({ paths: [validRbacPath] });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('');
+    });
+
+    it('lists a dirty file in stdout', async () => {
+      const dirty = join(tmpWorkDir, 'dirty_list.rego');
+      // Unformatted: `allow=true` instead of `allow = true`
+      await writeFile(dirty, 'package fmt_list_test\nallow=true\n', 'utf8');
+      const result = await opa.fmtList({ paths: [dirty] });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('dirty_list.rego');
+    });
+
+    it('exits non-zero on a file that cannot be parsed', async () => {
+      const bad = join(tmpWorkDir, 'bad_fmt.rego');
+      await writeFile(bad, 'package bad\n[broken syntax', 'utf8');
+      const result = await opa.fmtList({ paths: [bad] });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toMatch(/rego_parse_error/);
+    });
+
+    it('throws when paths is empty', async () => {
+      await expect(opa.fmtList({ paths: [] })).rejects.toThrow(/at least one path/);
+    });
+  });
+
+  describe('fmtWrite()', () => {
+    it('formats a dirty file in place and exits 0', async () => {
+      const dirty = join(tmpWorkDir, 'dirty_write.rego');
+      await writeFile(dirty, 'package fmt_write_test\nallow=true\n', 'utf8');
+
+      const result = await opa.fmtWrite({ paths: [dirty] });
+      expect(result.exitCode).toBe(0);
+
+      const formatted = await readFile(dirty, 'utf8');
+      expect(formatted).toContain('allow = true');
+    });
+
+    it('exits 0 on an already-canonical file (no-op)', async () => {
+      const clean = join(tmpWorkDir, 'clean_write.rego');
+      await writeFile(
+        clean,
+        'package fmt_write_clean\nimport rego.v1\nallow if input.x == 1\n',
+        'utf8',
+      );
+      const result = await opa.fmtWrite({ paths: [clean] });
+      expect(result.exitCode).toBe(0);
+    });
+
+    it('exits non-zero on a file that cannot be parsed', async () => {
+      const bad = join(tmpWorkDir, 'bad_write.rego');
+      await writeFile(bad, 'package bad\n[broken syntax', 'utf8');
+      const result = await opa.fmtWrite({ paths: [bad] });
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('throws when paths is empty', async () => {
+      await expect(opa.fmtWrite({ paths: [] })).rejects.toThrow(/at least one path/);
+    });
+  });
 });
