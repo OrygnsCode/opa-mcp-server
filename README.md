@@ -4,6 +4,7 @@
 [![CodeQL](https://github.com/OrygnsCode/opa-mcp-server/actions/workflows/codeql.yml/badge.svg)](https://github.com/OrygnsCode/opa-mcp-server/actions/workflows/codeql.yml)
 [![npm version](https://img.shields.io/npm/v/@orygn/opa-mcp.svg)](https://www.npmjs.com/package/@orygn/opa-mcp)
 [![Docker pulls](https://img.shields.io/docker/pulls/orygn/opa-mcp.svg)](https://hub.docker.com/r/orygn/opa-mcp)
+[![OPA Ecosystem](https://img.shields.io/badge/OPA-ecosystem-blue.svg)](https://www.openpolicyagent.org/ecosystem/entry/opa-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/node/v/@orygn/opa-mcp.svg)](./package.json)
 
@@ -20,7 +21,7 @@ environment.
 +--------------------+   35 tools    +-----------------+                +------------------+
 ```
 
-> **Status:** v0.1.3. Tool surface, error codes, and
+> **Status:** v0.1.4. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
@@ -660,3 +661,5 @@ endorsed by, or sponsored by the Open Policy Agent project, the Cloud
 Native Computing Foundation, Styra, or Anthropic. "Open Policy Agent"
 and "Rego" are trademarks of their respective owners. "Model Context
 Protocol" is a trademark of Anthropic, PBC.
+
+Listed in the [OPA Ecosystem](https://www.openpolicyagent.org/ecosystem/entry/opa-mcp).

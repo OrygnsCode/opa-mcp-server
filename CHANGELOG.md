@@ -17,6 +17,31 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-05-20
+
+### Fixed
+
+- **`rego_inspect` never returned annotation data.** `opa inspect` was
+  invoked without the `--annotations` flag, so `# METADATA` block
+  contents were always absent from the output even though the tool's
+  output type declared them. The flag is now passed on every call.
+
+- **`rego_security_audit` remediation hints were keyed to wrong rule
+  titles.** Three entries in `REMEDIATION_HINTS` used names that do not
+  match real regal rule titles: `duplicate-definition` (actual:
+  `duplicate-rule`), `shadowing-builtin` (actual: `rule-shadows-builtin`),
+  and `sprintf-formatting` (actual: `sprintf-arguments-mismatch`). All
+  three keys are corrected; affected violations were silently falling
+  back to the generic remediation string instead of the specific guidance.
+
+### Tests
+
+- Added integration test (`regal-cli.test.ts`) that runs a policy
+  containing `constant-condition` and `duplicate-rule` against real
+  regal 0.30.0 and asserts both violation titles appear in the output.
+  Confirms the `bugs` category produces findings in the installed regal
+  version and that every returned violation carries `category: "bugs"`.
+
 ## [0.1.3] - 2026-05-18
 
 ### Added
@@ -192,7 +217,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.2
 [0.1.1]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.1
