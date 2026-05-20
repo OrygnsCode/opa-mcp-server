@@ -95,8 +95,8 @@ describe('rego_policy_diff integration (real OPA binary)', () => {
     });
     expect(env.ok).toBe(true);
     expect(env.data?.equal).toBe(false);
-    // A: undefined (superuser not allowed), B: true
-    expect(env.data?.resultA).toBeUndefined();
+    // A: false (default allow := false fires), B: true (superuser rule matches)
+    expect(env.data?.resultA).toBe(false);
     expect(env.data?.resultB).toBe(true);
   });
 
@@ -176,9 +176,11 @@ describe('extractResultValue() with real OPA output', () => {
   });
 
   it('returns undefined for an undefined query result', async () => {
+    // data.rbac.allow has a default so it always returns false, not undefined.
+    // Use a path that is genuinely absent from the policy to get an empty result.
     const result = await opa.eval({
       source: policyAdmin,
-      query: 'data.rbac.allow',
+      query: 'data.rbac.nonexistent',
       input: { role: 'nobody' },
     });
     expect(result.exitCode).toBe(0);
