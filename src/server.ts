@@ -14,6 +14,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { formatHelp, formatStartupBanner, formatVersion, parseCliArgs } from './cli.js';
+
 import { loadConfig, type Config } from './config.js';
 import { SERVER_NAME, SERVER_VERSION } from './constants.js';
 import { initLogger, logger } from './lib/logger.js';
@@ -105,6 +107,12 @@ export async function main(transport?: Transport): Promise<McpServer> {
   const config = loadConfig();
   const server = buildServer(config);
 
+  // Print the startup banner to stderr when running from a real terminal,
+  // not when a test passes in its own transport.
+  if (!transport) {
+    process.stderr.write(formatStartupBanner(config, process.stderr.isTTY === true) + '\n');
+  }
+
   const connectTo = transport ?? new StdioServerTransport();
   await server.connect(connectTo);
 
@@ -134,6 +142,19 @@ function isEntryPoint(): boolean {
 }
 
 if (isEntryPoint()) {
+  const { help, version } = parseCliArgs(process.argv.slice(2));
+  const col = process.stdout.isTTY === true;
+
+  if (help) {
+    process.stdout.write(formatHelp(col) + '\n');
+    process.exit(0);
+  }
+
+  if (version) {
+    process.stdout.write(formatVersion() + '\n');
+    process.exit(0);
+  }
+
   main().catch((cause: unknown) => {
     logger.error('fatal error in server entry', { error: cause });
     console.error('orygn-opa-mcp fatal error:', cause);
