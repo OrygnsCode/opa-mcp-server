@@ -150,6 +150,61 @@ describe('opa_bundle_build', () => {
     expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
   });
 
+  it('rejects claimsFile outside the allow-list', async () => {
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    const env = await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+      claimsFile: '/outside/claims.json',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects capabilities outside the allow-list', async () => {
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    const env = await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+      capabilities: '/outside/caps.json',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('passes resolved (absolute) paths for signingKey and claimsFile to opa build', async () => {
+    const signingKey = join(workDir, 'build-key.pem');
+    const claimsFile = join(workDir, 'build-claims.json');
+    await writeFile(signingKey, 'fake key');
+    await writeFile(claimsFile, '{}');
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+      signingKey,
+      claimsFile,
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    // Verify the resolved (real) paths appear in argv -- not some unresolved variant.
+    const skIdx = args.indexOf('--signing-key');
+    expect(skIdx).toBeGreaterThan(-1);
+    expect(args[skIdx + 1]).toBe(signingKey);
+    const cfIdx = args.indexOf('--claims-file');
+    expect(cfIdx).toBeGreaterThan(-1);
+    expect(args[cfIdx + 1]).toBe(claimsFile);
+  });
+
   it('maps missing binary to OPA_BINARY_NOT_FOUND', async () => {
     mockRun.mockResolvedValueOnce(spawnUnreachable());
     const server = makeServer();

@@ -115,10 +115,17 @@ export function registerRegoLint(server: McpServer, config: Config): void {
           resolvedPaths = validation.resolved;
         }
 
+        let resolvedConfigFile: string | undefined;
+        if (input.configFile) {
+          const v = validatePaths([input.configFile], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedConfigFile = v.resolved[0];
+        }
+
         const result = await regal.lint({
           source,
           paths: resolvedPaths,
-          configFile: input.configFile,
+          configFile: resolvedConfigFile,
           disable: input.disable,
           enable: input.enable,
           disableCategory: input.disableCategory,

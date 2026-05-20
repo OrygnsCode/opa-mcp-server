@@ -64,12 +64,26 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
         const sourcePaths = validation.resolved.slice(0, input.paths.length);
         const outputPath = validation.resolved[input.paths.length]!;
 
-        // Validate auxiliary files separately (they may live elsewhere).
-        for (const auxPath of [input.signingKey, input.claimsFile, input.capabilities]) {
-          if (auxPath) {
-            const auxValidation = validatePaths([auxPath], config, { mustExist: true });
-            if (!auxValidation.ok) return auxValidation.error;
-          }
+        // Validate auxiliary files and capture their resolved (realpath) forms.
+        let resolvedSigningKey: string | undefined;
+        if (input.signingKey) {
+          const v = validatePaths([input.signingKey], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedSigningKey = v.resolved[0];
+        }
+
+        let resolvedClaimsFile: string | undefined;
+        if (input.claimsFile) {
+          const v = validatePaths([input.claimsFile], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedClaimsFile = v.resolved[0];
+        }
+
+        let resolvedCapabilities: string | undefined;
+        if (input.capabilities) {
+          const v = validatePaths([input.capabilities], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedCapabilities = v.resolved[0];
         }
 
         const result = await opa.build({
@@ -79,10 +93,10 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
           revision: input.revision,
           target: input.target,
           entrypoints: input.entrypoints,
-          signingKey: input.signingKey,
+          signingKey: resolvedSigningKey,
           signingAlg: input.signingAlg,
-          claimsFile: input.claimsFile,
-          capabilities: input.capabilities,
+          claimsFile: resolvedClaimsFile,
+          capabilities: resolvedCapabilities,
         });
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');

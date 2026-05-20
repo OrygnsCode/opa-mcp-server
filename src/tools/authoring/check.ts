@@ -82,12 +82,26 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
           resolvedPaths = validation.resolved;
         }
 
+        let resolvedCapabilities: string | undefined;
+        if (capabilities) {
+          const v = validatePaths([capabilities], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedCapabilities = v.resolved[0];
+        }
+
+        let resolvedSchemaDir: string | undefined;
+        if (schemaDir) {
+          const v = validatePaths([schemaDir], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedSchemaDir = v.resolved[0];
+        }
+
         const result = await opa.check({
           source,
           paths: resolvedPaths,
           strict,
-          capabilities,
-          schemaDir,
+          capabilities: resolvedCapabilities,
+          schemaDir: resolvedSchemaDir,
         });
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');

@@ -214,4 +214,26 @@ describe('rego_fix tool', () => {
     expect(env.ok).toBe(false);
     expect((env as { error: { code: string } }).error.code).toBe('PATH_NOT_ALLOWED');
   });
+
+  it('rejects configFile outside allowed roots', async () => {
+    const server = makeServer();
+    registerRegoFix(server, baseConfig);
+    const env = await callTool(server, 'rego_fix', {
+      paths: [fixturePath('policies', 'valid')],
+      configFile: '/etc/regal/config.yaml',
+    });
+    expect(env.ok).toBe(false);
+    expect((env as { error: { code: string } }).error.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects a configFile that does not exist inside the allowed root', async () => {
+    const server = makeServer();
+    registerRegoFix(server, baseConfig);
+    const env = await callTool(server, 'rego_fix', {
+      paths: [fixturePath('policies', 'valid')],
+      configFile: fixturePath('nonexistent-fix-config.yaml'),
+    });
+    expect(env.ok).toBe(false);
+    expect((env as { error: { code: string } }).error.code).toBe('PATH_NOT_FOUND');
+  });
 });
