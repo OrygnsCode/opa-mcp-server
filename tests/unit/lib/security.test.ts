@@ -191,8 +191,9 @@ describe('validatePath — symlink traversal', () => {
 
       const result = validatePath(linkPath, [allowedRoot], { mustExist: true });
       expect(result.ok).toBe(true);
-      // resolved must be the real file, not the symlink path
-      expect(result.resolved).toBe(realFile);
+      // validatePath returns the syntactic resolved path (the symlink path),
+      // not the realpath target, for cross-OS compatibility.
+      expect(result.resolved).toBe(resolve(linkPath));
     },
   );
 });

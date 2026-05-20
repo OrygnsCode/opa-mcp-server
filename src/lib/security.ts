@@ -82,7 +82,12 @@ export function validatePath(
   // does not follow symlinks. A symlink inside an allowed root can point
   // arbitrarily outside. For any path that exists on disk, resolve the
   // real target and re-validate against the real allowed-root locations.
-  let finalPath = resolved;
+  //
+  // We validate via realpath but return `resolved` (the syntactic path)
+  // for backward compatibility across OSes where system directories are
+  // themselves symlinks (e.g. macOS /var -> /private/var). Callers pass
+  // the returned path to OPA/regal; the OS follows any remaining symlinks
+  // at read time, which is safe because we have verified the real target.
   if (existsSync(resolved)) {
     let realPath: string;
     try {
@@ -121,11 +126,9 @@ export function validatePath(
         ),
       };
     }
-
-    finalPath = realPath;
   }
 
-  return { ok: true, resolved: finalPath };
+  return { ok: true, resolved };
 }
 
 /** Convenience: returns true if the path is a directory (after validation). */
