@@ -17,6 +17,18 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **`rego_infer_input_schema` tool.** Statically analyses one or more Rego
+  policies using `opa parse --format=json` and returns a JSON Schema
+  (draft-07) object describing every `input.*` field the policies read.
+  String-keyed path components become nested object properties; variable
+  wildcards (array iteration like `input.users[_].role`) mark the parent
+  field as an `array` type. Also returns a sorted `inputPaths` list in
+  dot-notation (e.g. `["input.action", "input.user.role"]`) for quick
+  reference. Accepts inline `source`, individual files, or directories
+  (walked recursively for `*.rego` files). No running OPA server required.
+
 ## [0.1.4] - 2026-05-20
 
 ### Fixed

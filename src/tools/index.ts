@@ -25,7 +25,8 @@
  *                                   rego_describe_policy,
  *                                   rego_suggest_fix,
  *                                   rego_coverage_gaps,
- *                                   rego_security_audit
+ *                                   rego_security_audit,
+ *                                   rego_infer_input_schema
  *   Category F -- Meta:             mcp_server_info
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
