@@ -142,8 +142,15 @@ function isEntryPoint(): boolean {
 }
 
 if (isEntryPoint()) {
-  const { help, version } = parseCliArgs(process.argv.slice(2));
+  const { help, version, unknown } = parseCliArgs(process.argv.slice(2));
   const col = process.stdout.isTTY === true;
+
+  if (unknown.length > 0) {
+    process.stderr.write(
+      `opa-mcp: unknown flag: ${unknown[0]!}\nRun 'opa-mcp --help' for usage.\n`,
+    );
+    process.exit(1);
+  }
 
   if (help) {
     process.stdout.write(formatHelp(col) + '\n');

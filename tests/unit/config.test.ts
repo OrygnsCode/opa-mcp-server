@@ -159,7 +159,9 @@ describe('loadConfig — validation failures', () => {
 
     expect(() => loadConfig()).toThrow('process.exit called');
     expect(exitSpy).toHaveBeenCalledWith(2);
-    expect(errorSpy).toHaveBeenCalledWith('Invalid orygn-opa-mcp configuration:');
+    expect(errorSpy).toHaveBeenCalledWith('opa-mcp: invalid configuration');
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('OPA_URL'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('--help'));
   });
 
   it('exits with code 2 when OPA_MCP_TIMEOUT_MS is negative', () => {

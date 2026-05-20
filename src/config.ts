@@ -62,6 +62,19 @@ function parseAllowedPaths(raw: string | undefined): string[] | undefined {
   return parts.length > 0 ? parts : undefined;
 }
 
+const ENV_VAR_NAMES: Record<string, string> = {
+  opaUrl: 'OPA_URL',
+  opaToken: 'OPA_TOKEN',
+  opaBinary: 'OPA_BINARY',
+  regalBinary: 'REGAL_BINARY',
+  subprocessTimeoutMs: 'OPA_MCP_TIMEOUT_MS',
+  httpTimeoutMs: 'OPA_MCP_HTTP_TIMEOUT_MS',
+  allowedPaths: 'OPA_MCP_ALLOWED_PATHS',
+  logFile: 'OPA_MCP_LOG_FILE',
+  logLevel: 'OPA_MCP_LOG_LEVEL',
+  maxResponseBytes: 'OPA_MCP_MAX_RESPONSE_BYTES',
+};
+
 export function loadConfig(): Config {
   const allowedPaths = parseAllowedPaths(process.env['OPA_MCP_ALLOWED_PATHS']);
 
@@ -79,8 +92,16 @@ export function loadConfig(): Config {
   });
 
   if (!parsed.success) {
-    console.error('Invalid orygn-opa-mcp configuration:');
-    console.error(JSON.stringify(parsed.error.format(), null, 2));
+    console.error('opa-mcp: invalid configuration');
+    for (const issue of parsed.error.issues) {
+      const field = issue.path[0];
+      const envVar =
+        typeof field === 'string' && field in ENV_VAR_NAMES
+          ? ENV_VAR_NAMES[field]
+          : String(field ?? 'unknown');
+      console.error(`  ${envVar}: ${issue.message}`);
+    }
+    console.error("Run 'opa-mcp --help' for configuration options.");
     process.exit(2);
   }
 

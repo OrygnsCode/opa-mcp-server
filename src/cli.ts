@@ -111,8 +111,14 @@ export function formatStartupBanner(config: Config, col: boolean): string {
 
 // ─── Arg parser ───────────────────────────────────────────────────────────────
 
-export function parseCliArgs(argv: string[]): { help: boolean; version: boolean } {
+export function parseCliArgs(argv: string[]): {
+  help: boolean;
+  version: boolean;
+  unknown: string[];
+} {
+  const known = new Set(['--help', '-h', '--version', '-v']);
   const help = argv.includes('--help') || argv.includes('-h');
   const version = argv.includes('--version') || argv.includes('-v');
-  return { help, version };
+  const unknown = argv.filter((a) => a.startsWith('-') && !known.has(a));
+  return { help, version, unknown };
 }
