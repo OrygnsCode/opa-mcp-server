@@ -6,7 +6,7 @@
  * traversal attacks, edge-case input shapes, and platform-specific
  * resolution rules that the function has to get right.
  */
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -143,6 +143,59 @@ describe('validatePath — mustExist option', () => {
     const result = validatePath(futureFile, [allowedRoot], { mustExist: false });
     expect(result.ok).toBe(true);
   });
+});
+
+describe('validatePath — symlink traversal', () => {
+  // Symlink creation requires elevated rights on Windows (no developer mode).
+  // The fix is exercised on Linux/macOS where symlinks are unprivileged.
+  it.skipIf(process.platform === 'win32')(
+    'blocks a symlink inside the allowed root that points outside',
+    async () => {
+      // Create a target outside the allowed root.
+      const outsideDir = join(workDir, 'outside');
+      const outsideFile = join(outsideDir, 'secret.txt');
+      await mkdir(outsideDir, { recursive: true });
+      await writeFile(outsideFile, 'top secret', 'utf8');
+
+      // Create a symlink inside the allowed root pointing to the outside file.
+      const linkPath = join(allowedRoot, 'evil-link.rego');
+      await symlink(outsideFile, linkPath);
+
+      const result = validatePath(linkPath, [allowedRoot], { mustExist: true });
+      expect(result.ok).toBe(false);
+      expect(result.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'blocks a symlink to a directory outside the allowed root',
+    async () => {
+      const outsideDir = join(workDir, 'outside-dir');
+      await mkdir(outsideDir, { recursive: true });
+      await writeFile(join(outsideDir, 'data.json'), '{}', 'utf8');
+
+      const linkPath = join(allowedRoot, 'evil-dir-link');
+      await symlink(outsideDir, linkPath);
+
+      const result = validatePath(linkPath, [allowedRoot], { mustExist: true });
+      expect(result.ok).toBe(false);
+      expect(result.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'allows a symlink that points to a file still inside the allowed root',
+    async () => {
+      const linkPath = join(allowedRoot, 'safe-link.rego');
+      await symlink(realFile, linkPath);
+
+      const result = validatePath(linkPath, [allowedRoot], { mustExist: true });
+      expect(result.ok).toBe(true);
+      // validatePath returns the syntactic resolved path (the symlink path),
+      // not the realpath target, for cross-OS compatibility.
+      expect(result.resolved).toBe(resolve(linkPath));
+    },
+  );
 });
 
 describe('validatePath — path normalization', () => {

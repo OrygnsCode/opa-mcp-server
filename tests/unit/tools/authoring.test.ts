@@ -229,9 +229,10 @@ describe('rego_lint', () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ violations: [] })));
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
+    // configFile must exist and be inside an allowed root -- use any real fixture file.
     await callTool(server, 'rego_lint', {
-      source: 'package x',
-      configFile: '/abs/.regal.yaml',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+      configFile: fixturePath('inputs', 'rbac.json'),
       disable: ['print-or-trace-call'],
       enable: ['no-defined-rule'],
       disableCategory: ['style'],
@@ -541,5 +542,80 @@ describe('rego_deps', () => {
       ref: 'data.rbac.allow',
     });
     expect(env.error?.code).toBe('INVALID_REGO');
+  });
+});
+
+// ─── path-validation security tests ───────────────────────────────────────────
+// These are adversarial: they verify that newly-validated parameters cannot be
+// used to make tools read arbitrary files outside the allow-list.
+
+describe('rego_check -- capabilities and schemaDir path validation', () => {
+  it('rejects capabilities outside allowed roots', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check', {
+      source: 'package x',
+      capabilities: '/etc/opa-capabilities.json',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects schemaDir outside allowed roots', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check', {
+      source: 'package x',
+      schemaDir: '/etc/schemas',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects a capabilities file that does not exist inside the allowed root', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check', {
+      source: 'package x',
+      capabilities: fixturePath('nonexistent-caps.json'),
+    });
+    expect(env.error?.code).toBe('PATH_NOT_FOUND');
+  });
+
+  it('accepts capabilities and schemaDir inside the allowed root and passes resolved paths to opa', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const capsFile = fixturePath('inputs', 'rbac.json');
+    const schDir = fixturePath('policies', 'valid');
+    const env = await callTool<{ valid: boolean }>(server, 'rego_check', {
+      source: 'package x',
+      capabilities: capsFile,
+      schemaDir: schDir,
+    });
+    expect(env.ok).toBe(true);
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--capabilities');
+    expect(args).toContain('--schema');
+  });
+});
+
+describe('rego_lint -- configFile path validation', () => {
+  it('rejects configFile outside allowed roots', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_lint', {
+      source: 'package x',
+      configFile: '/etc/regal/config.yaml',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects a configFile that does not exist inside the allowed root', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_lint', {
+      source: 'package x',
+      configFile: fixturePath('nonexistent-config.yaml'),
+    });
+    expect(env.error?.code).toBe('PATH_NOT_FOUND');
   });
 });

@@ -134,9 +134,16 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
 
+        let resolvedConfigFile: string | undefined;
+        if (configFile) {
+          const v = validatePaths([configFile], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedConfigFile = v.resolved[0];
+        }
+
         const result = await regal.lint({
           paths: validation.resolved,
-          configFile,
+          configFile: resolvedConfigFile,
           ignoreFiles,
           // Start from zero rules and enable only security + bugs.
           disableAll: true,

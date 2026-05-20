@@ -535,4 +535,24 @@ describe('rego_security_audit', () => {
     expect(finding?.row).toBe(12);
     expect(finding?.col).toBe(5);
   });
+
+  it('rejects configFile outside allowed roots', async () => {
+    const server = makeServer();
+    registerRegoSecurityAudit(server, baseConfig);
+    const env = await callTool(server, 'rego_security_audit', {
+      paths: [fixturePath('policies', 'valid')],
+      configFile: '/etc/regal/config.yaml',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects a configFile that does not exist inside the allowed root', async () => {
+    const server = makeServer();
+    registerRegoSecurityAudit(server, baseConfig);
+    const env = await callTool(server, 'rego_security_audit', {
+      paths: [fixturePath('policies', 'valid')],
+      configFile: fixturePath('nonexistent-audit-config.yaml'),
+    });
+    expect(env.error?.code).toBe('PATH_NOT_FOUND');
+  });
 });
