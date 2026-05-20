@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-05-20
+
 ### Added
 
 - **`rego_policy_diff` tool.** Evaluates the same query against two policies
@@ -259,7 +261,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.2
