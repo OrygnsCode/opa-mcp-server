@@ -96,3 +96,37 @@ describe('RegalCli integration', () => {
     expect(source).toContain('package rbac');
   });
 });
+
+describe('RegalCli.fix() integration', () => {
+  it('dry-run on a fixture returns exit 0 and parseable text output', async () => {
+    // We always use --dry-run in integration tests so no files are modified.
+    // directory-package-mismatch is disabled to keep the output deterministic
+    // (that fix moves files, which depends on directory layout).
+    const result = await regal.fix({
+      paths: [validRbacPath],
+      dryRun: true,
+      disable: ['directory-package-mismatch'],
+    });
+    // regal fix exits 0 whether or not there are fixes to apply.
+    expect(result.exitCode).toBe(0);
+    expect(result.timedOut).toBe(false);
+    // Output must be one of the two known patterns.
+    const isValidOutput =
+      result.stdout.includes('fix') || result.stdout.trim() === 'No fixes to apply.';
+    expect(isValidOutput).toBe(true);
+  });
+
+  it('dry-run on a directory returns exit 0', async () => {
+    const dir = join(fixturesDir, 'policies', 'valid');
+    const result = await regal.fix({
+      paths: [dir],
+      dryRun: true,
+      disable: ['directory-package-mismatch'],
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('throws when paths array is empty', async () => {
+    await expect(regal.fix({ paths: [] })).rejects.toThrow(/at least one path/);
+  });
+});

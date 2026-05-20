@@ -19,6 +19,16 @@ not part of the public surface and may change in minor releases.
 
 ### Added
 
+- **`rego_fix` tool.** Wraps `regal fix` to auto-apply fixes for the five
+  rules regal 0.30.0 supports: `opa-fmt`, `use-rego-v1`,
+  `use-assignment-operator`, `no-whitespace-comment`, and
+  `directory-package-mismatch`. Accepts `dryRun: true` to preview what
+  would change without modifying files. Returns a structured per-file
+  summary -- which rules were fixed and, for `directory-package-mismatch`,
+  the new path the file was moved to. Passes `--no-color` always;
+  exposes `force`, `disable`, `enable`, `configFile`, and `ignoreFiles`
+  for full control. Requires regal; returns `REGAL_NOT_FOUND` if absent.
+
 - **`rego_infer_input_schema` tool.** Statically analyses one or more Rego
   policies using `opa parse --format=json` and returns a JSON Schema
   (draft-07) object describing every `input.*` field the policies read.

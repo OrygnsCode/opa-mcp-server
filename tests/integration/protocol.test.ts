@@ -109,10 +109,10 @@ afterEach(() => {
 // ─── tools/list ────────────────────────────────────────────────────────────
 
 describe('tools/list', () => {
-  it('returns all 36 registered tools with required protocol fields', async () => {
+  it('returns all 37 registered tools with required protocol fields', async () => {
     const { client } = await buildServerAndClient();
     const result = await client.listTools();
-    expect(result.tools).toHaveLength(36);
+    expect(result.tools).toHaveLength(37);
     for (const tool of result.tools) {
       expect(tool.name).toMatch(/^(rego_|opa_|mcp_)/);
       expect(typeof tool.description).toBe('string');

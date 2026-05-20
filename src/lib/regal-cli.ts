@@ -22,6 +22,32 @@ import { runBinary, type SpawnResult } from './subprocess.js';
  */
 export const INLINE_SOURCE_FALSE_POSITIVE_RULES = ['directory-package-mismatch'] as const;
 
+/** Input for `regal fix`. */
+export interface FixInput {
+  /** Policy files or directories to fix. */
+  paths: string[];
+  /** Preview changes without writing them. Use with the tool to check before committing. */
+  dryRun?: boolean;
+  /**
+   * Allow fixing files that have uncommitted git changes, or when the
+   * directory is not a git repository. Without this flag regal refuses
+   * to modify uncommitted files.
+   */
+  force?: boolean;
+  /** Path to a Regal config file. */
+  configFile?: string;
+  /** Disable specific named rules. */
+  disable?: string[];
+  /** Enable specific named rules. */
+  enable?: string[];
+  /** Disable entire rule categories. */
+  disableCategory?: string[];
+  /** Enable entire rule categories. */
+  enableCategory?: string[];
+  /** Glob patterns to skip. */
+  ignoreFiles?: string[];
+}
+
 /** Input for `regal lint`. */
 export interface LintInput {
   /** Inline Rego source. Mutually exclusive with `paths`. */
@@ -119,6 +145,30 @@ export class RegalCli {
       return this.withTempSource(input.source, (path) => this.run([...args, path]));
     }
     args.push(...(input.paths ?? []));
+    return this.run(args);
+  }
+
+  /**
+   * Auto-fix Rego violations for rules that support mechanical fixes.
+   * In regal 0.30.0 the fixable rules are: opa-fmt, use-rego-v1,
+   * use-assignment-operator, no-whitespace-comment, and
+   * directory-package-mismatch. Modifies files in place unless
+   * `dryRun` is set. Always passes `--no-color` to keep output parseable.
+   */
+  async fix(input: FixInput): Promise<SpawnResult> {
+    if (input.paths.length === 0) {
+      throw new Error('regal fix requires at least one path');
+    }
+    const args = ['fix', '--no-color'];
+    if (input.dryRun) args.push('--dry-run');
+    if (input.force) args.push('--force');
+    if (input.configFile) args.push('--config-file', input.configFile);
+    for (const rule of input.disable ?? []) args.push('--disable', rule);
+    for (const rule of input.enable ?? []) args.push('--enable', rule);
+    for (const cat of input.disableCategory ?? []) args.push('--disable-category', cat);
+    for (const cat of input.enableCategory ?? []) args.push('--enable-category', cat);
+    for (const pattern of input.ignoreFiles ?? []) args.push('--ignore-files', pattern);
+    args.push(...input.paths);
     return this.run(args);
   }
 

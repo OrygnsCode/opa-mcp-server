@@ -160,6 +160,63 @@ describe('RegalCli', () => {
     });
   });
 
+  describe('fix()', () => {
+    it('passes paths as positional args with --no-color', async () => {
+      await regal.fix({ paths: ['/abs/policy.rego'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args[0]).toBe('fix');
+      expect(args).toContain('--no-color');
+      expect(args[args.length - 1]).toBe('/abs/policy.rego');
+    });
+
+    it('adds --dry-run when dryRun is true', async () => {
+      await regal.fix({ paths: ['/abs/policy.rego'], dryRun: true });
+      expect(mockRun.mock.calls[0]![1].args).toContain('--dry-run');
+    });
+
+    it('adds --force when force is true', async () => {
+      await regal.fix({ paths: ['/abs/policy.rego'], force: true });
+      expect(mockRun.mock.calls[0]![1].args).toContain('--force');
+    });
+
+    it('omits --dry-run and --force when not set', async () => {
+      await regal.fix({ paths: ['/abs/policy.rego'] });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args).not.toContain('--dry-run');
+      expect(args).not.toContain('--force');
+    });
+
+    it('emits per-rule disable and enable flags', async () => {
+      await regal.fix({
+        paths: ['/abs/p'],
+        disable: ['directory-package-mismatch'],
+        enable: ['opa-fmt'],
+      });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args).toContain('--disable');
+      expect(args).toContain('directory-package-mismatch');
+      expect(args).toContain('--enable');
+      expect(args).toContain('opa-fmt');
+    });
+
+    it('emits --config-file and --ignore-files when set', async () => {
+      await regal.fix({
+        paths: ['/abs/p'],
+        configFile: '/abs/.regal.yaml',
+        ignoreFiles: ['vendor/**'],
+      });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args).toContain('--config-file');
+      expect(args).toContain('/abs/.regal.yaml');
+      expect(args).toContain('--ignore-files');
+      expect(args).toContain('vendor/**');
+    });
+
+    it('throws when paths is empty', async () => {
+      await expect(regal.fix({ paths: [] })).rejects.toThrow(/at least one path/);
+    });
+  });
+
   describe('run()', () => {
     it('uses the configured regal binary', async () => {
       const customRegal = new RegalCli({ ...baseConfig, regalBinary: '/custom/regal' });
