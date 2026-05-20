@@ -395,14 +395,14 @@ point at a reachable server.
 The differentiation surface. These compose lower-level primitives into
 the tasks agents are actually asked to do.
 
-| Tool                          | What it does                                                                                                                                          |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rego_explain_decision`       | Walk through every rule that fired (and didn't) for a given query. Wraps `rego_eval_with_explain` and produces a step-by-step natural-language trace. |
-| `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule.                                                                                  |
-| `rego_describe_policy`        | Summarize what a policy does, its inputs, decisions, and assumptions.                                                                                 |
-| `rego_suggest_fix`            | For a failed `rego_check` or `rego_lint`, propose minimal patches.                                                                                    |
-| `rego_coverage_gaps`          | Run `opa test --coverage` and return per-file uncovered line ranges, sorted worst first. Use `threshold` to focus on files below a target percentage. |
-| `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.        |
+| Tool                          | What it does                                                                                                                                                                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rego_explain_decision`       | Walk through every rule that fired (and didn't) for a given query. Wraps `rego_eval_with_explain` and produces a step-by-step natural-language trace.                                                                                                                  |
+| `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule.                                                                                                                                                                                                   |
+| `rego_describe_policy`        | Summarize what a policy does, its inputs, decisions, and assumptions.                                                                                                                                                                                                  |
+| `rego_suggest_fix`            | For a failed `rego_check` or `rego_lint`, propose minimal patches.                                                                                                                                                                                                     |
+| `rego_coverage_gaps`          | Run `opa test --coverage` and return per-file uncovered line ranges, sorted worst first. Use `threshold` to focus on files below a target percentage.                                                                                                                  |
+| `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.                                                                                                                         |
 | `rego_infer_input_schema`     | Statically analyse a policy (or directory of policies) with `opa parse` and return a JSON Schema describing every `input.*` field the policy reads. No running OPA required. Correct starting point for writing integration tests or configuring `opa check --schema`. |
 
 ### Category F: Meta
