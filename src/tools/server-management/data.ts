@@ -30,7 +30,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ path }) => {
+    async ({ path }, { signal }) => {
       return withToolEnvelope<{ result: unknown }>(config, async () => {
         const parsed = parseOpaDataPath(path);
         if (!parsed.ok) return parsed.error;
@@ -38,6 +38,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
           const data = await opa.request<{ result: unknown }>({
             method: 'GET',
             path: parsed.apiPath,
+            signal,
           });
           return ok({ result: data.result });
         } catch (e) {
@@ -63,7 +64,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ path, value }) => {
+    async ({ path, value }, { signal }) => {
       return withToolEnvelope<{ path: string; written: boolean }>(config, async () => {
         const parsed = parseOpaDataPath(path);
         if (!parsed.ok) return parsed.error;
@@ -72,6 +73,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
             method: 'PUT',
             path: parsed.apiPath,
             body: value,
+            signal,
           });
           return ok({ path, written: true });
         } catch (e) {
@@ -107,7 +109,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ path, operations }) => {
+    async ({ path, operations }, { signal }) => {
       return withToolEnvelope<{ path: string; patched: boolean }>(config, async () => {
         const parsed = parseOpaDataPath(path);
         if (!parsed.ok) return parsed.error;
@@ -117,6 +119,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
             path: parsed.apiPath,
             body: operations,
             headers: { 'Content-Type': 'application/json-patch+json' },
+            signal,
           });
           return ok({ path, patched: true });
         } catch (e) {
@@ -147,7 +150,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ path }) => {
+    async ({ path }, { signal }) => {
       return withToolEnvelope<{ path: string; deleted: boolean }>(config, async () => {
         const parsed = parseOpaDataPath(path);
         if (!parsed.ok) return parsed.error;
@@ -155,6 +158,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
           await opa.request({
             method: 'DELETE',
             path: parsed.apiPath,
+            signal,
           });
           return ok({ path, deleted: true });
         } catch (e) {

@@ -43,7 +43,7 @@ export function registerOpaBundleSign(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async (input) => {
+    async (input, { signal }) => {
       return withToolEnvelope<OpaBundleSignOutput>(config, async () => {
         const validation = validatePaths(
           [input.bundle, input.signingKey, ...(input.claimsFile ? [input.claimsFile] : [])],
@@ -52,12 +52,15 @@ export function registerOpaBundleSign(server: McpServer, config: Config): void {
         );
         if (!validation.ok) return validation.error;
 
-        const result = await opa.sign({
-          bundle: validation.resolved[0]!,
-          signingKey: validation.resolved[1]!,
-          signingAlg: input.signingAlg,
-          claimsFile: input.claimsFile ? validation.resolved[2] : undefined,
-        });
+        const result = await opa.sign(
+          {
+            bundle: validation.resolved[0]!,
+            signingKey: validation.resolved[1]!,
+            signingAlg: input.signingAlg,
+            claimsFile: input.claimsFile ? validation.resolved[2] : undefined,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

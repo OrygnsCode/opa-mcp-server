@@ -41,6 +41,11 @@ export function mapSubprocessFailure(
   result: SpawnResult,
   binary: 'opa' | 'regal',
 ): ToolEnvelope<never> | undefined {
+  if (result.aborted) {
+    return err('CANCELLED', 'Tool execution was cancelled by the client.', {
+      details: { durationMs: result.durationMs },
+    });
+  }
   if (result.exitCode === null) {
     const code: ToolErrorCode = binary === 'opa' ? 'OPA_BINARY_NOT_FOUND' : 'REGAL_NOT_FOUND';
     const hint =

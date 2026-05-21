@@ -31,7 +31,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ bundles, plugins }) => {
+    async ({ bundles, plugins }, { signal }) => {
       return withToolEnvelope<{ healthy: boolean }>(config, async () => {
         try {
           const query: Record<string, boolean> = {};
@@ -41,6 +41,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
             method: 'GET',
             path: '/health',
             query,
+            signal,
           });
           return ok({ healthy: true });
         } catch (e) {
@@ -70,14 +71,14 @@ export function registerStatusTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async () => {
+    async (_input, { signal }) => {
       return withToolEnvelope<{ status: unknown }>(config, async () => {
         try {
           // OPA's status comes back through /v1/config -- the same call as
           // opa_config, but presented with a simpler envelope here so an
           // agent can ask "what's running" without needing to know the
           // underlying shape of the response.
-          const status = await opa.request({ method: 'GET', path: '/v1/config' });
+          const status = await opa.request({ method: 'GET', path: '/v1/config', signal });
           return ok({ status });
         } catch (e) {
           return mapOpaClientError(e);
@@ -100,12 +101,13 @@ export function registerStatusTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async () => {
+    async (_input, { signal }) => {
       return withToolEnvelope<{ config: unknown }>(config, async () => {
         try {
           const data = await opa.request<{ result: unknown }>({
             method: 'GET',
             path: '/v1/config',
+            signal,
           });
           return ok({ config: data.result ?? data });
         } catch (e) {

@@ -19,6 +19,8 @@ export interface SpawnOptions {
   timeoutMs: number;
   /** Extra environment variables to merge into process.env. */
   env?: Record<string, string>;
+  /** External cancellation signal from the MCP client. */
+  signal?: AbortSignal;
 }
 
 export interface SpawnResult {
@@ -26,6 +28,8 @@ export interface SpawnResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /** True when the process was killed due to client cancellation. */
+  aborted: boolean;
   /** Time spent in milliseconds. */
   durationMs: number;
 }
@@ -36,6 +40,17 @@ export interface SpawnResult {
  */
 export async function runBinary(binary: string, opts: SpawnOptions): Promise<SpawnResult> {
   const start = Date.now();
+
+  if (opts.signal?.aborted) {
+    return {
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+      timedOut: false,
+      aborted: true,
+      durationMs: 0,
+    };
+  }
 
   return await new Promise<SpawnResult>((resolvePromise) => {
     const child = spawn(binary, opts.args, {
@@ -48,16 +63,31 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let timedOut = false;
+    let aborted = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const timer = setTimeout(() => {
-      timedOut = true;
+    const killChild = (): void => {
       child.kill('SIGTERM');
-      // SIGKILL escalation if SIGTERM is ignored.
       killTimer = setTimeout(() => {
         if (!child.killed) child.kill('SIGKILL');
       }, 2_000);
+    };
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killChild();
     }, opts.timeoutMs);
+
+    if (opts.signal) {
+      opts.signal.addEventListener(
+        'abort',
+        () => {
+          aborted = true;
+          killChild();
+        },
+        { once: true },
+      );
+    }
 
     const clearTimers = (): void => {
       clearTimeout(timer);
@@ -74,6 +104,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
         stdout: '',
         stderr: e.message,
         timedOut: false,
+        aborted,
         durationMs: Date.now() - start,
       });
     });
@@ -85,6 +116,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
         stdout: Buffer.concat(stdoutChunks).toString('utf8'),
         stderr: Buffer.concat(stderrChunks).toString('utf8'),
         timedOut,
+        aborted,
         durationMs: Date.now() - start,
       });
     });

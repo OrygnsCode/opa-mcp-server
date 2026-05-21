@@ -12,7 +12,7 @@ import type { RegoInferInputSchemaOutput } from '../../../src/tools/helpers/infe
 
 const mockRun = vi.mocked(runBinary);
 
-const okSpawn = { exitCode: 0, stdout: '', stderr: '', timedOut: false, durationMs: 1 };
+const okSpawn = { exitCode: 0, stdout: '', stderr: '', timedOut: false, aborted: false, durationMs: 1 };
 
 /** Build a minimal OPA parse AST containing the given input refs. */
 function makeParseAst(refs: Array<Array<{ type: 'string' | 'var'; value: string }>>): string {

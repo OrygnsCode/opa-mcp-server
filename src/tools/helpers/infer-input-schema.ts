@@ -175,7 +175,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
         openWorldHint: false,
       },
     },
-    async ({ source, paths }) => {
+    async ({ source, paths }, { signal }) => {
       return withToolEnvelope<RegoInferInputSchemaOutput>(config, async () => {
         if (source === undefined && (!paths || paths.length === 0)) {
           return err(
@@ -188,7 +188,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
         let filesAnalyzed = 0;
 
         if (source !== undefined) {
-          const result = await opa.parse({ source });
+          const result = await opa.parse({ source }, signal);
           const failure = mapSubprocessFailure(result, 'opa');
           if (failure) return failure;
           if (result.exitCode !== 0) {
@@ -214,7 +214,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
           }
 
           for (const filePath of filePaths) {
-            const result = await opa.run(['parse', '--format=json', filePath]);
+            const result = await opa.run(['parse', '--format=json', filePath], undefined, signal);
             const failure = mapSubprocessFailure(result, 'opa');
             if (failure) return failure;
             // Skip files that fail to parse (e.g. test files with syntax issues)

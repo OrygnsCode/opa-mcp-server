@@ -35,12 +35,13 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async () => {
+    async (_input, { signal }) => {
       return withToolEnvelope<{ policies: OpaPolicyRecord[] }>(config, async () => {
         try {
           const data = await opa.request<{ result: OpaPolicyRecord[] }>({
             method: 'GET',
             path: '/v1/policies',
+            signal,
           });
           return ok({ policies: data.result ?? [] });
         } catch (e) {
@@ -65,12 +66,13 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ id }) => {
+    async ({ id }, { signal }) => {
       return withToolEnvelope<{ policy: OpaPolicyRecord }>(config, async () => {
         try {
           const data = await opa.request<{ result: OpaPolicyRecord }>({
             method: 'GET',
             path: `/v1/policies/${encodeURIComponent(id)}`,
+            signal,
           });
           return ok({ policy: data.result });
         } catch (e) {
@@ -97,7 +99,7 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ id, source }) => {
+    async ({ id, source }, { signal }) => {
       return withToolEnvelope<{ id: string; replaced: boolean }>(config, async () => {
         try {
           await opa.request({
@@ -105,6 +107,7 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
             path: `/v1/policies/${encodeURIComponent(id)}`,
             rawBody: source,
             rawContentType: 'text/plain',
+            signal,
           });
           return ok({ id, replaced: true });
         } catch (e) {
@@ -129,12 +132,13 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ id }) => {
+    async ({ id }, { signal }) => {
       return withToolEnvelope<{ id: string; deleted: boolean }>(config, async () => {
         try {
           await opa.request({
             method: 'DELETE',
             path: `/v1/policies/${encodeURIComponent(id)}`,
+            signal,
           });
           return ok({ id, deleted: true });
         } catch (e) {

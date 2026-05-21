@@ -28,8 +28,8 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async (args) => {
-      return withToolEnvelope<RegoEvalOutput>(config, () => runEval(opa, config, args, {}));
+    async (args, { signal }) => {
+      return withToolEnvelope<RegoEvalOutput>(config, () => runEval(opa, config, args, {}, signal));
     },
   );
 
@@ -47,9 +47,9 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async (args) => {
+    async (args, { signal }) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>
-        runEval(opa, config, args, { explain: 'full' }),
+        runEval(opa, config, args, { explain: 'full' }, signal),
       );
     },
   );
@@ -68,9 +68,9 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async (args) => {
+    async (args, { signal }) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>
-        runEval(opa, config, args, { profile: true, metrics: true }),
+        runEval(opa, config, args, { profile: true, metrics: true }, signal),
       );
     },
   );
@@ -89,9 +89,9 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async (args) => {
+    async (args, { signal }) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>
-        runEval(opa, config, args, { coverage: true }),
+        runEval(opa, config, args, { coverage: true }, signal),
       );
     },
   );

@@ -68,17 +68,20 @@ export function registerRegoTest(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ paths, verbose, coverage, runPattern }) => {
+    async ({ paths, verbose, coverage, runPattern }, { signal }) => {
       return withToolEnvelope<RegoTestOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
 
-        const result = await opa.test({
-          paths: validation.resolved,
-          verbose,
-          coverage,
-          runPattern,
-        });
+        const result = await opa.test(
+          {
+            paths: validation.resolved,
+            verbose,
+            coverage,
+            runPattern,
+          },
+          signal,
+        );
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
 

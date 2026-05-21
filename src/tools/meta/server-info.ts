@@ -39,11 +39,11 @@ export function registerMcpServerInfo(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async () => {
+    async (_input, { signal }) => {
       return withToolEnvelope<McpServerInfoOutput>(config, async () => {
         const [opaVersion, regalVersion] = await Promise.all([
-          opa.version().catch(() => null),
-          regal.version().catch(() => null),
+          opa.version(signal).catch(() => null),
+          regal.version(signal).catch(() => null),
         ]);
 
         return ok<McpServerInfoOutput>({

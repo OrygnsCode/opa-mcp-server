@@ -4,7 +4,12 @@
  * envelope contract defines.
  */
 import { err } from '../../lib/errors.js';
-import { OpaAuthError, OpaHttpError, OpaUnreachableError } from '../../lib/opa-client.js';
+import {
+  OpaAuthError,
+  OpaCancelledError,
+  OpaHttpError,
+  OpaUnreachableError,
+} from '../../lib/opa-client.js';
 import type { ToolEnvelope, ToolErrorCode } from '../../types.js';
 
 /**
@@ -41,6 +46,9 @@ export function mapOpaClientError(
   e: unknown,
   notFoundCode: ToolErrorCode = 'UNKNOWN_ERROR',
 ): ToolEnvelope<never> {
+  if (e instanceof OpaCancelledError) {
+    return err('CANCELLED', 'OPA request was cancelled by the client.');
+  }
   if (e instanceof OpaUnreachableError) {
     return err('OPA_UNREACHABLE', `OPA server unreachable at ${e.url}`, {
       hint: 'Confirm OPA_URL points at a running OPA server (e.g. `curl $OPA_URL/health`).',

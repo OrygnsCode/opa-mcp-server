@@ -135,7 +135,7 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
         openWorldHint: false,
       },
     },
-    async ({ paths, configFile, ignoreFiles }) => {
+    async ({ paths, configFile, ignoreFiles }, { signal }) => {
       return withToolEnvelope<RegoSecurityAuditOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
@@ -147,16 +147,19 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
           resolvedConfigFile = v.resolved[0];
         }
 
-        const result = await regal.lint({
-          paths: validation.resolved,
-          configFile: resolvedConfigFile,
-          ignoreFiles,
-          // Start from zero rules and enable only security + bugs.
-          disableAll: true,
-          enableCategory: ['security', 'bugs'],
-          // Fail on errors only; warnings are still surfaced in JSON.
-          failLevel: 'error',
-        });
+        const result = await regal.lint(
+          {
+            paths: validation.resolved,
+            configFile: resolvedConfigFile,
+            ignoreFiles,
+            // Start from zero rules and enable only security + bugs.
+            disableAll: true,
+            enableCategory: ['security', 'bugs'],
+            // Fail on errors only; warnings are still surfaced in JSON.
+            failLevel: 'error',
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'regal');
         if (subprocessFailure) return subprocessFailure;

@@ -95,7 +95,7 @@ export function registerRegoLint(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async (input) => {
+    async (input, { signal }) => {
       return withToolEnvelope<RegoLintOutput>(config, async () => {
         const { source, paths } = input;
         if (!source && !paths?.length) {
@@ -122,17 +122,20 @@ export function registerRegoLint(server: McpServer, config: Config): void {
           resolvedConfigFile = v.resolved[0];
         }
 
-        const result = await regal.lint({
-          source,
-          paths: resolvedPaths,
-          configFile: resolvedConfigFile,
-          disable: input.disable,
-          enable: input.enable,
-          disableCategory: input.disableCategory,
-          enableCategory: input.enableCategory,
-          failLevel: input.failLevel,
-          ignoreFiles: input.ignoreFiles,
-        });
+        const result = await regal.lint(
+          {
+            source,
+            paths: resolvedPaths,
+            configFile: resolvedConfigFile,
+            disable: input.disable,
+            enable: input.enable,
+            disableCategory: input.disableCategory,
+            enableCategory: input.enableCategory,
+            failLevel: input.failLevel,
+            ignoreFiles: input.ignoreFiles,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'regal');
         if (subprocessFailure) return subprocessFailure;

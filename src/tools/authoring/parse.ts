@@ -39,9 +39,9 @@ export function registerRegoParseAst(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source }) => {
+    async ({ source }, { signal }) => {
       return withToolEnvelope<RegoParseAstOutput>(config, async () => {
-        const result = await opa.parse({ source });
+        const result = await opa.parse({ source }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

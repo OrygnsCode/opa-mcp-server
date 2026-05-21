@@ -92,8 +92,8 @@ export class RegalCli {
    * Verify the binary is present and report its version. Returns null
    * if the binary is unreachable or output is malformed.
    */
-  async version(): Promise<string | null> {
-    const result = await this.run(['version']);
+  async version(signal?: AbortSignal): Promise<string | null> {
+    const result = await this.run(['version'], signal);
     if (result.exitCode !== 0) return null;
     const match =
       /Version:\s*(\S+)/i.exec(result.stdout) ?? /v?(\d+\.\d+\.\d+\S*)/i.exec(result.stdout);
@@ -116,7 +116,7 @@ export class RegalCli {
    * randomized temp-file path makes those rules false positives.
    * Callers that want them anyway can re-enable via `enable`.
    */
-  async lint(input: LintInput): Promise<SpawnResult> {
+  async lint(input: LintInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (!input.source && !input.paths?.length) {
       throw new Error('regal lint requires either source or at least one path');
     }
@@ -142,10 +142,10 @@ export class RegalCli {
     for (const pattern of input.ignoreFiles ?? []) args.push('--ignore-files', pattern);
 
     if (input.source !== undefined) {
-      return this.withTempSource(input.source, (path) => this.run([...args, path]));
+      return this.withTempSource(input.source, (path) => this.run([...args, path], signal));
     }
     args.push(...(input.paths ?? []));
-    return this.run(args);
+    return this.run(args, signal);
   }
 
   /**
@@ -155,7 +155,7 @@ export class RegalCli {
    * directory-package-mismatch. Modifies files in place unless
    * `dryRun` is set. Always passes `--no-color` to keep output parseable.
    */
-  async fix(input: FixInput): Promise<SpawnResult> {
+  async fix(input: FixInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.paths.length === 0) {
       throw new Error('regal fix requires at least one path');
     }
@@ -169,18 +169,19 @@ export class RegalCli {
     for (const cat of input.enableCategory ?? []) args.push('--enable-category', cat);
     for (const pattern of input.ignoreFiles ?? []) args.push('--ignore-files', pattern);
     args.push(...input.paths);
-    return this.run(args);
+    return this.run(args, signal);
   }
 
   /**
    * Run `regal` with the given argv. Tools should prefer the typed
    * methods above; this is the escape hatch.
    */
-  async run(args: string[]): Promise<SpawnResult> {
+  async run(args: string[], signal?: AbortSignal): Promise<SpawnResult> {
     const opts: Parameters<typeof runBinary>[1] = {
       args,
       timeoutMs: this.config.subprocessTimeoutMs,
     };
+    if (signal !== undefined) opts.signal = signal;
     return runBinary(this.config.regalBinary, opts);
   }
 

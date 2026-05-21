@@ -57,7 +57,7 @@ export function registerRegoBench(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ query, paths, input, inputPath, count }) => {
+    async ({ query, paths, input, inputPath, count }, { signal }) => {
       return withToolEnvelope<RegoBenchOutput>(config, async () => {
         if (input !== undefined && inputPath) {
           return err(
@@ -78,13 +78,16 @@ export function registerRegoBench(server: McpServer, config: Config): void {
           resolvedInputPath = validation.resolved[0];
         }
 
-        const result = await opa.bench({
-          query,
-          paths: resolvedPaths,
-          input,
-          inputPath: resolvedInputPath,
-          count,
-        });
+        const result = await opa.bench(
+          {
+            query,
+            paths: resolvedPaths,
+            input,
+            inputPath: resolvedInputPath,
+            count,
+          },
+          signal,
+        );
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
 

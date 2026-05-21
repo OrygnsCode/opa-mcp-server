@@ -66,7 +66,7 @@ export function registerOpaBundleVerify(server: McpServer, config: Config): void
         openWorldHint: false,
       },
     },
-    async (input) => {
+    async (input, { signal }) => {
       return withToolEnvelope<OpaBundleVerifyOutput>(config, async () => {
         const validation = validatePaths([input.bundle, input.verificationKey], config, {
           mustExist: true,
@@ -75,13 +75,16 @@ export function registerOpaBundleVerify(server: McpServer, config: Config): void
 
         const [resolvedBundle, resolvedKey] = validation.resolved;
 
-        const result = await opa.bundleVerify({
-          bundle: resolvedBundle!,
-          verificationKey: resolvedKey!,
-          verificationKeyId: input.verificationKeyId,
-          signingAlg: input.signingAlg,
-          scope: input.scope,
-        });
+        const result = await opa.bundleVerify(
+          {
+            bundle: resolvedBundle!,
+            verificationKey: resolvedKey!,
+            verificationKeyId: input.verificationKeyId,
+            signingAlg: input.signingAlg,
+            scope: input.scope,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

@@ -78,6 +78,7 @@ export async function runEval(
   config: Config,
   args: EvalArgs,
   flags: EvalFlags,
+  signal?: AbortSignal,
 ): Promise<ToolEnvelope<RegoEvalOutput>> {
   if (!args.source && !args.paths?.length) {
     return err(
@@ -123,7 +124,7 @@ export async function runEval(
   if (flags.coverage) evalInput.coverage = true;
   if (flags.metrics) evalInput.metrics = true;
 
-  const result = await opa.eval(evalInput);
+  const result = await opa.eval(evalInput, signal);
 
   const subprocessFailure = mapSubprocessFailure(result, 'opa');
   if (subprocessFailure) return subprocessFailure;

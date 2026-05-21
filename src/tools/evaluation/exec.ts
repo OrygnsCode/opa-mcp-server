@@ -87,7 +87,7 @@ export function registerOpaExec(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ inputPaths, decision, bundle, dataPaths }) => {
+    async ({ inputPaths, decision, bundle, dataPaths }, { signal }) => {
       return withToolEnvelope<OpaExecOutput>(config, async () => {
         if (bundle && dataPaths?.length) {
           return err(
@@ -116,12 +116,15 @@ export function registerOpaExec(server: McpServer, config: Config): void {
           resolvedDataPaths = v.resolved;
         }
 
-        const result = await opa.exec({
-          inputPaths: inputValidation.resolved,
-          decision,
-          bundle: resolvedBundle,
-          dataPaths: resolvedDataPaths,
-        });
+        const result = await opa.exec(
+          {
+            inputPaths: inputValidation.resolved,
+            decision,
+            bundle: resolvedBundle,
+            dataPaths: resolvedDataPaths,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

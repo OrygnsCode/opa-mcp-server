@@ -186,7 +186,7 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
         openWorldHint: false,
       },
     },
-    async ({ sourceA, pathA, sourceB, pathB, query, input, inputPath, dataPaths }) => {
+    async ({ sourceA, pathA, sourceB, pathB, query, input, inputPath, dataPaths }, { signal }) => {
       return withToolEnvelope<RegoPolicyDiffOutput>(config, async () => {
         // ── Input validation ──────────────────────────────────────────────
         if (sourceA === undefined && pathA === undefined) {
@@ -252,7 +252,10 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
             : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathB!] };
 
         // ── Run both evals in parallel ─────────────────────────────────────
-        const [resultA, resultB] = await Promise.all([opa.eval(evalInputA), opa.eval(evalInputB)]);
+        const [resultA, resultB] = await Promise.all([
+          opa.eval(evalInputA, signal),
+          opa.eval(evalInputB, signal),
+        ]);
 
         // ── Error mapping (check A first, then B) ─────────────────────────
         const binaryFailure = mapSubprocessFailure(resultA, 'opa');

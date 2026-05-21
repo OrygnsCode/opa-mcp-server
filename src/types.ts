@@ -21,6 +21,7 @@ export type ToolErrorCode =
   | 'NO_TESTS_FOUND'
   | 'HTTP_SEND_BLOCKED'
   | 'TIMEOUT'
+  | 'CANCELLED'
   | 'UNKNOWN_ERROR';
 
 /** Structured error payload. */

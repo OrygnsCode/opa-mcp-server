@@ -100,9 +100,9 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
         openWorldHint: false,
       },
     },
-    async ({ source }) => {
+    async ({ source }, { signal }) => {
       return withToolEnvelope<RegoGenerateTestSkeletonOutput>(config, async () => {
-        const result = await opa.parse({ source });
+        const result = await opa.parse({ source }, signal);
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
         if (result.exitCode !== 0) {

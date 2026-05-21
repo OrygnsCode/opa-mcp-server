@@ -69,10 +69,10 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source }) => {
+    async ({ source }, { signal }) => {
       return withToolEnvelope<RegoMigrateV1Output>(config, async () => {
         // Phase 1: migrate syntax with opa fmt --rego-v1.
-        const fmtResult = await opa.fmt({ source, regoV1: true });
+        const fmtResult = await opa.fmt({ source, regoV1: true }, signal);
 
         const fmtFailure = mapSubprocessFailure(fmtResult, 'opa');
         if (fmtFailure) return fmtFailure;
@@ -92,7 +92,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         const changed = migrated !== source;
 
         // Phase 2: validate the migrated source in v1-compatible mode.
-        const checkResult = await opa.check({ source: migrated, v1Compatible: true });
+        const checkResult = await opa.check({ source: migrated, v1Compatible: true }, signal);
 
         const checkFailure = mapSubprocessFailure(checkResult, 'opa');
         if (checkFailure) return checkFailure;

@@ -238,8 +238,8 @@ export class OpaCli {
    * Verify the binary is present and report its version.
    * Returns null if the binary is unreachable or output is malformed.
    */
-  async version(): Promise<string | null> {
-    const result = await this.run(['version']);
+  async version(signal?: AbortSignal): Promise<string | null> {
+    const result = await this.run(['version'], undefined, signal);
     if (result.exitCode !== 0) return null;
     const match = /Version:\s*(\S+)/i.exec(result.stdout);
     return match?.[1] ?? null;
@@ -252,10 +252,12 @@ export class OpaCli {
    * `exitCode: 0` even when no changes are needed -- callers compare
    * input vs output to detect a no-op.
    */
-  async fmt(input: FmtInput): Promise<SpawnResult> {
+  async fmt(input: FmtInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['fmt'];
     if (input.regoV1) args.push('--rego-v1');
-    return this.withTempSource(input.source, (path) => this.run([...args, path]));
+    return this.withTempSource(input.source, (path) =>
+      this.run([...args, path], undefined, signal),
+    );
   }
 
   /**
@@ -266,7 +268,7 @@ export class OpaCli {
    * NOTE: --list and --write are mutually exclusive in OPA: passing both
    * suppresses the write. Always use separate fmtList + fmtWrite calls.
    */
-  async fmtList(input: FmtWriteInput): Promise<SpawnResult> {
+  async fmtList(input: FmtWriteInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.paths.length === 0) {
       throw new Error('opa fmt requires at least one path');
     }
@@ -275,14 +277,14 @@ export class OpaCli {
     if (input.v0Compatible) args.push('--v0-compatible');
     if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.paths);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
    * Overwrite each file with its canonically formatted version. Exit 0 on
    * success, non-zero (exit 2) if any file cannot be parsed.
    */
-  async fmtWrite(input: FmtWriteInput): Promise<SpawnResult> {
+  async fmtWrite(input: FmtWriteInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.paths.length === 0) {
       throw new Error('opa fmt requires at least one path');
     }
@@ -291,7 +293,7 @@ export class OpaCli {
     if (input.v0Compatible) args.push('--v0-compatible');
     if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.paths);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
@@ -302,7 +304,7 @@ export class OpaCli {
    * diagnostics). Either inline `source` or one or more `paths` must be
    * provided.
    */
-  async check(input: CheckInput): Promise<SpawnResult> {
+  async check(input: CheckInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (!input.source && !input.paths?.length) {
       throw new Error('opa check requires either source or at least one path');
     }
@@ -313,25 +315,29 @@ export class OpaCli {
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     if (input.schemaDir) args.push('--schema', input.schemaDir);
     if (input.source !== undefined) {
-      return this.withTempSource(input.source, (path) => this.run([...args, path]));
+      return this.withTempSource(input.source, (path) =>
+        this.run([...args, path], undefined, signal),
+      );
     }
     args.push(...(input.paths ?? []));
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
    * Parse Rego source to a JSON AST. Stdout is the AST as JSON.
    */
-  async parse(input: ParseInput): Promise<SpawnResult> {
-    return this.withTempSource(input.source, (path) => this.run(['parse', '--format=json', path]));
+  async parse(input: ParseInput, signal?: AbortSignal): Promise<SpawnResult> {
+    return this.withTempSource(input.source, (path) =>
+      this.run(['parse', '--format=json', path], undefined, signal),
+    );
   }
 
   /**
    * Inspect a bundle, directory, or single Rego file. Returns its
    * packages, namespaces, manifest, and annotations as JSON on stdout.
    */
-  async inspect(input: InspectInput): Promise<SpawnResult> {
-    return this.run(['inspect', '--format=json', '--annotations', input.target]);
+  async inspect(input: InspectInput, signal?: AbortSignal): Promise<SpawnResult> {
+    return this.run(['inspect', '--format=json', '--annotations', input.target], undefined, signal);
   }
 
   /**
@@ -340,18 +346,18 @@ export class OpaCli {
    * a specific named version. Without either, lists available named
    * versions.
    */
-  async capabilities(input: CapabilitiesInput = {}): Promise<SpawnResult> {
+  async capabilities(input: CapabilitiesInput = {}, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['capabilities'];
     if (input.current) args.push('--current');
     if (input.version) args.push('--version', input.version);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
    * Static dependency analysis for a Rego ref. Stdout is JSON with the
    * `base` and `virtual` document references the ref depends on.
    */
-  async deps(input: DepsInput): Promise<SpawnResult> {
+  async deps(input: DepsInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.paths.length === 0) {
       throw new Error('opa deps requires at least one path');
     }
@@ -360,7 +366,7 @@ export class OpaCli {
       args.push('--data', path);
     }
     args.push(input.ref);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   // ─── Evaluation ──────────────────────────────────────────────────────
@@ -370,16 +376,19 @@ export class OpaCli {
    * standard `{result: [...]}` shape (plus optional explain, profile,
    * coverage, and metrics sections).
    */
-  async eval(input: EvalInput): Promise<SpawnResult> {
+  async eval(input: EvalInput, signal?: AbortSignal): Promise<SpawnResult> {
     // Inline source becomes a temp file added to --data.
     if (input.source !== undefined) {
       const { source, ...rest } = input;
       void source;
       return this.withTempSource(input.source, (sourcePath) =>
-        this.eval({
-          ...rest,
-          paths: [...(input.paths ?? []), sourcePath],
-        }),
+        this.eval(
+          {
+            ...rest,
+            paths: [...(input.paths ?? []), sourcePath],
+          },
+          signal,
+        ),
       );
     }
 
@@ -404,13 +413,13 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin);
+    return this.run(args, stdin, signal);
   }
 
   /**
    * Run Rego unit tests. Stdout is JSON with per-test pass/fail.
    */
-  async test(input: TestInput): Promise<SpawnResult> {
+  async test(input: TestInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.paths.length === 0) {
       throw new Error('opa test requires at least one path');
     }
@@ -420,13 +429,13 @@ export class OpaCli {
     if (input.bench) args.push('--bench');
     if (input.runPattern) args.push('--run', input.runPattern);
     args.push(...input.paths);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
    * Benchmark a query. Stdout is JSON with iteration timing statistics.
    */
-  async bench(input: BenchInput): Promise<SpawnResult> {
+  async bench(input: BenchInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['bench', '--format=json'];
     for (const path of input.paths ?? []) args.push('--data', path);
     if (input.inputPath) args.push('--input', input.inputPath);
@@ -439,13 +448,13 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin);
+    return this.run(args, stdin, signal);
   }
 
   // ─── Bundles ─────────────────────────────────────────────────────────
 
   /** Build a deployable bundle from policy + data paths. */
-  async build(input: BuildInput): Promise<SpawnResult> {
+  async build(input: BuildInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.paths.length === 0) {
       throw new Error('opa build requires at least one input path');
     }
@@ -459,19 +468,19 @@ export class OpaCli {
     if (input.claimsFile) args.push('--claims-file', input.claimsFile);
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     args.push(...input.paths);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
    * Sign a bundle. Writes a `.signatures.json` next to the bundle
    * directory.
    */
-  async sign(input: SignInput): Promise<SpawnResult> {
+  async sign(input: SignInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['sign', '--signing-key', input.signingKey];
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.claimsFile) args.push('--claims-file', input.claimsFile);
     args.push('--bundle', input.bundle);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
@@ -481,13 +490,13 @@ export class OpaCli {
    * stderr. The trivial query `true` is used so the process exits
    * immediately after verification without entering a REPL.
    */
-  async bundleVerify(input: BundleVerifyInput): Promise<SpawnResult> {
+  async bundleVerify(input: BundleVerifyInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['eval', '--bundle', input.bundle, '--verification-key', input.verificationKey];
     if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.scope) args.push('--scope', input.scope);
     args.push('true');
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   /**
@@ -495,7 +504,7 @@ export class OpaCli {
    * `opa exec`. Each input file is evaluated independently; results are
    * returned as a JSON array with one entry per file.
    */
-  async exec(input: ExecInput): Promise<SpawnResult> {
+  async exec(input: ExecInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.inputPaths.length === 0) {
       throw new Error('opa exec requires at least one input path');
     }
@@ -503,7 +512,7 @@ export class OpaCli {
     if (input.bundle) args.push('--bundle', input.bundle);
     for (const p of input.dataPaths ?? []) args.push('--data', p);
     args.push(...input.inputPaths);
-    return this.run(args);
+    return this.run(args, undefined, signal);
   }
 
   // ─── Low-level escape hatch ──────────────────────────────────────────
@@ -513,12 +522,13 @@ export class OpaCli {
    * prefer the typed methods above, but this exists for the rare cases
    * the typed surface does not yet cover.
    */
-  async run(args: string[], stdin?: string): Promise<SpawnResult> {
+  async run(args: string[], stdin?: string, signal?: AbortSignal): Promise<SpawnResult> {
     const opts: Parameters<typeof runBinary>[1] = {
       args,
       timeoutMs: this.config.subprocessTimeoutMs,
     };
     if (stdin !== undefined) opts.stdin = stdin;
+    if (signal !== undefined) opts.signal = signal;
     return runBinary(this.config.opaBinary, opts);
   }
 

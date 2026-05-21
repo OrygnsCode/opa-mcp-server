@@ -31,7 +31,7 @@ export function registerRegoCompileQuery(server: McpServer, config: Config): voi
         openWorldHint: false,
       },
     },
-    async (args) => {
+    async (args, { signal }) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>
         runEval(
           opa,
@@ -42,6 +42,7 @@ export function registerRegoCompileQuery(server: McpServer, config: Config): voi
             unknowns: args.unknowns?.length ? args.unknowns : ['input'],
           },
           {},
+          signal,
         ),
       );
     },
