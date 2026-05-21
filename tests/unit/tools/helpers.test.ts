@@ -32,10 +32,10 @@ afterEach(() => {
 describe('rego_explain_decision', () => {
   it('runs eval with --explain=full and returns a structured trace summary', async () => {
     const trace = [
-      { op: 'enter', message: 'enter data.rbac.allow' },
-      { op: 'enter', message: 'enter helper' },
-      { op: 'exit', message: 'exit data.rbac.allow' },
-      { op: 'fail', message: 'fail x' },
+      { Op: 'Enter', Node: { head: { name: 'data.rbac.allow' } }, Message: '' },
+      { Op: 'Enter', Node: { head: { name: 'helper' } }, Message: '' },
+      { Op: 'Exit', Node: { head: { name: 'data.rbac.allow' } }, Message: '' },
+      { Op: 'Fail', Message: 'fail x' },
     ];
     mockRun.mockResolvedValueOnce(
       spawnSuccess(
@@ -102,15 +102,14 @@ describe('rego_explain_decision', () => {
     expect(env.data?.rulesFired).toEqual([]);
   });
 
-  it('handles trace events without a recognizable rule message', async () => {
-    // enter/exit events whose message does not match eval/enter/
-    // exit/matched regex must still increment the counters but not
-    // populate the rule sets.
+  it('handles trace events without a rule name (query-level events)', async () => {
+    // Enter/exit events for query frames (Node is an array of terms, not a
+    // rule object) must still increment the counters but not populate rule sets.
     const trace = [
-      { op: 'enter' },
-      { op: 'enter', message: 'unrelated note' },
-      { op: 'exit' },
-      { op: 'fail', message: 'expr fail' },
+      { Op: 'Enter' },
+      { Op: 'Enter', Node: [{ terms: [] }] },
+      { Op: 'Exit' },
+      { Op: 'Fail', Message: 'expr fail' },
     ];
     mockRun.mockResolvedValueOnce(
       spawnSuccess(

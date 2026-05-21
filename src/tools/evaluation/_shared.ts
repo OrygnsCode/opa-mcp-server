@@ -99,7 +99,15 @@ export async function runEval(
   }
 
   if (args.input !== undefined) {
-    evalInput.input = args.input;
+    let resolvedInput: unknown = args.input;
+    if (typeof resolvedInput === 'string') {
+      try {
+        resolvedInput = JSON.parse(resolvedInput) as unknown;
+      } catch {
+        // Not a JSON string -- pass as-is (intentional string input).
+      }
+    }
+    evalInput.input = resolvedInput;
   } else if (args.inputPath) {
     const inputPathValidation = validatePaths([args.inputPath], config, { mustExist: true });
     if (!inputPathValidation.ok) return inputPathValidation.error;
