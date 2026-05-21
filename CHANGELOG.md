@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-05-21
+
 ### Added
 
 - **`opa_delete_data`** -- removes a document from OPA's data store at the given
@@ -32,6 +34,27 @@ not part of the public surface and may change in minor releases.
   OPA. More specific than `UNKNOWN_ERROR` and symmetrical with the existing
   `POLICY_NOT_FOUND` code.
 
+- **`opa_bundle_verify`** -- verifies the signature of a signed OPA bundle using
+  `opa eval --bundle --verification-key`. Returns `{ bundle, verified: true }` on
+  success. Accepts optional `verificationKeyId`, `signingAlg`, and `scope`. Both
+  `bundle` and `verificationKey` paths are validated against the allow-list before
+  any subprocess call.
+
+- **`rego_migrate_v1`** -- migrates Rego v0 source to v1 syntax using a two-phase
+  approach: `opa fmt --rego-v1` rewrites reserved keywords and adds
+  `import rego.v1`; `opa check --v1-compatible` then validates the result. Returns
+  `{ original, migrated, changed, valid, errors }`. If `fmt` fails the tool returns
+  `INVALID_REGO`; if `check` finds remaining semantic issues `valid` is `false` but
+  `ok` is still `true` so the caller can inspect both the diff and any remaining
+  issues.
+
+- **`opa_exec`** -- batch-evaluates a single decision against multiple input files
+  using `opa exec --format=json`. Returns `{ results, count, successCount, errorCount }`
+  where each result entry carries the input path and either the decision value or an
+  error message. Accepts `bundle` or `dataPaths` as the policy source (mutually
+  exclusive). All three path types (input, bundle, data) are validated against the
+  allow-list.
+
 ### Tests
 
 - 10 new unit tests for `opa_delete_data` covering: correct URL construction for
@@ -41,7 +64,32 @@ not part of the public surface and may change in minor releases.
   `OPA_UNREACHABLE`; 401 mapped to `OPA_AUTH_FAILED`; 5xx mapped to `UNKNOWN_ERROR`;
   and two traversal-rejection cases (`%2e%2e` and double `%2e%2e/%2e%2e`).
 
-- Tool count assertions in `server.test.ts` updated from 39 to 40.
+- 9 new unit tests for `opa_bundle_verify` covering: correct argv construction;
+  optional key-id, alg, and scope flags; `verified: true` response; invalid bundle
+  mapped to `INVALID_BUNDLE`; binary missing mapped to `OPA_BINARY_NOT_FOUND`;
+  timeout mapped to `SUBPROCESS_TIMEOUT`; path-not-found and path-not-allowed.
+
+- 10 new unit tests for `rego_migrate_v1` covering: two-phase mock call sequence;
+  correct `--rego-v1` and `--v1-compatible` flags; `changed` flag; errors array;
+  `ok: true` with `valid: false` when check finds issues; short-circuit to
+  `INVALID_REGO` when fmt fails.
+
+- 12 new unit tests for `opa_exec` covering: correct argv and flags; mutually
+  exclusive `bundle`+`dataPaths` guard; count/successCount/errorCount derivation;
+  mixed success/error results; binary missing; timeout; path validation for all
+  three path types.
+
+- Tool count assertions updated to 43 across `server.test.ts`,
+  `tests/integration/protocol.test.ts`, and `tests/integration/distribution.test.ts`.
+
+### CI
+
+- Added Smithery publish step to release workflow so the Smithery listing is
+  updated automatically on every release.
+
+- Updated Node.js Docker base image from `node:20-alpine` to `node:26-alpine`.
+
+- Updated `actions/setup-node` from v4 to v6 in CI and release workflows.
 
 ## [0.1.7] - 2026-05-21
 
@@ -466,7 +514,9 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.3...v0.1.4
