@@ -8,7 +8,61 @@
 import { describe, expect, it } from 'vitest';
 
 import { OpaAuthError, OpaHttpError, OpaUnreachableError } from '../../../src/lib/opa-client.js';
-import { mapOpaClientError } from '../../../src/tools/server-management/_shared.js';
+import {
+  mapOpaClientError,
+  parseOpaDataPath,
+} from '../../../src/tools/server-management/_shared.js';
+
+describe('parseOpaDataPath', () => {
+  it('converts dotted form to slash API path', () => {
+    const result = parseOpaDataPath('users.alice');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.apiPath).toBe('/v1/data/users/alice');
+  });
+
+  it('strips leading data. prefix', () => {
+    const result = parseOpaDataPath('data.rbac.roles');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.apiPath).toBe('/v1/data/rbac/roles');
+  });
+
+  it('strips leading slashes', () => {
+    const result = parseOpaDataPath('/users/alice');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.apiPath).toBe('/v1/data/users/alice');
+  });
+
+  it('accepts the root (empty path)', () => {
+    const result = parseOpaDataPath('');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.apiPath).toBe('/v1/data/');
+  });
+
+  it('allows a path with literal dots (converted to slashes, no traversal)', () => {
+    // dots get replaced to slashes by dataPath, so "../../v1/config" becomes
+    // "////v1/config" -- multiple slashes, not .. path segments. Not a traversal.
+    const result = parseOpaDataPath('../../v1/config');
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects percent-encoded single .. traversal (%2e%2e)', () => {
+    // %2e%2e bypasses the literal dot replacement and new URL() normalizes it
+    // as a real .. path segment, escaping /v1/data/.
+    const result = parseOpaDataPath('%2e%2e/v1/config');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('rejects percent-encoded double .. traversal (%2e%2e/%2e%2e)', () => {
+    const result = parseOpaDataPath('%2e%2e/%2e%2e/v1/config');
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects uppercase percent-encoded .. traversal (%2E%2E)', () => {
+    const result = parseOpaDataPath('%2E%2E/v1/config');
+    expect(result.ok).toBe(false);
+  });
+});
 
 describe('mapOpaClientError', () => {
   it('maps OpaUnreachableError with url + cause and helpful hint', () => {

@@ -8,6 +8,30 @@ import { OpaAuthError, OpaHttpError, OpaUnreachableError } from '../../lib/opa-c
 import type { ToolEnvelope, ToolErrorCode } from '../../types.js';
 
 /**
+ * Convert a user-supplied OPA data path (dotted or slash form) to the
+ * `/v1/data/...` REST API path. Rejects `..` segments so a crafted input
+ * cannot traverse to unrelated OPA endpoints (e.g. `/v1/config`).
+ */
+export function parseOpaDataPath(
+  path: string,
+): { ok: true; apiPath: string } | { ok: false; error: ToolEnvelope<never> } {
+  const stripped = path.replace(/^data\./, '').replace(/^\/+/, '');
+  const apiPath = `/v1/data/${stripped.replace(/\./g, '/')}`;
+
+  // Normalize through URL parsing to catch both literal `..` segments and
+  // percent-encoded variants (%2e%2e). If the resolved pathname no longer
+  // starts with /v1/data/, a traversal escaped the intended prefix.
+  const normalized = new URL(`http://h${apiPath}`).pathname;
+  if (!normalized.startsWith('/v1/data/')) {
+    return {
+      ok: false,
+      error: err('INVALID_INPUT', `Path traversal not allowed: ${path}`),
+    };
+  }
+  return { ok: true, apiPath };
+}
+
+/**
  * Translate an exception thrown by OpaClient into a structured error
  * envelope. `notFoundCode` lets a tool override the default 404
  * mapping (which is generic) with something specific like

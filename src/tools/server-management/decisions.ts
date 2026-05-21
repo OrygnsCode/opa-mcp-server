@@ -10,12 +10,7 @@ import type { Config } from '../../config.js';
 import { OpaClient } from '../../lib/opa-client.js';
 import { ok } from '../../lib/errors.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
-import { mapOpaClientError } from './_shared.js';
-
-function dataPath(path: string): string {
-  const stripped = path.replace(/^data\./, '').replace(/^\/+/, '');
-  return `/v1/data/${stripped.replace(/\./g, '/')}`;
-}
+import { mapOpaClientError, parseOpaDataPath } from './_shared.js';
 
 export function registerDecisionTools(server: McpServer, config: Config): void {
   const opa = new OpaClient(config);
@@ -43,6 +38,8 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
       return withToolEnvelope<{ result?: unknown; explanation?: unknown; metrics?: unknown }>(
         config,
         async () => {
+          const parsed = parseOpaDataPath(path);
+          if (!parsed.ok) return parsed.error;
           try {
             const query: Record<string, string | boolean> = {};
             if (explain) query['explain'] = explain;
@@ -53,7 +50,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
               metrics?: unknown;
             }>({
               method: 'POST',
-              path: dataPath(path),
+              path: parsed.apiPath,
               body: input !== undefined ? { input } : {},
               query,
             });
