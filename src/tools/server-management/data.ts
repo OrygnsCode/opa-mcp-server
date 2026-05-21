@@ -9,14 +9,7 @@ import type { Config } from '../../config.js';
 import { OpaClient } from '../../lib/opa-client.js';
 import { ok } from '../../lib/errors.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
-import { mapOpaClientError } from './_shared.js';
-
-function dataPath(path: string): string {
-  // Strip leading "data." or "/" -- server always prepends /v1/data/.
-  const stripped = path.replace(/^data\./, '').replace(/^\/+/, '');
-  // Convert dotted form to slash form: "users.alice" -> "users/alice".
-  return `/v1/data/${stripped.replace(/\./g, '/')}`;
-}
+import { mapOpaClientError, parseOpaDataPath } from './_shared.js';
 
 export function registerDataTools(server: McpServer, config: Config): void {
   const opa = new OpaClient(config);
@@ -33,10 +26,12 @@ export function registerDataTools(server: McpServer, config: Config): void {
     },
     async ({ path }) => {
       return withToolEnvelope<{ result: unknown }>(config, async () => {
+        const parsed = parseOpaDataPath(path);
+        if (!parsed.ok) return parsed.error;
         try {
           const data = await opa.request<{ result: unknown }>({
             method: 'GET',
-            path: dataPath(path),
+            path: parsed.apiPath,
           });
           return ok({ result: data.result });
         } catch (e) {
@@ -58,10 +53,12 @@ export function registerDataTools(server: McpServer, config: Config): void {
     },
     async ({ path, value }) => {
       return withToolEnvelope<{ path: string; written: boolean }>(config, async () => {
+        const parsed = parseOpaDataPath(path);
+        if (!parsed.ok) return parsed.error;
         try {
           await opa.request({
             method: 'PUT',
-            path: dataPath(path),
+            path: parsed.apiPath,
             body: value,
           });
           return ok({ path, written: true });
@@ -94,10 +91,12 @@ export function registerDataTools(server: McpServer, config: Config): void {
     },
     async ({ path, operations }) => {
       return withToolEnvelope<{ path: string; patched: boolean }>(config, async () => {
+        const parsed = parseOpaDataPath(path);
+        if (!parsed.ok) return parsed.error;
         try {
           await opa.request({
             method: 'PATCH',
-            path: dataPath(path),
+            path: parsed.apiPath,
             body: operations,
             headers: { 'Content-Type': 'application/json-patch+json' },
           });

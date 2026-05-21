@@ -216,6 +216,48 @@ describe('opa_put_data', () => {
   });
 });
 
+describe('data tools — path traversal rejection', () => {
+  it('opa_get_data rejects percent-encoded traversal', async () => {
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_get_data', { path: '%2e%2e/v1/config' });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('opa_put_data rejects percent-encoded traversal', async () => {
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_put_data', {
+      path: '%2e%2e/%2e%2e/v1/data',
+      value: {},
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('opa_patch_data rejects percent-encoded traversal', async () => {
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_patch_data', {
+      path: '%2e%2e/v1/policies',
+      operations: [{ op: 'add', path: '/x', value: 1 }],
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('opa_query_decision rejects percent-encoded traversal', async () => {
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_query_decision', {
+      path: '%2e%2e/v1/config',
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('data tools — error paths', () => {
   it('opa_get_data surfaces OPA_UNREACHABLE on connection failure', async () => {
     fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
