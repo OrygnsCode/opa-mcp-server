@@ -17,6 +17,32 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **`opa_delete_data`** -- removes a document from OPA's data store at the given
+  path (`DELETE /v1/data/{path}`). Accepts the same dotted or slash path forms as
+  `opa_get_data`, `opa_put_data`, and `opa_patch_data`. A missing path returns the
+  new `DATA_NOT_FOUND` error code; percent-encoded traversal attempts are rejected
+  by the shared `parseOpaDataPath` guard with `INVALID_INPUT` before any request is
+  issued. Root-path deletion is intentionally excluded -- the path must be at least
+  one segment deep.
+
+- **`DATA_NOT_FOUND` error code** -- added to `ToolErrorCode`. Returned when a
+  `DELETE /v1/data/{path}` (or any future data-path operation) receives a 404 from
+  OPA. More specific than `UNKNOWN_ERROR` and symmetrical with the existing
+  `POLICY_NOT_FOUND` code.
+
+### Tests
+
+- 10 new unit tests for `opa_delete_data` covering: correct URL construction for
+  dotted, slash, and `data.`-prefixed paths; `{ path, deleted: true }` response
+  shape; bodyless request with no `Content-Type` header; bearer token forwarding;
+  404 mapped to `DATA_NOT_FOUND` with status in details; connection failure mapped to
+  `OPA_UNREACHABLE`; 401 mapped to `OPA_AUTH_FAILED`; 5xx mapped to `UNKNOWN_ERROR`;
+  and two traversal-rejection cases (`%2e%2e` and double `%2e%2e/%2e%2e`).
+
+- Tool count assertions in `server.test.ts` updated from 39 to 40.
+
 ## [0.1.7] - 2026-05-21
 
 ### Fixed
