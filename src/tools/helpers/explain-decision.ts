@@ -97,9 +97,9 @@ export function registerRegoExplainDecision(server: McpServer, config: Config): 
         openWorldHint: false,
       },
     },
-    async (args) => {
+    async (args, { signal }) => {
       return withToolEnvelope<RegoExplainDecisionOutput>(config, async () => {
-        const evalEnvelope = await runEval(opa, config, args, { explain: 'full' });
+        const evalEnvelope = await runEval(opa, config, args, { explain: 'full' }, signal);
         if (!evalEnvelope.ok) {
           // Re-issue the same error under this tool's output type.
           return err(evalEnvelope.error!.code, evalEnvelope.error!.message, {

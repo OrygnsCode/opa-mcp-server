@@ -40,7 +40,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ path, input, explain, metrics }) => {
+    async ({ path, input, explain, metrics }, { signal }) => {
       return withToolEnvelope<{ result?: unknown; explanation?: unknown; metrics?: unknown }>(
         config,
         async () => {
@@ -59,6 +59,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
               path: parsed.apiPath,
               body: input !== undefined ? { input } : {},
               query,
+              signal,
             });
             return ok({
               result: data.result,
@@ -94,7 +95,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ query, input, unknowns }) => {
+    async ({ query, input, unknowns }, { signal }) => {
       return withToolEnvelope<{ result: unknown }>(config, async () => {
         try {
           const body: Record<string, unknown> = { query };
@@ -104,6 +105,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
             method: 'POST',
             path: '/v1/compile',
             body,
+            signal,
           });
           return ok({ result: data.result });
         } catch (e) {

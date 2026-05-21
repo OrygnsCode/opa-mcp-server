@@ -39,9 +39,9 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source }) => {
+    async ({ source }, { signal }) => {
       return withToolEnvelope(config, async () => {
-        const result = await opa.fmt({ source });
+        const result = await opa.fmt({ source }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

@@ -142,6 +142,7 @@ interface RegisteredTools {
     {
       handler: (
         args: Record<string, unknown>,
+        extra: { signal: AbortSignal },
       ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
     }
   >;
@@ -163,7 +164,7 @@ async function setup(overrides?: Partial<Config>): Promise<{
   const call = async <T>(name: string, args: Record<string, unknown>): Promise<ToolEnvelope<T>> => {
     const entry = registry[name];
     if (!entry) throw new Error(`Tool ${name} not registered`);
-    const result = await entry.handler(args);
+    const result = await entry.handler(args, { signal: new AbortController().signal });
     return JSON.parse(result.content[0]!.text) as ToolEnvelope<T>;
   };
   return { client, call };

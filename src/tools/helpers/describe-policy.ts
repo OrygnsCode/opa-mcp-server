@@ -88,9 +88,9 @@ export function registerRegoDescribePolicy(server: McpServer, config: Config): v
         openWorldHint: false,
       },
     },
-    async ({ source }) => {
+    async ({ source }, { signal }) => {
       return withToolEnvelope<RegoDescribePolicyOutput>(config, async () => {
-        const result = await opa.parse({ source });
+        const result = await opa.parse({ source }, signal);
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
         if (result.exitCode !== 0) {

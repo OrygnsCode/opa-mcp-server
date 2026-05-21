@@ -63,7 +63,7 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
         openWorldHint: false,
       },
     },
-    async ({ current, version, names_only }) => {
+    async ({ current, version, names_only }, { signal }) => {
       return withToolEnvelope<RegoCapabilitiesOutput>(config, async () => {
         if (current && version) {
           return err(
@@ -72,7 +72,7 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
           );
         }
 
-        const result = await opa.capabilities({ current, version });
+        const result = await opa.capabilities({ current, version }, signal);
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
 

@@ -43,6 +43,7 @@ export const okSpawn = {
   stdout: '',
   stderr: '',
   timedOut: false,
+  aborted: false,
   durationMs: 1,
 };
 
@@ -88,7 +89,7 @@ export async function callTool<T = unknown>(
   input: Record<string, unknown>,
 ): Promise<ToolEnvelope<T>> {
   const handler = getToolHandler(server, name);
-  const result = await handler(input);
+  const result = await handler(input, { signal: new AbortController().signal });
   const textChunk = result.content.find(
     (c): c is { type: 'text'; text: string } => c.type === 'text',
   );

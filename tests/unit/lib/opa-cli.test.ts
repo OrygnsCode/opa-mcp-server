@@ -28,6 +28,7 @@ const okSpawn = {
   stdout: '',
   stderr: '',
   timedOut: false,
+  aborted: false,
   durationMs: 1,
 };
 

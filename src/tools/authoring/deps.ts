@@ -55,12 +55,12 @@ export function registerRegoDeps(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ paths, ref }) => {
+    async ({ paths, ref }, { signal }) => {
       return withToolEnvelope<RegoDepsOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
 
-        const result = await opa.deps({ paths: validation.resolved, ref });
+        const result = await opa.deps({ paths: validation.resolved, ref }, signal);
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
 

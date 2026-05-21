@@ -134,16 +134,19 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
         openWorldHint: false,
       },
     },
-    async ({ paths, threshold, runPattern }) => {
+    async ({ paths, threshold, runPattern }, { signal }) => {
       return withToolEnvelope<RegoCoverageGapsOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
 
-        const result = await opa.test({
-          paths: validation.resolved,
-          coverage: true,
-          runPattern,
-        });
+        const result = await opa.test(
+          {
+            paths: validation.resolved,
+            coverage: true,
+            runPattern,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

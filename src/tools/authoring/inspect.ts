@@ -48,13 +48,13 @@ export function registerRegoInspect(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ target }) => {
+    async ({ target }, { signal }) => {
       return withToolEnvelope<RegoInspectOutput>(config, async () => {
         const validation = validatePaths([target], config, { mustExist: true });
         if (!validation.ok) return validation.error;
         const [resolved] = validation.resolved;
 
-        const result = await opa.inspect({ target: resolved! });
+        const result = await opa.inspect({ target: resolved! }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

@@ -160,17 +160,20 @@ export function registerRegoFix(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({
-      paths,
-      dryRun,
-      force,
-      configFile,
-      disable,
-      enable,
-      disableCategory,
-      enableCategory,
-      ignoreFiles,
-    }) => {
+    async (
+      {
+        paths,
+        dryRun,
+        force,
+        configFile,
+        disable,
+        enable,
+        disableCategory,
+        enableCategory,
+        ignoreFiles,
+      },
+      { signal },
+    ) => {
       return withToolEnvelope<RegoFixOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
@@ -182,17 +185,20 @@ export function registerRegoFix(server: McpServer, config: Config): void {
           resolvedConfigFile = v.resolved[0];
         }
 
-        const result = await regal.fix({
-          paths: validation.resolved,
-          dryRun,
-          force,
-          configFile: resolvedConfigFile,
-          disable,
-          enable,
-          disableCategory,
-          enableCategory,
-          ignoreFiles,
-        });
+        const result = await regal.fix(
+          {
+            paths: validation.resolved,
+            dryRun,
+            force,
+            configFile: resolvedConfigFile,
+            disable,
+            enable,
+            disableCategory,
+            enableCategory,
+            ignoreFiles,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'regal');
         if (subprocessFailure) return subprocessFailure;

@@ -37,6 +37,13 @@ export class OpaHttpError extends Error {
   }
 }
 
+export class OpaCancelledError extends Error {
+  constructor() {
+    super('OPA request was cancelled by the client');
+    this.name = 'OpaCancelledError';
+  }
+}
+
 export interface RequestOptions {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
@@ -54,6 +61,8 @@ export interface RequestOptions {
   rawContentType?: string;
   query?: Record<string, string | number | boolean | undefined>;
   headers?: Record<string, string>;
+  /** External cancellation signal from the MCP client. */
+  signal?: AbortSignal;
 }
 
 export class OpaClient {
@@ -89,10 +98,14 @@ export class OpaClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.httpTimeoutMs);
 
+    const combinedSignal = opts.signal
+      ? AbortSignal.any([controller.signal, opts.signal])
+      : controller.signal;
+
     const init: RequestInit = {
       method: opts.method,
       headers,
-      signal: controller.signal,
+      signal: combinedSignal,
     };
     if (bodyToSend !== undefined) {
       init.body = bodyToSend;
@@ -102,6 +115,7 @@ export class OpaClient {
     try {
       response = await fetch(url, init);
     } catch (e) {
+      if (opts.signal?.aborted) throw new OpaCancelledError();
       throw new OpaUnreachableError(this.config.opaUrl, e);
     } finally {
       clearTimeout(timer);

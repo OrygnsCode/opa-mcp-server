@@ -69,6 +69,7 @@ describe('runBinary — happy path', () => {
     expect(result.stdout).toBe('Version: 0.69.0\n');
     expect(result.stderr).toBe('');
     expect(result.timedOut).toBe(false);
+    expect(result.aborted).toBe(false);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
@@ -138,6 +139,7 @@ describe('runBinary — error handling', () => {
     expect(result.exitCode).toBeNull();
     expect(result.stderr).toBe('spawn ENOENT');
     expect(result.timedOut).toBe(false);
+    expect(result.aborted).toBe(false);
   });
 
   it('reports the captured stderr when child exits non-zero', async () => {
@@ -271,5 +273,48 @@ describe('runBinary — timeout escalation (deterministic)', () => {
     const result = await promise;
     expect(result.exitCode).toBeNull();
     expect(result.stderr).toContain('EACCES');
+  });
+});
+
+describe('runBinary — AbortSignal cancellation', () => {
+  it('returns aborted=true immediately if the signal is already aborted before spawn', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runBinary('opa', {
+      args: ['hang'],
+      timeoutMs: 5_000,
+      signal: controller.signal,
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(result.exitCode).toBeNull();
+    expect(result.timedOut).toBe(false);
+    // spawn should never have been called
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it('kills the child and resolves with aborted=true when signal fires mid-run', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const controller = new AbortController();
+    const promise = runBinary('opa', {
+      args: ['hang'],
+      timeoutMs: 5_000,
+      signal: controller.signal,
+    });
+
+    // Child is running -- abort mid-flight.
+    controller.abort();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+
+    // Child responds to SIGTERM.
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.aborted).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBeNull();
   });
 });

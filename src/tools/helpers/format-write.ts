@@ -85,7 +85,7 @@ export function registerRegoFormatWrite(server: McpServer, config: Config): void
         openWorldHint: false,
       },
     },
-    async ({ paths, dryRun, regoV1, v0Compatible, v1Compatible }) => {
+    async ({ paths, dryRun, regoV1, v0Compatible, v1Compatible }, { signal }) => {
       return withToolEnvelope<RegoFormatWriteOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
@@ -99,7 +99,7 @@ export function registerRegoFormatWrite(server: McpServer, config: Config): void
 
         // Phase 1: identify which files would change. Also validates that all
         // files parse successfully before we touch the filesystem.
-        const listResult = await opa.fmtList(fmtInput);
+        const listResult = await opa.fmtList(fmtInput, signal);
 
         const listFailure = mapSubprocessFailure(listResult, 'opa');
         if (listFailure) return listFailure;
@@ -130,7 +130,7 @@ export function registerRegoFormatWrite(server: McpServer, config: Config): void
         }
 
         // Phase 2: write.
-        const writeResult = await opa.fmtWrite(fmtInput);
+        const writeResult = await opa.fmtWrite(fmtInput, signal);
 
         const writeFailure = mapSubprocessFailure(writeResult, 'opa');
         if (writeFailure) return writeFailure;

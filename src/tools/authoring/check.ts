@@ -67,7 +67,7 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source, paths, strict, capabilities, schemaDir }) => {
+    async ({ source, paths, strict, capabilities, schemaDir }, { signal }) => {
       return withToolEnvelope<RegoCheckOutput>(config, async () => {
         if (!source && !paths?.length) {
           return err(
@@ -103,13 +103,16 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
           resolvedSchemaDir = v.resolved[0];
         }
 
-        const result = await opa.check({
-          source,
-          paths: resolvedPaths,
-          strict,
-          capabilities: resolvedCapabilities,
-          schemaDir: resolvedSchemaDir,
-        });
+        const result = await opa.check(
+          {
+            source,
+            paths: resolvedPaths,
+            strict,
+            capabilities: resolvedCapabilities,
+            schemaDir: resolvedSchemaDir,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

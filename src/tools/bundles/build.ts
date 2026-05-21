@@ -61,7 +61,7 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
         openWorldHint: false,
       },
     },
-    async (input) => {
+    async (input, { signal }) => {
       return withToolEnvelope<OpaBundleBuildOutput>(config, async () => {
         const inputPaths = [...input.paths, input.output];
         const validation = validatePaths(inputPaths, config);
@@ -92,18 +92,21 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
           resolvedCapabilities = v.resolved[0];
         }
 
-        const result = await opa.build({
-          paths: sourcePaths,
-          output: outputPath,
-          optimize: input.optimize,
-          revision: input.revision,
-          target: input.target,
-          entrypoints: input.entrypoints,
-          signingKey: resolvedSigningKey,
-          signingAlg: input.signingAlg,
-          claimsFile: resolvedClaimsFile,
-          capabilities: resolvedCapabilities,
-        });
+        const result = await opa.build(
+          {
+            paths: sourcePaths,
+            output: outputPath,
+            optimize: input.optimize,
+            revision: input.revision,
+            target: input.target,
+            entrypoints: input.entrypoints,
+            signingKey: resolvedSigningKey,
+            signingAlg: input.signingAlg,
+            claimsFile: resolvedClaimsFile,
+            capabilities: resolvedCapabilities,
+          },
+          signal,
+        );
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
