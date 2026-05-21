@@ -107,4 +107,36 @@ export function registerDataTools(server: McpServer, config: Config): void {
       });
     },
   );
+
+  server.registerTool(
+    'opa_delete_data',
+    {
+      title: 'Delete a data document from OPA',
+      description:
+        "Remove a document from OPA's data store at the given path. The path may be in dotted form (`users.alice`) or slash form (`users/alice`). OPA responds with 204 No Content on success; if no document exists at the path, OPA returns 404 which is mapped to `DATA_NOT_FOUND`. Root-path deletion (`/v1/data/` itself) is intentionally excluded -- supply at least one path segment.",
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Data path to delete, e.g. "users.alice" or "users/alice". Must be at least one segment deep.',
+          ),
+      },
+    },
+    async ({ path }) => {
+      return withToolEnvelope<{ path: string; deleted: boolean }>(config, async () => {
+        const parsed = parseOpaDataPath(path);
+        if (!parsed.ok) return parsed.error;
+        try {
+          await opa.request({
+            method: 'DELETE',
+            path: parsed.apiPath,
+          });
+          return ok({ path, deleted: true });
+        } catch (e) {
+          return mapOpaClientError(e, 'DATA_NOT_FOUND');
+        }
+      });
+    },
+  );
 }

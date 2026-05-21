@@ -216,6 +216,135 @@ describe('opa_put_data', () => {
   });
 });
 
+describe('opa_delete_data', () => {
+  it('issues DELETE to the correct URL and returns { path, deleted: true }', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ path: string; deleted: boolean }>(server, 'opa_delete_data', {
+      path: 'users.alice',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.path).toBe('users.alice');
+    expect(env.data?.deleted).toBe(true);
+
+    const { url, init } = lastFetchCall();
+    expect(url).toBe('http://localhost:8181/v1/data/users/alice');
+    expect(init.method).toBe('DELETE');
+  });
+
+  it('translates dotted path to slash form', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_delete_data', { path: 'rbac.roles.admin' });
+    expect(lastFetchCall().url).toBe('http://localhost:8181/v1/data/rbac/roles/admin');
+  });
+
+  it('handles slash-form paths transparently', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_delete_data', { path: '/users/alice' });
+    expect(lastFetchCall().url).toBe('http://localhost:8181/v1/data/users/alice');
+  });
+
+  it('strips a leading data. prefix', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_delete_data', { path: 'data.users.alice' });
+    expect(lastFetchCall().url).toBe('http://localhost:8181/v1/data/users/alice');
+  });
+
+  it('sends no request body and no Content-Type header', async () => {
+    // DELETE /v1/data/{path} must be a bodyless request. A body on a
+    // DELETE can confuse intermediate proxies and is not part of the
+    // OPA REST API contract.
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_delete_data', { path: 'users.alice' });
+
+    const { init } = lastFetchCall();
+    expect(init.body).toBeUndefined();
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBeUndefined();
+  });
+
+  it('attaches the bearer token when OPA_TOKEN is configured', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, { ...baseConfig, opaToken: 'my-secret-token' });
+    await callTool(server, 'opa_delete_data', { path: 'users.alice' });
+
+    const headers = lastFetchCall().init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer my-secret-token');
+  });
+
+  it('maps a 404 response to DATA_NOT_FOUND', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ message: 'document does not exist' }, { status: 404 }),
+    );
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_delete_data', { path: 'users.nonexistent' });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('DATA_NOT_FOUND');
+    const details = env.error?.details as { status?: number; body?: unknown };
+    expect(details.status).toBe(404);
+  });
+
+  it('maps a connection failure to OPA_UNREACHABLE', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_delete_data', { path: 'users.alice' });
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+    expect(env.error?.hint).toMatch(/curl/);
+  });
+
+  it('maps a 401 response to OPA_AUTH_FAILED', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ error: 'unauthorized' }, { status: 401 }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_delete_data', { path: 'users.alice' });
+    expect(env.error?.code).toBe('OPA_AUTH_FAILED');
+    expect(env.error?.hint).toMatch(/OPA_TOKEN/);
+  });
+
+  it('maps a 5xx response to UNKNOWN_ERROR with status in details', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ message: 'internal server error' }, { status: 500 }),
+    );
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_delete_data', { path: 'users.alice' });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+    expect(env.error?.message).toContain('HTTP 500');
+    const details = env.error?.details as { status?: number };
+    expect(details.status).toBe(500);
+  });
+
+  it('rejects a percent-encoded path traversal and issues no fetch', async () => {
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_delete_data', { path: '%2e%2e/v1/config' });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a double percent-encoded traversal and issues no fetch', async () => {
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_delete_data', {
+      path: '%2e%2e/%2e%2e/v1/policies',
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('data tools — path traversal rejection', () => {
   it('opa_get_data rejects percent-encoded traversal', async () => {
     const server = makeServer();
