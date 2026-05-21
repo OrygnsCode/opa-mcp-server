@@ -17,6 +17,72 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-05-21
+
+### Fixed
+
+- **`rego_explain_decision` always returned empty `rulesFired` and zero
+  summary counts.** OPA's `--explain=full` trace uses capitalized field
+  names (`Op`, `Message`, `Node`) but the `summarizeTrace` helper was
+  reading lowercase `op`, `message`, `node`. No events ever matched, so
+  `enterEvents`, `exitEvents`, `failEvents`, `rulesFired`, and
+  `rulesEvaluated` were always zero or empty regardless of what the trace
+  contained. Fixed by reading the correct capitalized fields. Rule names
+  are now extracted from `Node.head.name`, which is where OPA actually
+  puts them, rather than from a regex match on a message string that is
+  empty in real OPA output. Unit test mocks updated to use the real OPA
+  trace format.
+
+- **Eval tools returned wrong decisions when `input` was passed as a JSON
+  string.** LLMs frequently serialize the input document as a string
+  (`'{"user":"alice"}'`) rather than passing it as a native object. The
+  eval tools then called `JSON.stringify` on that string, double-encoding
+  it. OPA received `'"{\\"user\\":\\"alice\\"}"'` as the input document,
+  parsed it as a plain string, `input.user` was undefined, and decisions
+  that should have been `true` came back `false`. The shared eval handler
+  now detects a string `input`, attempts `JSON.parse`, and passes the
+  parsed object forward. Non-JSON strings are forwarded as-is.
+
+### Security
+
+- **Percent-encoded path traversal in OPA REST data tools.** `opa_get_data`,
+  `opa_put_data`, `opa_patch_data`, and `opa_query_decision` constructed
+  OPA REST API paths from user-supplied strings. Literal dots (`..`) in the
+  input are converted to slashes by the `dataPath` function and are not a
+  traversal risk. However, percent-encoded dots (`%2e%2e`) bypass that
+  replacement -- `new URL()` normalizes `%2e%2e` as a real `..` segment,
+  allowing requests to escape `/v1/data/` and reach arbitrary OPA endpoints.
+  Worst-case impact: `GET %2e%2e/v1/config` reaches OPA's config endpoint
+  (which can expose bundle credentials and plugin settings); `PUT` to a
+  traversed path could overwrite the entire OPA data document.
+
+  Fixed by normalizing the candidate path through `URL` parsing and
+  verifying the resulting pathname still starts with `/v1/data/`. Both
+  `%2e` (lowercase) and `%2E` (uppercase) variants are caught. The
+  duplicate `dataPath()` functions in `data.ts` and `decisions.ts` are
+  replaced by a single `parseOpaDataPath()` in `_shared.ts` that returns
+  a structured `ok/error` result.
+
+### Tests
+
+- `rego_explain_decision` mock traces updated to match real OPA capitalized
+  field names (`Op`, `Node`, `Message`). Test description for the
+  "no recognizable rule message" case updated to reflect that the actual
+  condition is a query-level event where `Node` is an array of terms rather
+  than a rule object with `head.name`.
+
+- Two new `rego_eval` tests: string `input` that is valid JSON is parsed and
+  forwarded as an object; string `input` that is not JSON is forwarded as-is.
+
+- `parseOpaDataPath` unit tests covering: dotted form, slash form, `data.`
+  prefix stripping, root path, `%2e%2e` rejected, `%2E%2E` rejected, and
+  double traversal rejected.
+
+- Tool-level traversal rejection tests added for `opa_get_data`,
+  `opa_put_data`, `opa_patch_data`, and `opa_query_decision` -- each
+  verifies that a `%2e%2e` path returns `INVALID_INPUT` with no fetch
+  issued.
+
 ## [0.1.6] - 2026-05-21
 
 ### Added
