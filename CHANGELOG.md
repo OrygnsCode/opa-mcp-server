@@ -17,6 +17,117 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- **`--help` / `-h` flag.** Prints a formatted usage reference and exits.
+  Output includes the boxed header with version and Orygn attribution,
+  a two-column environment-variable table with descriptions and defaults,
+  the accepted flags, and two usage examples. Colors are applied via ANSI
+  codes when stdout is a TTY and suppressed otherwise, so CI logs and
+  pipe targets never receive raw escape sequences.
+
+- **`--version` / `-v` flag.** Prints `opa-mcp vX.Y.Z` and exits.
+
+- **Startup banner.** When the server starts normally (not invoked with a
+  flag), a single summary line is written to stderr showing the resolved
+  `opa` binary, `regal` binary, configured allowed paths, and log file
+  path. Uses the same TTY-aware color logic as `--help`. Because the banner
+  goes to stderr it does not interfere with the MCP stdio protocol on
+  stdout.
+
+### Fixed
+
+- **`SERVER_VERSION` was stale.** `src/constants.ts` held `0.1.3` while
+  `package.json` was at `0.1.5`. Any tool or caller reading
+  `SERVER_VERSION` directly -- including `mcp_server_info` -- was
+  reporting the wrong version. Corrected to `0.1.5`.
+
+- **Configuration error output was unreadable.** A bad environment variable
+  (for example `OPA_MCP_TIMEOUT_MS=notanumber`) previously dumped raw Zod
+  `format()` JSON with internal `_errors` keys that mean nothing to an
+  operator. The error now reads:
+  ```
+  opa-mcp: invalid configuration
+    OPA_MCP_TIMEOUT_MS: Expected number, received nan
+  Run 'opa-mcp --help' for configuration options.
+  ```
+  Each invalid field is mapped to its environment variable name and printed
+  on its own line with the Zod validation message.
+
+- **Unknown CLI flags were silently ignored.** Passing an unrecognized flag
+  such as `--hlep` caused the server to start normally with no feedback.
+  Unknown flags now print `opa-mcp: unknown flag: <flag>` to stderr and
+  exit with code 1.
+
+### Security
+
+- **Symlink traversal in `validatePath()`.** `path.resolve()` is purely
+  syntactic and does not follow symlinks. A symlink placed inside an
+  allowed root that pointed to a file outside it (for example
+  `/allowed/link -> /etc/shadow`) would pass the allow-list check, and OPA
+  or regal would then read the real target. Fixed by calling
+  `realpathSync()` on any path that already exists and re-checking the
+  canonical location against the resolved roots. The returned `resolved`
+  value remains the syntactic path for cross-platform consistency; the
+  realpath check is purely for validation. Symlink resolution is also
+  applied to the allowed roots themselves, which may be symlinks on some
+  systems (for example `/var -> /private/var` on macOS).
+
+- **`configFile` passed to regal without allow-list validation.**
+  `rego_lint`, `rego_security_audit`, and `rego_fix` all accept an
+  optional `configFile` path and forwarded it directly to the regal
+  subprocess without checking it against `OPA_MCP_ALLOWED_PATHS`. An
+  attacker supplying an arbitrary path could read any file on disk that
+  regal would accept as a config. All three tools now run `validatePaths()`
+  with `mustExist: true` before the subprocess call.
+
+- **`capabilities` and `schemaDir` passed to `opa check` without
+  validation.** `rego_check` forwarded both parameters to `opa check`
+  without checking them against the allow-list. Fixed with the same
+  `validatePaths()` call pattern used by the other tools.
+
+- **`opa_bundle_build` discarded resolved paths.** `signingKey`,
+  `claimsFile`, and `capabilities` were validated by `validatePaths()` but
+  the resolved canonical paths were thrown away and the original unresolved
+  strings were passed to `opa build`. On a system where the input path
+  contained symlinks the binary would receive a path that had not been
+  security-checked. Fixed by capturing and using `v.resolved[0]` for each
+  parameter.
+
+### Tests
+
+- Three symlink traversal tests added to `tests/unit/lib/security.test.ts`
+  covering: symlink inside the allowed root pointing to a file outside is
+  blocked; symlink to a directory outside is blocked; symlink pointing to a
+  file inside the allowed root is allowed and `result.resolved` returns the
+  link path rather than the realpath target. All three are skipped on
+  Windows, which requires elevated privileges for symlink creation.
+
+- `configFile` path validation tests added to `rego_lint`, `rego_fix`, and
+  `rego_security_audit`: rejects a path outside allowed roots
+  (`PATH_NOT_ALLOWED`) and rejects a nonexistent path inside allowed roots
+  (`PATH_NOT_FOUND`).
+
+- `capabilities` and `schemaDir` path validation tests added to
+  `rego_check`.
+
+- `opa_bundle_build` tests added for `claimsFile` and `capabilities`
+  outside the allow-list, plus a test that verifies the resolved (canonical)
+  paths appear in the `opa build` argv rather than the original strings.
+
+- Updated the existing `rego_lint` "forwards every flag" test, which was
+  passing `/abs/.regal.yaml` as `configFile`. That path is outside any
+  allowed root and now correctly fails validation. The fixture was changed
+  to a real path inside the test fixture tree.
+
+### CI
+
+- Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` to both `ci.yml` and
+  `release.yml`. GitHub Actions composite actions default to Node 20 unless
+  this variable is set; without it the CI matrix ran tests on Node 24 but
+  the Actions runner infrastructure itself still used Node 20. All runner
+  infrastructure now consistently uses Node 24.
+
 ## [0.1.5] - 2026-05-20
 
 ### Added
