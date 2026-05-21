@@ -7,6 +7,7 @@ import {
   makeServer,
   spawnFailure,
   spawnSuccess,
+  spawnTimedOut,
   spawnUnreachable,
 } from './_helpers.js';
 
@@ -442,5 +443,210 @@ describe('rego_compile_query', () => {
     expect(unknownIdxs).toHaveLength(2);
     expect(args[unknownIdxs[0]! + 1]).toBe('input.user');
     expect(args[unknownIdxs[1]! + 1]).toBe('input.action');
+  });
+});
+
+// ─── opa_exec ─────────────────────────────────────────────────────────────
+
+const execSuccessStdout = (entries: Array<{ path: string; result?: unknown; error?: object }>) =>
+  JSON.stringify({ result: entries });
+
+describe('opa_exec', () => {
+  it('issues correct argv and parses per-file results', async () => {
+    const entries = [
+      { path: validInputPath(), result: true },
+      { path: fixturePath('inputs', 'rbac.json'), result: false },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(execSuccessStdout(entries)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      results: typeof entries;
+      count: number;
+      successCount: number;
+      errorCount: number;
+    }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.results).toEqual(entries);
+    expect(env.data?.count).toBe(2);
+    expect(env.data?.successCount).toBe(2);
+    expect(env.data?.errorCount).toBe(0);
+
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args[0]).toBe('exec');
+    expect(args).toContain('--format=json');
+    expect(args).toContain('--decision');
+    expect(args[args.indexOf('--decision') + 1]).toBe('data.rbac.allow');
+    // Input path is a positional arg at the end of argv.
+    expect(args[args.length - 1]).toBe(validInputPath());
+  });
+
+  it('passes --bundle flag when bundle is provided', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.authz.allow',
+      bundle: fixturePath('policies', 'valid'),
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--bundle');
+    expect(args[args.indexOf('--bundle') + 1]).toBe(fixturePath('policies', 'valid'));
+    expect(args).not.toContain('--data');
+  });
+
+  it('passes --data flags for each dataPaths entry', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      dataPaths: [validRegoPath(), fixturePath('policies', 'valid')],
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    const dataIdxs = args.map((a, i) => (a === '--data' ? i : -1)).filter((i) => i !== -1);
+    expect(dataIdxs).toHaveLength(2);
+    expect(args[dataIdxs[0]! + 1]).toBe(validRegoPath());
+    expect(args[dataIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
+    expect(args).not.toContain('--bundle');
+  });
+
+  it('rejects providing both bundle and dataPaths', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      bundle: fixturePath('policies', 'valid'),
+      dataPaths: [validRegoPath()],
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects inputPaths outside allowed roots', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: ['/outside/input.json'],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects bundle outside allowed roots', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      bundle: '/outside/bundle.tar.gz',
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects dataPaths outside allowed roots', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      dataPaths: ['/outside/policy.rego'],
+    });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('maps non-zero exit to EVAL_ERROR', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(1, 'bundle load failed'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect((env.error?.details as { stderr?: string })?.stderr).toContain('bundle load failed');
+  });
+
+  it('maps missing binary to OPA_BINARY_NOT_FOUND', async () => {
+    mockRun.mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+  });
+
+  it('maps subprocess timeout to TIMEOUT', async () => {
+    mockRun.mockResolvedValueOnce(spawnTimedOut());
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.error?.code).toBe('TIMEOUT');
+  });
+
+  it('computes successCount and errorCount correctly from mixed results', async () => {
+    const entries = [
+      { path: 'input1.json', result: true },
+      { path: 'input2.json', error: { code: 'eval_error', message: 'failed' } },
+      { path: 'input3.json', result: false },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(execSuccessStdout(entries)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      count: number;
+      successCount: number;
+      errorCount: number;
+    }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.count).toBe(3);
+    expect(env.data?.successCount).toBe(2);
+    expect(env.data?.errorCount).toBe(1);
+  });
+
+  it('returns UNKNOWN_ERROR when opa exec produces no parseable JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('this is not json'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+  });
+
+  it('handles empty result array (no inputs matched)', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(execSuccessStdout([])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ count: number; results: unknown[] }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.count).toBe(0);
+    expect(env.data?.results).toEqual([]);
   });
 });
