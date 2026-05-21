@@ -17,6 +17,49 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-05-21
+
+### Added
+
+- **AbortSignal cancellation** -- all 43 tool handlers now wire the MCP SDK's
+  `extra.signal` into every subprocess spawn and OPA HTTP request. When a client
+  sends `notifications/cancelled`, in-flight work is actually terminated:
+  subprocess receives SIGTERM followed by SIGKILL escalation after 2 seconds;
+  HTTP fetches are aborted via `AbortSignal.any()` combining the existing
+  per-request timeout with the external client signal.
+
+- **`CANCELLED` error code** -- added to `ToolErrorCode`. Returned to the caller
+  when a tool is interrupted mid-flight by client cancellation, rather than
+  surfacing a misleading `TIMEOUT` or `OPA_BINARY_NOT_FOUND` code.
+
+- **`OpaCancelledError`** -- new error class in `OpaClient`. Thrown when a
+  fetch aborts because the client signal fired (not a network failure), so
+  `mapOpaClientError` can map it precisely to `CANCELLED`.
+
+- **Tool annotations, instructions, and path sanitization (MCP spec 2025-11-25)**
+  -- all 43 tools now declare `readOnlyHint`, `destructiveHint`, `idempotentHint`,
+  and `openWorldHint` in their `annotations` block per the MCP spec. Server
+  registers `instructions` at startup describing the tool set. All file path
+  arguments validated through a hardened `validatePath` helper that normalises
+  Windows drive-letter casing and resolves symlinks before allow-list comparison,
+  closing a bypass that existed when a symlink target escaped the allowed root.
+
+### Changed
+
+- **`@modelcontextprotocol/sdk` pinned to `^1.29.0`** -- the minimum version that
+  exposes `annotations` on `RegisteredTool` and passes `extra.signal` to handlers.
+
+### Internal
+
+- `subprocess.ts`: `SpawnResult` gains `aborted: boolean`; `SpawnOptions` gains
+  `signal?: AbortSignal`. Early-return path if signal is pre-aborted; abort
+  listener shares the SIGTERM->SIGKILL escalation helper with the timeout path.
+- `tool-helpers.ts`: `mapSubprocessFailure` checks `result.aborted` before
+  `exitCode === null` so cancellation takes priority over binary-not-found.
+- Tests: all mock `SpawnResult` objects updated to include `aborted: false`;
+  `callTool` helper passes `{ signal }` as second argument; two new deterministic
+  abort path tests in `subprocess.test.ts`.
+
 ## [0.1.8] - 2026-05-21
 
 ### Added
@@ -514,7 +557,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.5...v0.1.6
