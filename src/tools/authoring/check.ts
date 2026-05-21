@@ -14,6 +14,7 @@ import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import {
   mapSubprocessFailure,
+  sanitizeInlinePath,
   tryParseJson,
   validatePaths,
   withToolEnvelope,
@@ -59,6 +60,12 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
       description:
         'Type-check Rego with `opa check`. Returns `{ valid: true, errors: [] }` on success, or a list of structured diagnostics with file/line locations on failure. Provide either `source` for inline checking or `paths` for file/directory checking.',
       inputSchema: RegoCheckInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ source, paths, strict, capabilities, schemaDir }) => {
       return withToolEnvelope<RegoCheckOutput>(config, async () => {
@@ -120,7 +127,16 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
             { details: { stderr: result.stderr.trim(), stdout: result.stdout.trim() } },
           );
         }
-        return ok<RegoCheckOutput>({ valid: false, errors: parsed.errors ?? [] });
+        const rawErrors = parsed.errors ?? [];
+        const errors =
+          source !== undefined
+            ? rawErrors.map((e) =>
+                e.location?.file
+                  ? { ...e, location: { ...e.location, file: sanitizeInlinePath(e.location.file) } }
+                  : e,
+              )
+            : rawErrors;
+        return ok<RegoCheckOutput>({ valid: false, errors });
       });
     },
   );

@@ -6,6 +6,23 @@
  * the formatted MCP result. The pieces here factor out the parts every
  * tool repeats so each tool file can stay focused on its own logic.
  */
+
+/**
+ * Matches the temp-file basenames written by OpaCli.withTempSource and
+ * RegalCli when handling inline source. Used to scrub implementation-
+ * internal paths from tool output before it reaches the caller.
+ */
+export const INLINE_TEMP_PATH_PATTERN = /orygn-opa-mcp-[0-9a-f-]+\.rego$/i;
+
+/**
+ * Replace a file path that refers to one of our temp files with the
+ * sentinel string `<inline>`. Returns the original string unchanged when
+ * it does not match the pattern, so callers can unconditionally apply it
+ * to all location.file values regardless of whether inline source was used.
+ */
+export function sanitizeInlinePath(file: string): string {
+  return INLINE_TEMP_PATH_PATTERN.test(file) ? '<inline>' : file;
+}
 import type { Config } from '../config.js';
 import { err } from './errors.js';
 import { formatEnvelope, type McpToolResult } from './output.js';

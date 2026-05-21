@@ -32,6 +32,12 @@ export function registerRegoParseAst(server: McpServer, config: Config): void {
       description:
         'Parse Rego source to a JSON AST using `opa parse`. Returns the AST as a tree of nodes (package, imports, rules, expressions, terms). Use this when you need to introspect policy structure programmatically.',
       inputSchema: RegoParseAstInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ source }) => {
       return withToolEnvelope<RegoParseAstOutput>(config, async () => {

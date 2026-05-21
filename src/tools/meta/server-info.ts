@@ -32,6 +32,12 @@ export function registerMcpServerInfo(server: McpServer, config: Config): void {
       description:
         'Return the name, version, and runtime details of this opa-mcp server instance. Use this when you need to confirm which version of opa-mcp is running, or to verify that the OPA and Regal binaries are reachable.',
       inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       return withToolEnvelope<McpServerInfoOutput>(config, async () => {

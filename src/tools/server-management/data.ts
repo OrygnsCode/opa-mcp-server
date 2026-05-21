@@ -23,6 +23,12 @@ export function registerDataTools(server: McpServer, config: Config): void {
       inputSchema: {
         path: z.string().min(1).describe('Data path under `data.`, e.g. "users" or "users/alice".'),
       },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ path }) => {
       return withToolEnvelope<{ result: unknown }>(config, async () => {
@@ -49,6 +55,12 @@ export function registerDataTools(server: McpServer, config: Config): void {
       inputSchema: {
         path: z.string().min(1).describe('Data path to write to.'),
         value: z.unknown().describe('JSON value to store at this path.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async ({ path, value }) => {
@@ -88,6 +100,12 @@ export function registerDataTools(server: McpServer, config: Config): void {
           .min(1)
           .describe('Array of JSON Patch operations.'),
       },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async ({ path, operations }) => {
       return withToolEnvelope<{ path: string; patched: boolean }>(config, async () => {
@@ -121,6 +139,12 @@ export function registerDataTools(server: McpServer, config: Config): void {
           .describe(
             'Data path to delete, e.g. "users.alice" or "users/alice". Must be at least one segment deep.',
           ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     },
     async ({ path }) => {

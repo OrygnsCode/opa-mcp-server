@@ -21,6 +21,12 @@ export function registerRegoEval(server: McpServer, config: Config): void {
       description:
         'Evaluate a Rego query against a policy and an input document using `opa eval`. Returns the standard `{result: [...]}` shape. The bread-and-butter authoring tool.',
       inputSchema: SharedEvalInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (args) => {
       return withToolEnvelope<RegoEvalOutput>(config, () => runEval(opa, config, args, {}));
@@ -34,6 +40,12 @@ export function registerRegoEval(server: McpServer, config: Config): void {
       description:
         "Evaluate with `--explain=full` and return a structured trace alongside the result. Use this when an agent needs to see why a rule fired (or didn't) -- the trace is the basis for `rego_explain_decision`.",
       inputSchema: SharedEvalInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (args) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>
@@ -49,6 +61,12 @@ export function registerRegoEval(server: McpServer, config: Config): void {
       description:
         'Evaluate with `--profile` and return per-rule timing and evaluation counts. Use this to find hot rules in slow policies.',
       inputSchema: SharedEvalInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (args) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>
@@ -64,6 +82,12 @@ export function registerRegoEval(server: McpServer, config: Config): void {
       description:
         "Evaluate with `--coverage` and return per-line coverage data. Useful for verifying that tests actually exercise the rules they're meant to.",
       inputSchema: SharedEvalInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (args) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>

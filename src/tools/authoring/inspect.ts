@@ -41,6 +41,12 @@ export function registerRegoInspect(server: McpServer, config: Config): void {
       description:
         'Inspect an OPA bundle, policy directory, or single Rego file with `opa inspect`. Returns manifest data, namespaces, rule annotations, and (if signed) signature metadata.',
       inputSchema: RegoInspectInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ target }) => {
       return withToolEnvelope<RegoInspectOutput>(config, async () => {

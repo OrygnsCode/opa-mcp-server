@@ -153,6 +153,12 @@ export function registerRegoFix(server: McpServer, config: Config): void {
       description:
         'Run regal fix to automatically apply mechanical fixes for the five rules regal 0.30.0 supports: opa-fmt, use-rego-v1, use-assignment-operator, no-whitespace-comment, and directory-package-mismatch. Use dryRun: true to preview changes before modifying files. NOTE: directory-package-mismatch moves files to match their package path -- use disable: ["directory-package-mismatch"] to skip it. Files with uncommitted git changes require force: true. Requires regal.',
       inputSchema: RegoFixInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({
       paths,

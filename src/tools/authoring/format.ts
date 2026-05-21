@@ -32,6 +32,12 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
       description:
         'Format Rego source code using `opa fmt`. Returns the formatted source and a `changed` flag indicating whether the input was already canonical.',
       inputSchema: RegoFormatInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ source }) => {
       return withToolEnvelope(config, async () => {

@@ -33,6 +33,12 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
           .describe('Include a trace at the requested level.'),
         metrics: z.boolean().optional().describe('Include metrics in the response.'),
       },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ path, input, explain, metrics }) => {
       return withToolEnvelope<{ result?: unknown; explanation?: unknown; metrics?: unknown }>(
@@ -80,6 +86,12 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
           .array(z.string())
           .optional()
           .describe('Refs to treat as unknown (default: ["input"]).'),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async ({ query, input, unknowns }) => {

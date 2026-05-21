@@ -61,6 +61,12 @@ export function registerRegoTest(server: McpServer, config: Config): void {
       description:
         'Run Rego unit tests with `opa test`. Returns aggregate pass/fail counts plus per-test records. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up.',
       inputSchema: RegoTestInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ paths, verbose, coverage, runPattern }) => {
       return withToolEnvelope<RegoTestOutput>(config, async () => {

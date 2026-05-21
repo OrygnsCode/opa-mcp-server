@@ -50,6 +50,12 @@ export function registerRegoBench(server: McpServer, config: Config): void {
       description:
         'Benchmark a Rego query against a policy + input with `opa bench`. Returns statistical timing data: iterations, ns/op, and allocation counts. Use this to spot slow rules.',
       inputSchema: RegoBenchInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ query, paths, input, inputPath, count }) => {
       return withToolEnvelope<RegoBenchOutput>(config, async () => {

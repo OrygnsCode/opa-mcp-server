@@ -56,6 +56,12 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
       description:
         'Return OPA capabilities -- the available builtins, future keywords, features, and WASM ABI versions. With `current: true`, returns the running OPA\'s capabilities. With `version: "v0.69.0"`, returns those of a specific version. With neither, lists available named versions. By default (`names_only: true`), returns only builtin names and count to stay within response size limits; pass `names_only: false` for full type signatures and documentation.',
       inputSchema: RegoCapabilitiesInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ current, version, names_only }) => {
       return withToolEnvelope<RegoCapabilitiesOutput>(config, async () => {

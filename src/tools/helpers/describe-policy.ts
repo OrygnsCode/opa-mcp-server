@@ -81,6 +81,12 @@ export function registerRegoDescribePolicy(server: McpServer, config: Config): v
       description:
         'Parse a Rego policy and return a structured summary: package, imports, rules (with default/args/body-length flags), and inline annotations. Useful as the first step in any "what does this policy do" workflow.',
       inputSchema: RegoDescribePolicyInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ source }) => {
       return withToolEnvelope<RegoDescribePolicyOutput>(config, async () => {

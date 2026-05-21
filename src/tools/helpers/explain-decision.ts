@@ -90,6 +90,12 @@ export function registerRegoExplainDecision(server: McpServer, config: Config): 
       description:
         'Evaluate a Rego query with full tracing and return a structured trace plus per-rule fired/not-fired summary. Use this when you need to answer "why was this denied?" -- the agent reads the structured trace and narrates the cause without re-implementing the trace parser.',
       inputSchema: SharedEvalInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (args) => {
       return withToolEnvelope<RegoExplainDecisionOutput>(config, async () => {
