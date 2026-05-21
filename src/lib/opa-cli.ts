@@ -187,6 +187,18 @@ export interface SignInput {
   claimsFile?: string;
 }
 
+/** Input for `opa exec` -- batch evaluation against multiple input files. */
+export interface ExecInput {
+  /** One or more input file paths (JSON/YAML) or directories to evaluate. */
+  inputPaths: string[];
+  /** The policy decision (entrypoint) to evaluate for each input, e.g. `data.authz.allow`. */
+  decision: string;
+  /** Load path as a bundle file or root directory. Mutually exclusive with `dataPaths`. */
+  bundle?: string;
+  /** Policy/data file or directory paths to load. Mutually exclusive with `bundle`. */
+  dataPaths?: string[];
+}
+
 /** Input for bundle signature verification via `opa eval --bundle`. */
 export interface BundleVerifyInput {
   /** Path to the signed bundle directory or `.tar.gz` archive. */
@@ -475,6 +487,22 @@ export class OpaCli {
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.scope) args.push('--scope', input.scope);
     args.push('true');
+    return this.run(args);
+  }
+
+  /**
+   * Batch-evaluate a policy decision against one or more input files using
+   * `opa exec`. Each input file is evaluated independently; results are
+   * returned as a JSON array with one entry per file.
+   */
+  async exec(input: ExecInput): Promise<SpawnResult> {
+    if (input.inputPaths.length === 0) {
+      throw new Error('opa exec requires at least one input path');
+    }
+    const args = ['exec', '--format=json', '--decision', input.decision];
+    if (input.bundle) args.push('--bundle', input.bundle);
+    for (const p of input.dataPaths ?? []) args.push('--data', p);
+    args.push(...input.inputPaths);
     return this.run(args);
   }
 
