@@ -15,7 +15,14 @@ import {
 } from '../../../src/tools/helpers/policy-diff.js';
 
 const mockRun = vi.mocked(runBinary);
-const okSpawn = { exitCode: 0, stdout: '', stderr: '', timedOut: false, aborted: false, durationMs: 1 };
+const okSpawn = {
+  exitCode: 0,
+  stdout: '',
+  stderr: '',
+  timedOut: false,
+  aborted: false,
+  durationMs: 1,
+};
 
 // OPA eval --format=json output helpers
 const opaResult = (value: unknown): string =>

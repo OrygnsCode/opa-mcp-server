@@ -15,7 +15,14 @@ import {
 } from '../../../src/tools/helpers/fix.js';
 
 const mockRun = vi.mocked(runBinary);
-const okSpawn = { exitCode: 0, stdout: '', stderr: '', timedOut: false, aborted: false, durationMs: 1 };
+const okSpawn = {
+  exitCode: 0,
+  stdout: '',
+  stderr: '',
+  timedOut: false,
+  aborted: false,
+  durationMs: 1,
+};
 
 beforeEach(() => {
   mockRun.mockReset();
