@@ -17,13 +17,15 @@ import { withToolEnvelope } from '../../lib/tool-helpers.js';
 import { runEval, SharedEvalInput, type RegoEvalOutput } from '../evaluation/_shared.js';
 
 interface TraceEvent {
-  op?: string;
-  type?: string;
-  query_id?: number;
-  parent_id?: number;
-  message?: string;
-  location?: { file?: string; row?: number; col?: number };
-  node?: unknown;
+  Op?: string;
+  Node?: unknown;
+  Location?: { file?: string; row?: number; col?: number };
+  QueryID?: number;
+  ParentID?: number;
+  Message?: string;
+  Locals?: unknown;
+  LocalMetadata?: unknown;
+  Ref?: unknown;
 }
 
 export interface RegoExplainDecisionOutput {
@@ -40,6 +42,11 @@ export interface RegoExplainDecisionOutput {
   };
 }
 
+function extractRuleName(node: unknown): string | undefined {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return undefined;
+  return (node as { head?: { name?: string } }).head?.name;
+}
+
 function summarizeTrace(trace: TraceEvent[] | undefined): RegoExplainDecisionOutput['summary'] & {
   rulesEvaluated: Set<string>;
   rulesFired: Set<string>;
@@ -50,15 +57,16 @@ function summarizeTrace(trace: TraceEvent[] | undefined): RegoExplainDecisionOut
   let exitEvents = 0;
   let failEvents = 0;
   for (const event of trace ?? []) {
-    if (event.op === 'enter') {
+    const op = event.Op?.toLowerCase();
+    if (op === 'enter') {
       enterEvents += 1;
-      const ruleMatch = event.message ? /^(?:eval|enter)\s+(.+)$/i.exec(event.message) : null;
-      if (ruleMatch?.[1]) rulesEvaluated.add(ruleMatch[1]);
-    } else if (event.op === 'exit') {
+      const name = extractRuleName(event.Node);
+      if (name) rulesEvaluated.add(name);
+    } else if (op === 'exit') {
       exitEvents += 1;
-      const ruleMatch = event.message ? /^(?:exit|matched)\s+(.+)$/i.exec(event.message) : null;
-      if (ruleMatch?.[1]) rulesFired.add(ruleMatch[1]);
-    } else if (event.op === 'fail') {
+      const name = extractRuleName(event.Node);
+      if (name) rulesFired.add(name);
+    } else if (op === 'fail') {
       failEvents += 1;
     }
   }

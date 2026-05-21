@@ -86,6 +86,35 @@ describe('rego_eval', () => {
     expect(opts.stdin).toBe('{"user":"alice"}');
   });
 
+  it('parses a JSON string passed as input (LLM serialization mistake)', async () => {
+    // LLMs often pass JSON as a string: input: '{"user":"alice"}' instead of
+    // input: {user: "alice"}. We parse it so OPA gets an object on stdin.
+    mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_eval', {
+      query: 'input.user',
+      paths: [validRegoPath()],
+      input: '{"user":"alice"}',
+    });
+    const opts = mockRun.mock.calls[0]![1];
+    expect(opts.args).toContain('--stdin-input');
+    expect(opts.stdin).toBe('{"user":"alice"}');
+  });
+
+  it('passes a non-JSON string input through as-is', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_eval', {
+      query: 'input',
+      paths: [validRegoPath()],
+      input: 'plain string',
+    });
+    const opts = mockRun.mock.calls[0]![1];
+    expect(opts.stdin).toBe('"plain string"');
+  });
+
   it('uses --input flag when inputPath is provided', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
     const server = makeServer();
