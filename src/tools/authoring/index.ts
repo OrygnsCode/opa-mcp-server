@@ -14,6 +14,7 @@ import { registerRegoDeps } from './deps.js';
 import { registerRegoFormat } from './format.js';
 import { registerRegoInspect } from './inspect.js';
 import { registerRegoLint } from './lint.js';
+import { registerRegoMigrateV1 } from './migrate-v1.js';
 import { registerRegoParseAst } from './parse.js';
 
 export function registerAuthoringTools(server: McpServer, config: Config): void {
@@ -24,4 +25,5 @@ export function registerAuthoringTools(server: McpServer, config: Config): void 
   registerRegoInspect(server, config);
   registerRegoCapabilities(server, config);
   registerRegoDeps(server, config);
+  registerRegoMigrateV1(server, config);
 }

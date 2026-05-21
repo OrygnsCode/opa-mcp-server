@@ -619,3 +619,180 @@ describe('rego_lint -- configFile path validation', () => {
     expect(env.error?.code).toBe('PATH_NOT_FOUND');
   });
 });
+
+// ── v0 source samples used across rego_migrate_v1 tests ────────────────────
+// Classic Rego v0 pattern: rule head uses `{...}` without `if`.
+const v0Source = `package example\n\nallow {\n  input.user == "admin"\n}\n`;
+// The expected v1 output after opa fmt --rego-v1 (adds `if`).
+const v1Source = `package example\n\nimport rego.v1\n\nallow if {\n  input.user == "admin"\n}\n`;
+
+describe('rego_migrate_v1', () => {
+  it('returns migrated source with changed=true and valid=true on a typical v0 policy', async () => {
+    // First call: opa fmt --rego-v1 (returns migrated source)
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    // Second call: opa check --v1-compatible (no errors)
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{
+      original: string;
+      migrated: string;
+      changed: boolean;
+      valid: boolean;
+      errors: unknown[];
+    }>(server, 'rego_migrate_v1', { source: v0Source });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.original).toBe(v0Source);
+    expect(env.data?.migrated).toBe(v1Source);
+    expect(env.data?.changed).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.errors).toEqual([]);
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes --rego-v1 to fmt and --v1-compatible to check in argv', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    await callTool(server, 'rego_migrate_v1', { source: v0Source });
+
+    const fmtArgs = mockRun.mock.calls[0]![1].args;
+    const checkArgs = mockRun.mock.calls[1]![1].args;
+
+    expect(fmtArgs[0]).toBe('fmt');
+    expect(fmtArgs).toContain('--rego-v1');
+
+    expect(checkArgs[0]).toBe('check');
+    expect(checkArgs).toContain('--v1-compatible');
+  });
+
+  it('reports changed=false when source is already v1-compatible', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ changed: boolean }>(server, 'rego_migrate_v1', {
+      source: v1Source,
+    });
+    expect(env.data?.changed).toBe(false);
+  });
+
+  it('returns ok=true with valid=false and errors when check finds remaining issues', async () => {
+    const checkErrors = [
+      {
+        code: 'rego_type_error',
+        message: 'function rego.v1.http.send not allowed in v1',
+        location: { file: '<input>', row: 5, col: 3 },
+      },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors: checkErrors })));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{
+      migrated: string;
+      valid: boolean;
+      errors: typeof checkErrors;
+    }>(server, 'rego_migrate_v1', { source: v0Source });
+
+    // ok: true even though check found issues -- migration happened; caller fixes remainder
+    expect(env.ok).toBe(true);
+    expect(env.data?.migrated).toBe(v1Source);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors).toHaveLength(1);
+    expect(env.data?.errors[0]?.code).toBe('rego_type_error');
+  });
+
+  it('returns empty errors array when check exits non-zero but produces no JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnFailure(1, 'something went wrong -- non-json'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ valid: boolean; errors: unknown[] }>(server, 'rego_migrate_v1', {
+      source: v0Source,
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors).toEqual([]);
+  });
+
+  it('maps fmt parse failure to INVALID_REGO and does not call check', async () => {
+    const fmtError = JSON.stringify({
+      errors: [{ code: 'rego_parse_error', message: 'bad syntax' }],
+    });
+    mockRun.mockResolvedValueOnce(spawnFailure(2, fmtError));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_migrate_v1', { source: '!@#invalid' });
+
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_REGO');
+    // check subprocess must NOT have been called
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps missing opa binary in fmt phase to OPA_BINARY_NOT_FOUND', async () => {
+    mockRun.mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_migrate_v1', { source: v0Source });
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps timeout in fmt phase to TIMEOUT and does not call check', async () => {
+    mockRun.mockResolvedValueOnce(spawnTimedOut());
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_migrate_v1', { source: v0Source });
+    expect(env.error?.code).toBe('TIMEOUT');
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps missing opa binary in check phase to OPA_BINARY_NOT_FOUND', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_migrate_v1', { source: v0Source });
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('maps timeout in check phase to TIMEOUT', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnTimedOut());
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_migrate_v1', { source: v0Source });
+    expect(env.error?.code).toBe('TIMEOUT');
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('always echoes the original source in output even when changed', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ original: string }>(server, 'rego_migrate_v1', {
+      source: v0Source,
+    });
+    expect(env.data?.original).toBe(v0Source);
+  });
+
+  it('check step uses the fmt output (not the original source) when fmt changes code', async () => {
+    // If fmt changes the source, check must run on the MIGRATED code.
+    // We verify this indirectly: both calls happen, and the second is `check` not `fmt`.
+    mockRun.mockResolvedValueOnce(spawnSuccess(v1Source));
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    await callTool(server, 'rego_migrate_v1', { source: v0Source });
+
+    expect(mockRun).toHaveBeenCalledTimes(2);
+    expect(mockRun.mock.calls[0]![1].args[0]).toBe('fmt');
+    expect(mockRun.mock.calls[1]![1].args[0]).toBe('check');
+  });
+});

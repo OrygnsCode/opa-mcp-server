@@ -27,6 +27,8 @@ import { runBinary, type SpawnResult } from './subprocess.js';
 export interface FmtInput {
   /** Rego source code to format. */
   source: string;
+  /** Format for compatibility with both Rego v1 and the current OPA version (`opa fmt --rego-v1`). */
+  regoV1?: boolean;
 }
 
 /** Input for `opa fmt --list` / `opa fmt --write` (file-based formatting). */
@@ -53,6 +55,10 @@ export interface CheckInput {
   strict?: boolean;
   /** Schema directory for input/data validation. */
   schemaDir?: string;
+  /** Opt-in to OPA v1.0-compatible behaviors (`opa check --v1-compatible`). */
+  v1Compatible?: boolean;
+  /** Opt-in to OPA behaviors prior to the v1.0 release (`opa check --v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for `opa parse`. */
@@ -235,7 +241,9 @@ export class OpaCli {
    * input vs output to detect a no-op.
    */
   async fmt(input: FmtInput): Promise<SpawnResult> {
-    return this.withTempSource(input.source, (path) => this.run(['fmt', path]));
+    const args = ['fmt'];
+    if (input.regoV1) args.push('--rego-v1');
+    return this.withTempSource(input.source, (path) => this.run([...args, path]));
   }
 
   /**
@@ -288,6 +296,8 @@ export class OpaCli {
     }
     const args = ['check', '--format=json'];
     if (input.strict) args.push('--strict');
+    if (input.v1Compatible) args.push('--v1-compatible');
+    if (input.v0Compatible) args.push('--v0-compatible');
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     if (input.schemaDir) args.push('--schema', input.schemaDir);
     if (input.source !== undefined) {
