@@ -420,7 +420,7 @@ the tasks agents are actually asked to do.
 
 ## Prompts
 
-Three [MCP prompts](https://modelcontextprotocol.io/specification/server/prompts)
+Three [MCP prompts](https://modelcontextprotocol.io/docs/concepts/prompts)
 ship with the server. Clients surface them as slash commands or workflow
 templates.
 
@@ -432,7 +432,7 @@ templates.
 
 ## Resources
 
-Three [MCP resources](https://modelcontextprotocol.io/specification/server/resources)
+Three [MCP resources](https://modelcontextprotocol.io/docs/concepts/resources)
 expose curated reference data the agent can read at any time.
 
 | Resource URI        | What's there                                                                                                                                                                                 |
