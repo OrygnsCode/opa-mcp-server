@@ -181,6 +181,29 @@ export interface SignInput {
   claimsFile?: string;
 }
 
+/** Input for bundle signature verification via `opa eval --bundle`. */
+export interface BundleVerifyInput {
+  /** Path to the signed bundle directory or `.tar.gz` archive. */
+  bundle: string;
+  /**
+   * Path to the PEM file containing the public key (RSA/ECDSA) or the
+   * HMAC secret file used to verify the bundle signature.
+   */
+  verificationKey: string;
+  /**
+   * Key ID that must match the `keyid` claim in the bundle signature.
+   * Required when the bundle was signed with `--public-key-id`.
+   */
+  verificationKeyId?: string;
+  /** Signing algorithm used when the bundle was signed (e.g. `RS256`, `HS256`). */
+  signingAlg?: string;
+  /**
+   * Expected `scope` value in the bundle signature. Required when the
+   * bundle was signed with `--scope`.
+   */
+  scope?: string;
+}
+
 /**
  * Wrapper around the local `opa` binary.
  *
@@ -426,6 +449,22 @@ export class OpaCli {
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.claimsFile) args.push('--claims-file', input.claimsFile);
     args.push('--bundle', input.bundle);
+    return this.run(args);
+  }
+
+  /**
+   * Verify a signed bundle using `opa eval --bundle --verification-key`.
+   * OPA verifies the bundle signature before loading any policies; a
+   * failed signature produces a non-zero exit and the error message on
+   * stderr. The trivial query `true` is used so the process exits
+   * immediately after verification without entering a REPL.
+   */
+  async bundleVerify(input: BundleVerifyInput): Promise<SpawnResult> {
+    const args = ['eval', '--bundle', input.bundle, '--verification-key', input.verificationKey];
+    if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
+    if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
+    if (input.scope) args.push('--scope', input.scope);
+    args.push('true');
     return this.run(args);
   }
 
