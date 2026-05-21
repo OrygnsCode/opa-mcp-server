@@ -18,10 +18,10 @@ environment.
 +--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------+
 |  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal ·   |
 |   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API    |
-+--------------------+   39 tools    +-----------------+                +------------------+
++--------------------+   43 tools    +-----------------+                +------------------+
 ```
 
-> **Status:** v0.1.5. Tool surface, error codes, and
+> **Status:** v0.1.8. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
@@ -264,7 +264,7 @@ Every tool returns a JSON envelope:
 Stable error codes: `INVALID_INPUT`, `INVALID_REGO`, `INVALID_BUNDLE`,
 `EVAL_ERROR`, `OPA_BINARY_NOT_FOUND`, `REGAL_NOT_FOUND`,
 `REGAL_VERSION_TOO_OLD`, `OPA_UNREACHABLE`, `OPA_AUTH_FAILED`,
-`POLICY_NOT_FOUND`, `PATH_NOT_ALLOWED`, `PATH_NOT_FOUND`,
+`POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`, `PATH_NOT_FOUND`,
 `DEPENDENCY_CONFLICT`, `NO_TESTS_FOUND`, `HTTP_SEND_BLOCKED`, `TIMEOUT`,
 `UNKNOWN_ERROR`.
 
@@ -274,15 +274,16 @@ Operate on Rego source code without needing a running OPA server. Wrap
 `opa fmt`, `opa parse`, `opa check`, `opa inspect`, `opa capabilities`,
 `opa deps`, and `regal`.
 
-| Tool                | What it does                                                                                                                      |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                  |
-| `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                  |
-| `rego_lint`         | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.** |
-| `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                        |
-| `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                 |
-| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                               |
-| `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                   |
+| Tool                | What it does                                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                                                         |
+| `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                                                         |
+| `rego_lint`         | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                        |
+| `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                                                               |
+| `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                                                        |
+| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                                                                      |
+| `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                          |
+| `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`. |
 
 #### Featured: `rego_format`
 
@@ -332,15 +333,16 @@ Operate on Rego source code without needing a running OPA server. Wrap
 Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 `opa bench`.
 
-| Tool                      | What it does                                                                         |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.              |
-| `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                        |
-| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.          |
-| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                             |
-| `rego_test`               | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage. |
-| `rego_bench`              | Run `opa bench` and return statistical timing data.                                  |
-| `rego_compile_query`      | Partially evaluate a query against a policy.                                         |
+| Tool                      | What it does                                                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.                                                |
+| `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                                                          |
+| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.                                            |
+| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                                                               |
+| `rego_test`               | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage.                                   |
+| `rego_bench`              | Run `opa bench` and return statistical timing data.                                                                    |
+| `rego_compile_query`      | Partially evaluate a query against a policy.                                                                           |
+| `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`. |
 
 #### Featured: `rego_eval`
 
@@ -365,10 +367,11 @@ Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 
 Package and sign deployable bundles. Wrap `opa build` and `opa sign`.
 
-| Tool               | What it does                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| `opa_bundle_build` | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`. |
-| `opa_bundle_sign`  | Sign a bundle with a private key. Returns `.signatures.json` content.                 |
+| Tool                | What it does                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
+| `opa_bundle_build`  | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`.             |
+| `opa_bundle_sign`   | Sign a bundle with a private key. Returns `.signatures.json` content.                             |
+| `opa_bundle_verify` | Verify the signature of a signed bundle using a public key. Returns `{ bundle, verified: true }`. |
 
 ### Category D: OPA server management
 
@@ -384,6 +387,7 @@ point at a reachable server.
 | `opa_get_data`       | Read a path from the data hierarchy.                   |
 | `opa_put_data`       | Write to a path in the data hierarchy.                 |
 | `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.              |
+| `opa_delete_data`    | Delete a document from the data hierarchy.             |
 | `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input. |
 | `opa_compile_query`  | Partially evaluate a query against the running server. |
 | `opa_health`         | Liveness / readiness check.                            |
