@@ -78,6 +78,12 @@ export function registerRegoFormatWrite(server: McpServer, config: Config): void
       description:
         'Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to preview which files would change without modifying them. Returns a list of files that were (or would be) reformatted. Unlike `rego_format` which returns formatted source as a string, this tool writes directly to disk. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags for version-specific formatting. If any file cannot be parsed, the operation is aborted and no files are written.',
       inputSchema: RegoFormatWriteInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ paths, dryRun, regoV1, v0Compatible, v1Compatible }) => {
       return withToolEnvelope<RegoFormatWriteOutput>(config, async () => {

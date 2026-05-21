@@ -24,6 +24,12 @@ export function registerStatusTools(server: McpServer, config: Config): void {
         bundles: z.boolean().optional().describe('Require bundle plugin to be healthy as well.'),
         plugins: z.boolean().optional().describe('Require all plugins to be healthy.'),
       },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ bundles, plugins }) => {
       return withToolEnvelope<{ healthy: boolean }>(config, async () => {
@@ -57,6 +63,12 @@ export function registerStatusTools(server: McpServer, config: Config): void {
       description:
         'Return OPA bundle and decision-log status from the running server. Combines `/v1/config` and the operational status the server exposes through it.',
       inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async () => {
       return withToolEnvelope<{ status: unknown }>(config, async () => {
@@ -81,6 +93,12 @@ export function registerStatusTools(server: McpServer, config: Config): void {
       description:
         'Return the running OPA server configuration (sanitized -- secrets are not included).',
       inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async () => {
       return withToolEnvelope<{ config: unknown }>(config, async () => {

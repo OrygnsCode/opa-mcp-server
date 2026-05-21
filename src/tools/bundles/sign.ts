@@ -36,6 +36,12 @@ export function registerOpaBundleSign(server: McpServer, config: Config): void {
       description:
         'Sign an OPA bundle with a private key using `opa sign`. Writes a `.signatures.json` next to the bundle directory, or updates the archive in place.',
       inputSchema: OpaBundleSignInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (input) => {
       return withToolEnvelope<OpaBundleSignOutput>(config, async () => {

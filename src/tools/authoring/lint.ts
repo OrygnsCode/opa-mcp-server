@@ -12,7 +12,9 @@ import type { Config } from '../../config.js';
 import { RegalCli } from '../../lib/regal-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import {
+  INLINE_TEMP_PATH_PATTERN,
   mapSubprocessFailure,
+  sanitizeInlinePath,
   tryParseJson,
   validatePaths,
   withToolEnvelope,
@@ -60,14 +62,6 @@ export interface RegoLintOutput {
 }
 
 /**
- * Matches the temp filenames RegalCli writes inline source to. The
- * basename anchor (`$`) is intentional: any path ending in our
- * temp-file pattern is ours, regardless of whether the OS reports it
- * with forward or back slashes or what tmpdir() resolves to.
- */
-const INLINE_TEMP_PATH = /orygn-opa-mcp-[0-9a-f-]+\.rego$/i;
-
-/**
  * Replace the leaking temp-file path in violation locations with
  * `<inline>` when the call used inline source, so users see "this came
  * from your inline source" instead of `/tmp/...orygn-opa-mcp-<uuid>.rego`.
@@ -79,8 +73,8 @@ function rewriteInlineLocations(violations: LintViolation[]): LintViolation[] {
     if (!loc || typeof loc !== 'object') return violation;
     const locObj = loc as Record<string, unknown>;
     const file = locObj['file'];
-    if (typeof file !== 'string' || !INLINE_TEMP_PATH.test(file)) return violation;
-    return { ...violation, location: { ...locObj, file: '<inline>' } };
+    if (typeof file !== 'string' || !INLINE_TEMP_PATH_PATTERN.test(file)) return violation;
+    return { ...violation, location: { ...locObj, file: sanitizeInlinePath(file) } };
   });
 }
 
@@ -94,6 +88,12 @@ export function registerRegoLint(server: McpServer, config: Config): void {
       description:
         'Lint Rego source with the Regal linter. Returns categorized violations (style, bugs, idiomatic, performance) with file/line locations. Requires `regal` on PATH or `REGAL_BINARY` set; returns REGAL_NOT_FOUND otherwise. When called with inline `source`, location-bound rules whose verdict depends on the on-disk path (`directory-package-mismatch`) are auto-disabled to avoid temp-file false positives, and `location.file` is reported as `<inline>` instead of the randomized temp path. Re-enable those rules via `enable` if your workflow actually needs them.',
       inputSchema: RegoLintInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (input) => {
       return withToolEnvelope<RegoLintOutput>(config, async () => {

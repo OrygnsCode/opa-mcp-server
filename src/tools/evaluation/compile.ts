@@ -24,6 +24,12 @@ export function registerRegoCompileQuery(server: McpServer, config: Config): voi
       description:
         'Run partial evaluation on a query -- substitute known values and return the residual policy. Defaults `unknowns` to `["input"]` (treat input as unknown), so the residual encodes "given input X, this is what would have to be true." Use this for offline policy slicing or pre-computing decision sets.',
       inputSchema: RegoCompileQueryInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (args) => {
       return withToolEnvelope<RegoEvalOutput>(config, () =>

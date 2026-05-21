@@ -168,6 +168,12 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
       description:
         'Statically analyse one or more Rego policies and return a JSON Schema (draft-07) object describing every input.* field the policies read. Uses opa parse for AST-level analysis -- no running OPA server required. Correct starting point for writing integration tests, configuring opa check --schema validation, or documenting a policy API. Accepts inline source, individual files, or directories (walked recursively for *.rego files).',
       inputSchema: RegoInferInputSchemaInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ source, paths }) => {
       return withToolEnvelope<RegoInferInputSchemaOutput>(config, async () => {

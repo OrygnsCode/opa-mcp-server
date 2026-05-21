@@ -48,6 +48,12 @@ export function registerRegoDeps(server: McpServer, config: Config): void {
       description:
         'Static dependency analysis for a Rego reference. Given a target ref like "data.example.allow", returns the base document references (input/data leaves) and virtual document references (rules) it depends on, transitively.',
       inputSchema: RegoDepsInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ paths, ref }) => {
       return withToolEnvelope<RegoDepsOutput>(config, async () => {

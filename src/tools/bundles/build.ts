@@ -54,6 +54,12 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
       description:
         'Build a deployable bundle from policy / data paths using `opa build`. Output is a `.tar.gz` archive with optional inline signing. Supports optimization, custom revision strings, and the WASM target.',
       inputSchema: OpaBundleBuildInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (input) => {
       return withToolEnvelope<OpaBundleBuildOutput>(config, async () => {

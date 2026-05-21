@@ -127,6 +127,12 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
       description:
         'Run opa test --coverage and return a per-file breakdown of uncovered line ranges. Identifies which rules or branches are not yet exercised by tests. Files are sorted by coverage ascending so the worst-covered files appear first. Use threshold to limit the report to files below a target coverage percentage.',
       inputSchema: RegoCoverageGapsInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ paths, threshold, runPattern }) => {
       return withToolEnvelope<RegoCoverageGapsOutput>(config, async () => {

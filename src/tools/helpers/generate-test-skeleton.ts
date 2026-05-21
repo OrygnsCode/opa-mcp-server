@@ -93,6 +93,12 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
       description:
         'Generate a `*_test.rego` skeleton from a policy. Parses the AST, finds each rule, and emits one stub test per rule. The agent fills in realistic inputs and assertions.',
       inputSchema: RegoGenerateTestSkeletonInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ source }) => {
       return withToolEnvelope<RegoGenerateTestSkeletonOutput>(config, async () => {

@@ -59,6 +59,12 @@ export function registerOpaBundleVerify(server: McpServer, config: Config): void
       description:
         'Verify the cryptographic signature of a signed OPA bundle using `opa eval --bundle --verification-key`. The bundle must have been signed with `opa sign` (or `opa_bundle_sign`). OPA checks the `.signatures.json` manifest inside the bundle against the provided public key before loading any policy -- a tampered or unsigned bundle will fail with `INVALID_BUNDLE`. Returns `{ bundle, verified: true }` on success.',
       inputSchema: OpaBundleVerifyInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (input) => {
       return withToolEnvelope<OpaBundleVerifyOutput>(config, async () => {

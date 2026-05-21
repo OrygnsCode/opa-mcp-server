@@ -28,6 +28,12 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
       description:
         'List policies registered on the running OPA server. Returns an array of `{ id, raw, ast }` records.',
       inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async () => {
       return withToolEnvelope<{ policies: OpaPolicyRecord[] }>(config, async () => {
@@ -51,6 +57,12 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
       description: 'Fetch a single policy by ID from the running OPA server.',
       inputSchema: {
         id: z.string().min(1).describe('Policy ID, e.g. "rbac" or "policies/auth/main".'),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async ({ id }) => {
@@ -78,6 +90,12 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
         id: z.string().min(1).describe('Policy ID to create or replace.'),
         source: z.string().min(1).describe('Rego source.'),
       },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ id, source }) => {
       return withToolEnvelope<{ id: string; replaced: boolean }>(config, async () => {
@@ -103,6 +121,12 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
       description: 'Delete a policy by ID from the running OPA server.',
       inputSchema: {
         id: z.string().min(1).describe('Policy ID to delete.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     },
     async ({ id }) => {

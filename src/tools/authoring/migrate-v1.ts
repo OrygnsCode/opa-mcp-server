@@ -17,7 +17,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/tool-helpers.js';
+import {
+  mapSubprocessFailure,
+  sanitizeInlinePath,
+  tryParseJson,
+  withToolEnvelope,
+} from '../../lib/tool-helpers.js';
 
 const RegoMigrateV1Input = {
   source: z
@@ -57,6 +62,12 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
       description:
         'Migrate Rego v0 source to Rego v1 syntax in two phases: (1) `opa fmt --rego-v1` auto-fixes reserved keywords (`if`, `contains`, `every`, `in` in rule heads) and adds `import rego.v1`; (2) `opa check --v1-compatible` validates the migrated source and reports any remaining issues that cannot be auto-fixed (e.g. removed builtins, semantic conflicts). Returns the migrated source and a `changed` flag even when check finds remaining errors -- this lets you inspect what changed and fix the remainder manually. If the source is completely unparseable, returns `INVALID_REGO`.',
       inputSchema: RegoMigrateV1Input,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ source }) => {
       return withToolEnvelope<RegoMigrateV1Output>(config, async () => {
@@ -98,12 +109,18 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
 
         // Check found remaining issues -- return them alongside the partial migration.
         const parsed = tryParseJson<{ errors?: CheckErrorRecord[] }>(checkResult.stderr);
+        const rawErrors = parsed?.errors ?? [];
+        const errors = rawErrors.map((e) =>
+          e.location?.file
+            ? { ...e, location: { ...e.location, file: sanitizeInlinePath(e.location.file) } }
+            : e,
+        );
         return ok<RegoMigrateV1Output>({
           original: source,
           migrated,
           changed,
           valid: false,
-          errors: parsed?.errors ?? [],
+          errors,
         });
       });
     },

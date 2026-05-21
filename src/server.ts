@@ -42,10 +42,13 @@ export function buildServer(config: Config): McpServer {
     regalBinary: config.regalBinary,
   });
 
-  const server = new McpServer({
-    name: SERVER_NAME,
-    version: SERVER_VERSION,
-  });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    {
+      instructions:
+        '43 tools split into six categories. rego_* authoring/analysis tools use the local opa binary -- no running OPA server required. rego_lint requires regal (REGAL_BINARY). opa_* server-management tools talk to a live OPA instance via OPA_URL; set OPA_TOKEN if the server requires bearer-token authentication. File-based tools require paths inside OPA_MCP_ALLOWED_PATHS; inline-source tools work without it. Start with rego_check + rego_lint for policy authoring, mcp_server_info to confirm which binaries are reachable.',
+    },
+  );
 
   registerTools(server, config);
   registerPrompts(server, config);

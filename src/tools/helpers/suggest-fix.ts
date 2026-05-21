@@ -124,6 +124,12 @@ export function registerRegoSuggestFix(server: McpServer, config: Config): void 
       description:
         'Map common Rego compile errors and Regal lint findings to mechanical fix suggestions. Pass diagnostics from `rego_check` or `rego_lint`. Returns one suggestion per input diagnostic; confidence is `high` for well-known patterns, `medium` for partial matches, `low` for everything else.',
       inputSchema: RegoSuggestFixInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     ({ diagnostics }) => {
       return withToolEnvelope<RegoSuggestFixOutput>(config, () => {

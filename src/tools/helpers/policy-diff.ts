@@ -179,6 +179,12 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
       description:
         'Evaluate the same query against two policies (or two versions of the same policy) and compare the results. Both evaluations run in parallel. Returns `equal: true/false`, the raw result from each side, and `changedPaths` -- the dot/bracket paths that differ. Useful for verifying that a refactor preserves behavior, or understanding exactly where two policies diverge. Each side takes either inline source (sourceA/sourceB) or a file/directory path (pathA/pathB). The same input and query are used for both evaluations.',
       inputSchema: RegoPolicyDiffInput,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ sourceA, pathA, sourceB, pathB, query, input, inputPath, dataPaths }) => {
       return withToolEnvelope<RegoPolicyDiffOutput>(config, async () => {
