@@ -127,6 +127,7 @@ const buildConfig = (overrides: Partial<Config> = {}): Config => ({
   opaUrl: OPA_TEST_URL,
   opaBinary: OPA_BINARY,
   regalBinary: 'regal',
+  conftestBinary: 'conftest',
   subprocessTimeoutMs: 30_000,
   httpTimeoutMs: 5_000,
   allowedPaths: [],

@@ -228,6 +228,7 @@ describe('loadConfig — combined real-world configurations', () => {
       opaToken: 'prod-token',
       opaBinary: '/usr/local/bin/opa',
       regalBinary: '/usr/local/bin/regal',
+      conftestBinary: 'conftest',
       subprocessTimeoutMs: 60_000,
       httpTimeoutMs: 10_000,
       allowedPaths: ['/srv/policies', '/srv/data'],

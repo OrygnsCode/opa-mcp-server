@@ -42,6 +42,7 @@ const baseConfig: Config = {
   opaUrl: 'http://localhost:8181',
   opaBinary: 'opa',
   regalBinary: 'regal',
+  conftestBinary: 'conftest',
   subprocessTimeoutMs: 30_000,
   httpTimeoutMs: 5_000,
   allowedPaths: [],

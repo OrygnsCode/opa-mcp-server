@@ -43,6 +43,12 @@
           "isRequired": false
         },
         {
+          "name": "CONFTEST_BINARY",
+          "description": "Path to the conftest binary (optional, used by conftest_* tools). Defaults to 'conftest' on PATH.",
+          "default": "conftest",
+          "isRequired": false
+        },
+        {
           "name": "OPA_MCP_ALLOWED_PATHS",
           "description": "Comma-separated list of root directories tools may read/write. When unset, file-based tools refuse to access the disk.",
           "isRequired": false

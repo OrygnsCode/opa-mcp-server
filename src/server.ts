@@ -19,6 +19,7 @@ import { formatHelp, formatStartupBanner, formatVersion, parseCliArgs } from './
 import { loadConfig, type Config } from './config.js';
 import { SERVER_NAME, SERVER_VERSION } from './constants.js';
 import { initLogger, logger } from './lib/logger.js';
+import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
 import { registerPrompts } from './prompts/index.js';
@@ -46,7 +47,7 @@ export function buildServer(config: Config): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
-        '43 tools split into six categories. rego_* authoring/analysis tools use the local opa binary -- no running OPA server required. rego_lint requires regal (REGAL_BINARY). opa_* server-management tools talk to a live OPA instance via OPA_URL; set OPA_TOKEN if the server requires bearer-token authentication. File-based tools require paths inside OPA_MCP_ALLOWED_PATHS; inline-source tools work without it. Start with rego_check + rego_lint for policy authoring, mcp_server_info to confirm which binaries are reachable.',
+        '47 tools split into seven categories. rego_* authoring/analysis tools use the local opa binary -- no running OPA server required. rego_lint requires regal (REGAL_BINARY). opa_* server-management tools talk to a live OPA instance via OPA_URL; set OPA_TOKEN if the server requires bearer-token authentication. conftest_* tools use the local conftest binary (CONFTEST_BINARY) to test configuration files (Kubernetes manifests, Terraform plans, Dockerfiles) against Rego policies. File-based tools require paths inside OPA_MCP_ALLOWED_PATHS; inline-source tools work without it. Start with rego_check + rego_lint for policy authoring, conftest_test for configuration file validation, mcp_server_info to confirm which binaries are reachable.',
     },
   );
 
@@ -71,9 +72,11 @@ export function buildServer(config: Config): McpServer {
 export async function runStartupSelfCheck(config: Config): Promise<void> {
   const opa = new OpaCli(config);
   const regal = new RegalCli(config);
-  const [opaVersion, regalVersion] = await Promise.all([
+  const conftest = new ConftestCli(config);
+  const [opaVersion, regalVersion, conftestVersion] = await Promise.all([
     opa.version().catch(() => null),
     regal.version().catch(() => null),
+    conftest.version().catch(() => null),
   ]);
 
   if (opaVersion === null) {
@@ -95,6 +98,18 @@ export async function runStartupSelfCheck(config: Config): Promise<void> {
     );
   } else {
     logger.info('startup self-check: regal OK', { version: regalVersion });
+  }
+
+  if (conftestVersion === null) {
+    logger.warn(
+      'startup self-check: conftest binary not reachable; conftest_* tools will return CONFTEST_NOT_FOUND',
+      {
+        conftestBinary: config.conftestBinary,
+        hint: 'set CONFTEST_BINARY to an absolute path, or ensure conftest is on PATH. Conftest is optional; only conftest_* tools require it.',
+      },
+    );
+  } else {
+    logger.info('startup self-check: conftest OK', { version: conftestVersion });
   }
 }
 
