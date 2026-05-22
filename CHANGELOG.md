@@ -17,6 +17,57 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-05-22
+
+### Added
+
+- **Conftest integration (4 new tools, 47 total)** -- adds `conftest_test`,
+  `conftest_verify`, `conftest_pull`, and `conftest_push`, wrapping the
+  [conftest](https://www.conftest.dev/) CLI for policy testing of Kubernetes,
+  Terraform, Helm, Dockerfile, and other configuration formats. Conftest is
+  optional; all existing tools continue to work without it installed.
+
+- **`conftest_test`** -- runs `conftest test` against one or more configuration
+  files and returns structured JSON pass/fail/warn results per namespace. Supports
+  inline configuration (written to a secure temp file, path redacted from output)
+  and inline Rego policy (written to a secure temp dir), multiple data directories,
+  namespace targeting, `--all-namespaces`, `--combine`, and `--fail-on-warn`.
+
+- **`conftest_verify`** -- runs `conftest verify` to execute `_test.rego` unit
+  tests inside a policy directory, verifying that the policies themselves are
+  correct. Returns structured JSON output.
+
+- **`conftest_pull`** -- pulls a policy bundle from a remote OCI or Git registry
+  into a local directory (`oci://registry/repo:tag` form).
+
+- **`conftest_push`** -- pushes a local policy bundle to a remote OCI registry,
+  using host-environment credentials (docker login / ORAS).
+
+- **`CONFTEST_NOT_FOUND` error code** -- returned by all four conftest tools when
+  the binary is absent, with a structured install hint. Consistent with the
+  existing `OPA_BINARY_NOT_FOUND` and `REGAL_NOT_FOUND` pattern.
+
+- **`CONFTEST_BINARY` environment variable** -- configures the path to the conftest
+  binary. Defaults to `conftest` on PATH.
+
+### Security
+
+- Temp files for inline config and inline policy are now created via `mkdtemp`
+  (atomically, with `O_CREAT|O_EXCL` semantics at the OS level) rather than
+  constructing a path from `os.tmpdir()` and a UUID. This eliminates the TOCTOU
+  race window flagged by CodeQL CWE-377.
+
+### Internal
+
+- `src/lib/conftest-cli.ts`: `ConftestCli` class with `withTempAssets()` temp
+  file lifecycle management and `sanitizeOutput()` for redacting internal paths
+  from conftest JSON output. Path redaction uses `JSON.stringify` encoding to
+  correctly handle backslashes in Windows paths embedded in JSON output.
+- Exit-code semantics: 0 and 1 both produce valid JSON (pass/fail respectively);
+  exit 2+ is a command error surfaced as `UNKNOWN_ERROR`.
+- Tests: 57 tool-layer unit tests, 46 CLI unit tests, 12 real-binary integration
+  tests (auto-skipped when conftest is not on PATH).
+
 ## [0.1.9] - 2026-05-21
 
 ### Added

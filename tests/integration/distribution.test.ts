@@ -158,9 +158,9 @@ describe('dist/server.js boots and serves the MCP protocol', () => {
     }
   });
 
-  it('responds to tools/list with all 43 registered tools', async () => {
+  it('responds to tools/list with all 47 registered tools', async () => {
     const result = await client!.listTools();
-    expect(result.tools).toHaveLength(43);
+    expect(result.tools).toHaveLength(47);
     const names = result.tools.map((t) => t.name);
     expect(names).toContain('rego_format');
     expect(names).toContain('opa_health');
@@ -169,6 +169,10 @@ describe('dist/server.js boots and serves the MCP protocol', () => {
     expect(names).toContain('opa_bundle_verify');
     expect(names).toContain('rego_migrate_v1');
     expect(names).toContain('opa_exec');
+    expect(names).toContain('conftest_test');
+    expect(names).toContain('conftest_verify');
+    expect(names).toContain('conftest_pull');
+    expect(names).toContain('conftest_push');
   });
 
   it('responds to prompts/list with all 3 prompts', async () => {

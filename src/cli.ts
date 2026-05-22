@@ -48,6 +48,7 @@ export function formatHelp(col: boolean): string {
   const rows: [string, string, string][] = [
     ['OPA_BINARY', 'opa binary path', 'opa'],
     ['REGAL_BINARY', 'regal binary path', 'regal'],
+    ['CONFTEST_BINARY', 'conftest binary path', 'conftest'],
     ['OPA_URL', 'OPA server base URL', 'http://localhost:8181'],
     ['OPA_TOKEN', 'OPA authentication token', ''],
     ['OPA_MCP_ALLOWED_PATHS', 'allowed filesystem roots, comma or semicolon separated', ''],

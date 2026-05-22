@@ -24,6 +24,7 @@ import {
   SERVER_NAME,
   SERVER_VERSION,
 } from '../../src/server.js';
+import { ConftestCli } from '../../src/lib/conftest-cli.js';
 import { OpaCli } from '../../src/lib/opa-cli.js';
 import { RegalCli } from '../../src/lib/regal-cli.js';
 import { logger } from '../../src/lib/logger.js';
@@ -47,6 +48,7 @@ const baseConfig: Config = {
   opaUrl: 'http://localhost:8181',
   opaBinary: 'opa',
   regalBinary: 'regal',
+  conftestBinary: 'conftest',
   subprocessTimeoutMs: 30_000,
   httpTimeoutMs: 15_000,
   allowedPaths: [],
@@ -89,7 +91,7 @@ describe('buildServer()', () => {
       _registeredResources: Record<string, unknown>;
     }
     const registry = server as unknown as Registry;
-    expect(Object.keys(registry._registeredTools)).toHaveLength(43);
+    expect(Object.keys(registry._registeredTools)).toHaveLength(47);
     expect(Object.keys(registry._registeredPrompts)).toHaveLength(3);
     expect(Object.keys(registry._registeredResources)).toHaveLength(3);
   });
@@ -103,6 +105,7 @@ describe('runStartupSelfCheck()', () => {
   it('logs info-level when both binaries respond', async () => {
     vi.spyOn(OpaCli.prototype, 'version').mockResolvedValueOnce('1.0.0');
     vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce('0.30.0');
+    vi.spyOn(ConftestCli.prototype, 'version').mockResolvedValueOnce('0.68.0');
     const infoSpy = vi.spyOn(logger, 'info');
     const warnSpy = vi.spyOn(logger, 'warn');
 
@@ -111,13 +114,16 @@ describe('runStartupSelfCheck()', () => {
     expect(warnSpy).not.toHaveBeenCalled();
     const opaCall = infoSpy.mock.calls.find((c) => c[0] === 'startup self-check: opa OK');
     const regalCall = infoSpy.mock.calls.find((c) => c[0] === 'startup self-check: regal OK');
+    const conftestCall = infoSpy.mock.calls.find((c) => c[0] === 'startup self-check: conftest OK');
     expect(opaCall?.[1]).toMatchObject({ version: '1.0.0' });
     expect(regalCall?.[1]).toMatchObject({ version: '0.30.0' });
+    expect(conftestCall?.[1]).toMatchObject({ version: '0.68.0' });
   });
 
   it('logs a warn with hint when opa binary is unreachable', async () => {
     vi.spyOn(OpaCli.prototype, 'version').mockResolvedValueOnce(null);
     vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce('0.30.0');
+    vi.spyOn(ConftestCli.prototype, 'version').mockResolvedValueOnce('0.68.0');
     const warnSpy = vi.spyOn(logger, 'warn');
 
     await runStartupSelfCheck(baseConfig);
@@ -135,6 +141,7 @@ describe('runStartupSelfCheck()', () => {
   it('logs a warn with hint when regal binary is unreachable', async () => {
     vi.spyOn(OpaCli.prototype, 'version').mockResolvedValueOnce('1.0.0');
     vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce(null);
+    vi.spyOn(ConftestCli.prototype, 'version').mockResolvedValueOnce('0.68.0');
     const warnSpy = vi.spyOn(logger, 'warn');
 
     await runStartupSelfCheck(baseConfig);
@@ -152,6 +159,7 @@ describe('runStartupSelfCheck()', () => {
   it('catches and logs thrown errors from version() probes', async () => {
     vi.spyOn(OpaCli.prototype, 'version').mockRejectedValueOnce(new Error('boom'));
     vi.spyOn(RegalCli.prototype, 'version').mockResolvedValueOnce('0.30.0');
+    vi.spyOn(ConftestCli.prototype, 'version').mockResolvedValueOnce('0.68.0');
     const warnSpy = vi.spyOn(logger, 'warn');
 
     await runStartupSelfCheck(baseConfig);
@@ -194,7 +202,7 @@ describe('main()', () => {
     // Confirm the server actually wired up tools (sanity check that
     // env-derived config did not throw).
     const tools = await client.listTools();
-    expect(tools.tools.length).toBe(43);
+    expect(tools.tools.length).toBe(47);
     await client.close();
   });
 

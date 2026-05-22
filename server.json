@@ -8,13 +8,13 @@
     "url": "https://github.com/OrygnsCode/opa-mcp-server",
     "source": "github"
   },
-  "version": "0.1.9",
+  "version": "0.1.10",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@orygn/opa-mcp",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "runtimeHint": "npx",
       "transport": { "type": "stdio" },
       "environmentVariables": [
@@ -43,6 +43,12 @@
           "isRequired": false
         },
         {
+          "name": "CONFTEST_BINARY",
+          "description": "Path to the conftest binary (optional, used by conftest_* tools). Defaults to 'conftest' on PATH.",
+          "default": "conftest",
+          "isRequired": false
+        },
+        {
           "name": "OPA_MCP_ALLOWED_PATHS",
           "description": "Comma-separated list of root directories tools may read/write. When unset, file-based tools refuse to access the disk.",
           "isRequired": false
@@ -51,7 +57,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "docker.io/orygn/opa-mcp:0.1.9",
+      "identifier": "docker.io/orygn/opa-mcp:0.1.10",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
@@ -72,7 +78,7 @@
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
       "tool": "manual",
-      "version": "0.1.9"
+      "version": "0.1.10"
     }
   }
 }

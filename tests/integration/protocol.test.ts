@@ -40,6 +40,7 @@ const baseConfig: Config = {
   opaUrl: 'http://localhost:8181',
   opaBinary: 'opa',
   regalBinary: 'regal',
+  conftestBinary: 'conftest',
   subprocessTimeoutMs: 30_000,
   httpTimeoutMs: 15_000,
   allowedPaths: ['/abs'],
@@ -110,12 +111,12 @@ afterEach(() => {
 // ─── tools/list ────────────────────────────────────────────────────────────
 
 describe('tools/list', () => {
-  it('returns all 43 registered tools with required protocol fields', async () => {
+  it('returns all 47 registered tools with required protocol fields', async () => {
     const { client } = await buildServerAndClient();
     const result = await client.listTools();
-    expect(result.tools).toHaveLength(43);
+    expect(result.tools).toHaveLength(47);
     for (const tool of result.tools) {
-      expect(tool.name).toMatch(/^(rego_|opa_|mcp_)/);
+      expect(tool.name).toMatch(/^(rego_|opa_|mcp_|conftest_|regal_)/);
       expect(typeof tool.description).toBe('string');
       expect((tool.description ?? '').length).toBeGreaterThan(20);
       expect(tool.inputSchema).toBeDefined();

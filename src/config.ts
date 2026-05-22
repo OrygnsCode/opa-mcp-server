@@ -23,6 +23,9 @@ const ConfigSchema = z.object({
   /** Path to the `regal` binary. Defaults to `regal` on PATH. */
   regalBinary: z.string().default('regal'),
 
+  /** Path to the `conftest` binary. Defaults to `conftest` on PATH. */
+  conftestBinary: z.string().default('conftest'),
+
   /** Hard timeout in ms for any spawned subprocess (opa, regal). */
   subprocessTimeoutMs: z.coerce.number().int().positive().default(30_000),
 
@@ -67,6 +70,7 @@ const ENV_VAR_NAMES: Record<string, string> = {
   opaToken: 'OPA_TOKEN',
   opaBinary: 'OPA_BINARY',
   regalBinary: 'REGAL_BINARY',
+  conftestBinary: 'CONFTEST_BINARY',
   subprocessTimeoutMs: 'OPA_MCP_TIMEOUT_MS',
   httpTimeoutMs: 'OPA_MCP_HTTP_TIMEOUT_MS',
   allowedPaths: 'OPA_MCP_ALLOWED_PATHS',
@@ -83,6 +87,7 @@ export function loadConfig(): Config {
     opaToken: process.env['OPA_TOKEN'],
     opaBinary: process.env['OPA_BINARY'],
     regalBinary: process.env['REGAL_BINARY'],
+    conftestBinary: process.env['CONFTEST_BINARY'],
     subprocessTimeoutMs: process.env['OPA_MCP_TIMEOUT_MS'],
     httpTimeoutMs: process.env['OPA_MCP_HTTP_TIMEOUT_MS'],
     allowedPaths,

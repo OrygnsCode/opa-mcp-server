@@ -8,6 +8,7 @@ export type ToolErrorCode =
   | 'OPA_BINARY_NOT_FOUND'
   | 'REGAL_NOT_FOUND'
   | 'REGAL_VERSION_TOO_OLD'
+  | 'CONFTEST_NOT_FOUND'
   | 'INVALID_REGO'
   | 'INVALID_BUNDLE'
   | 'EVAL_ERROR'

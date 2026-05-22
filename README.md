@@ -15,13 +15,13 @@ VS Code, Windsurf, Zed, and others) into a first-class
 environment.
 
 ```
-+--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------+
-|  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal ·   |
-|   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API    |
-+--------------------+   43 tools    +-----------------+                +------------------+
++--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------------+
+|  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal · conftest |
+|   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API          |
++--------------------+   47 tools    +-----------------+                +------------------------+
 ```
 
-> **Status:** v0.1.8. Tool surface, error codes, and
+> **Status:** v0.1.10. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
@@ -241,6 +241,7 @@ variable is optional; defaults are sensible for a local OPA on
 | `OPA_TOKEN`                  | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret. Never echoed in logs or tool responses.                                        |
 | `OPA_BINARY`                 | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools.                                                                                                            |
 | `REGAL_BINARY`               | `regal` (on `PATH`)          | Path to the `regal` linter. Only required by `rego_lint`.                                                                                                 |
+| `CONFTEST_BINARY`            | `conftest` (on `PATH`)       | Path to the `conftest` binary. Only required by `conftest_*` tools. Returns `CONFTEST_NOT_FOUND` if absent.                                               |
 | `OPA_MCP_ALLOWED_PATHS`      | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.** |
 | `OPA_MCP_LOG_FILE`           | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                        |
 | `OPA_MCP_LOG_LEVEL`          | `info`                       | One of `debug`, `info`, `warn`, `error`.                                                                                                                  |
@@ -412,11 +413,55 @@ the tasks agents are actually asked to do.
 | `rego_format_write`           | Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to list which files would change without modifying them. Validates all files parse successfully before writing any. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags. Only requires `opa`.                                                              |
 | `rego_policy_diff`            | Evaluate the same query against two policies in parallel and compare the results. Returns `equal: true/false`, the raw value from each side (`resultA`/`resultB`), and `changedPaths` -- dot/bracket JSON paths that differ. Each side takes inline source or a file/directory path. Useful for verifying refactor equivalence or mapping divergence between two policy versions. |
 
-### Category F: Meta
+### Category F: Conftest (configuration policy testing)
 
-| Tool              | What it does                                                                                                                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mcp_server_info` | Return server name, version, resolved `opa`/`regal` versions, transport type, and Node.js version in one call. Useful for verifying which server instance the agent is connected to. |
+Test Kubernetes manifests, Terraform plans, Dockerfiles, Helm charts, and any
+YAML/JSON/HCL/TOML/INI against Rego policies using
+[conftest](https://www.conftest.dev/). Requires `conftest` on `PATH` or
+`CONFTEST_BINARY` set; all four tools return `CONFTEST_NOT_FOUND` otherwise.
+
+| Tool              | What it does                                                                                                                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conftest_test`   | Evaluate configuration files against policies with `conftest test`. Accepts file paths or `inlineConfig` (inline YAML/JSON/HCL/etc) and `policy` path or `inlinePolicy` source. Returns per-file pass/fail/warn results and a summary.    |
+| `conftest_verify` | Run `test_*` rules inside `*_test.rego` files to verify the policies themselves are correct. Equivalent to `opa test` but using conftest's policy-loading machinery.                                                                      |
+| `conftest_pull`   | Pull a policy bundle from an OCI registry or Git repo into a local directory with `conftest pull`. The target directory need not exist; conftest creates it.                                                                              |
+| `conftest_push`   | Package a local policy directory as an OCI artifact and push to a registry with `conftest push`. Registry credentials come from the host environment (`docker login`, ORAS keychain, etc.) -- credentials are never passed through tools. |
+
+#### Featured: `conftest_test` with inline config
+
+```jsonc
+// Input
+{
+  "inlineConfig": "apiVersion: v1\nkind: Pod\nspec:\n  containers:\n  - name: app\n    image: nginx:latest",
+  "inlinePolicy": "package main\ndeny[msg] { input.spec.containers[_].image == \"nginx:latest\"; msg := \"pin your image tag\" }"
+}
+
+// Output
+{
+  "ok": true,
+  "data": {
+    "passed": false,
+    "results": [
+      {
+        "filename": "<inline>",
+        "namespace": "main",
+        "successes": 0,
+        "failures": [{ "msg": "pin your image tag" }],
+        "warnings": [],
+        "skipped": [],
+        "exceptions": []
+      }
+    ],
+    "summary": { "passed": 0, "failed": 1, "warnings": 0, "skipped": 0 }
+  }
+}
+```
+
+### Category G: Meta
+
+| Tool              | What it does                                                                                                                                                                                    |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp_server_info` | Return server name, version, resolved `opa`/`regal`/`conftest` versions, transport type, and Node.js version in one call. Useful for verifying which server instance the agent is connected to. |
 
 ## Prompts
 

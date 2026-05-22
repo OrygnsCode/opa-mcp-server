@@ -13,6 +13,7 @@ const config: Config = {
   opaUrl: 'http://localhost:8181',
   opaBinary: process.env['OPA_BINARY'] ?? 'opa',
   regalBinary: process.env['REGAL_BINARY'] ?? 'regal',
+  conftestBinary: process.env['CONFTEST_BINARY'] ?? 'conftest',
   subprocessTimeoutMs: 30_000,
   httpTimeoutMs: 15_000,
   allowedPaths: [],
