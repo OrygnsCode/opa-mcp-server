@@ -21,7 +21,7 @@ environment.
 +--------------------+   47 tools    +-----------------+                +------------------------+
 ```
 
-> **Status:** v0.1.8. Tool surface, error codes, and
+> **Status:** v0.1.10. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
