@@ -281,7 +281,7 @@ export class ConftestCli {
             ? `Dockerfile`
             : `orygn-conftest-${randomUUID()}${ext}`;
         const configPath = join(tmpdir(), basename);
-        await writeFile(configPath, opts.inlineConfig, 'utf8');
+        await writeFile(configPath, opts.inlineConfig, { encoding: 'utf8', flag: 'wx' });
         temps.push(configPath);
         paths.configPath = configPath;
       }
@@ -291,7 +291,7 @@ export class ConftestCli {
         await mkdir(policyDir, { recursive: true });
         temps.push(policyDir);
         const policyFile = join(policyDir, 'policy.rego');
-        await writeFile(policyFile, opts.inlinePolicy, 'utf8');
+        await writeFile(policyFile, opts.inlinePolicy, { encoding: 'utf8', flag: 'wx' });
         paths.policyDir = policyDir;
       }
 
