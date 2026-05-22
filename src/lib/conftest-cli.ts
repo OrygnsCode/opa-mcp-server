@@ -275,8 +275,7 @@ export class ConftestCli {
           opts.inlineConfigParser === 'dockerfile'
             ? ''
             : parserToExt(opts.inlineConfigParser ?? 'yaml');
-        const basename =
-          opts.inlineConfigParser === 'dockerfile' ? 'Dockerfile' : `config${ext}`;
+        const basename = opts.inlineConfigParser === 'dockerfile' ? 'Dockerfile' : `config${ext}`;
         // mkdtemp creates the directory atomically (O_CREAT|O_EXCL) -- safe temp file pattern.
         const tmpDir = await mkdtemp(join(tmpdir(), 'orygn-conftest-'));
         temps.push(tmpDir);
