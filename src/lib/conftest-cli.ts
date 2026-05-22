@@ -14,8 +14,7 @@
  * All structured output is obtained via `--output=json`; raw text output
  * is never parsed.
  */
-import { randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -277,21 +276,21 @@ export class ConftestCli {
             ? ''
             : parserToExt(opts.inlineConfigParser ?? 'yaml');
         const basename =
-          opts.inlineConfigParser === 'dockerfile'
-            ? `Dockerfile`
-            : `orygn-conftest-${randomUUID()}${ext}`;
-        const configPath = join(tmpdir(), basename);
-        await writeFile(configPath, opts.inlineConfig, { encoding: 'utf8', flag: 'wx' });
-        temps.push(configPath);
+          opts.inlineConfigParser === 'dockerfile' ? 'Dockerfile' : `config${ext}`;
+        // mkdtemp creates the directory atomically (O_CREAT|O_EXCL) -- safe temp file pattern.
+        const tmpDir = await mkdtemp(join(tmpdir(), 'orygn-conftest-'));
+        temps.push(tmpDir);
+        const configPath = join(tmpDir, basename);
+        await writeFile(configPath, opts.inlineConfig, 'utf8');
         paths.configPath = configPath;
       }
 
       if (opts.inlinePolicy !== undefined) {
-        const policyDir = join(tmpdir(), `orygn-conftest-policy-${randomUUID()}`);
-        await mkdir(policyDir, { recursive: true });
+        // mkdtemp creates the directory atomically (O_CREAT|O_EXCL) -- safe temp file pattern.
+        const policyDir = await mkdtemp(join(tmpdir(), 'orygn-conftest-policy-'));
         temps.push(policyDir);
         const policyFile = join(policyDir, 'policy.rego');
-        await writeFile(policyFile, opts.inlinePolicy, { encoding: 'utf8', flag: 'wx' });
+        await writeFile(policyFile, opts.inlinePolicy, 'utf8');
         paths.policyDir = policyDir;
       }
 

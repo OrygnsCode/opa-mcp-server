@@ -123,7 +123,7 @@ spec:
       expect(result.exitCode).toBe(0);
       // Temp path should be sanitized to <inline> in output
       expect(result.stdout).toContain('<inline>');
-      expect(result.stdout).not.toMatch(/orygn-conftest-[a-f0-9-]+/);
+      expect(result.stdout).not.toMatch(/orygn-conftest-/);
     }, 15_000);
 
     it('exit 1 for inlineConfig that violates policy', async () => {

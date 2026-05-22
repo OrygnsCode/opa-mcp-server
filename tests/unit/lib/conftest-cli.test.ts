@@ -192,7 +192,7 @@ describe('ConftestCli.test()', () => {
 
     // sanitizeOutput must replace the real temp path with <inline>
     expect(result.stdout).toContain('<inline>');
-    expect(result.stdout).not.toMatch(/orygn-conftest-[a-f0-9-]+/);
+    expect(result.stdout).not.toMatch(/orygn-conftest-/);
   });
 });
 
