@@ -8,6 +8,7 @@ author, evaluate, and debug Rego policies through a structured tool surface inst
 CLI text.
 
 - **Product page:** https://orygn.tech/products/opa-mcp
+- **OPA Ecosystem:** https://www.openpolicyagent.org/ecosystem/entry/opa-mcp
 - **Source:** https://github.com/OrygnsCode/opa-mcp-server
 - **npm:** https://www.npmjs.com/package/@orygn/opa-mcp
 - **Releases (incl. signed .mcpb bundle):** https://github.com/OrygnsCode/opa-mcp-server/releases
