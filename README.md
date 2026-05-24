@@ -707,7 +707,7 @@ Dependabot or a manual PR.
 
 ## License
 
-[MIT](./LICENSE) © Orygn LLC
+[MIT](./LICENSE) © [Orygn LLC](https://orygn.tech)
 
 `@orygn/opa-mcp` is an independent project. It is not affiliated with,
 endorsed by, or sponsored by the Open Policy Agent project, the Cloud
