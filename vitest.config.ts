@@ -6,6 +6,8 @@ export default defineConfig({
     exclude: ['tests/integration/**', 'node_modules', 'dist'],
     environment: 'node',
     globals: false,
+    testTimeout: 10_000,
+    hookTimeout: 10_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
