@@ -11,6 +11,9 @@ import {
   spawnUnreachable,
 } from './_helpers.js';
 
+import { registerRegoCheckSchema } from '../../../src/tools/authoring/check-schema.js';
+import type { RegoCheckSchemaOutput } from '../../../src/tools/authoring/check-schema.js';
+
 vi.mock('../../../src/lib/subprocess.js', () => ({
   runBinary: vi.fn(),
 }));
@@ -794,5 +797,379 @@ describe('rego_migrate_v1', () => {
     expect(mockRun).toHaveBeenCalledTimes(2);
     expect(mockRun.mock.calls[0]![1].args[0]).toBe('fmt');
     expect(mockRun.mock.calls[1]![1].args[0]).toBe('check');
+  });
+});
+
+// ─── rego_check_schema ────────────────────────────────────────────────────────
+
+describe('rego_check_schema', () => {
+  // ── Happy path: inline schema + inline source ─────────────────────────────
+
+  it('returns valid: true with empty errors when opa check exits 0', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x\nimport rego.v1\nallow if input.user == "admin"',
+      inlineSchema: {
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        properties: { user: { type: 'string' } },
+      },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.errors).toEqual([]);
+  });
+
+  it('returns valid: false with errors when opa check reports schema violations', async () => {
+    const schemaErrors = [
+      {
+        code: 'rego_type_error',
+        message: 'undefined ref: input.foo',
+        location: { file: 'policy.rego', row: 3, col: 5 },
+      },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors: schemaErrors })));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x\nimport rego.v1\nallow if input.foo == "bar"',
+      inlineSchema: {
+        type: 'object',
+        properties: { user: { type: 'string' } },
+      },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors).toHaveLength(1);
+    expect(env.data?.errors[0]?.code).toBe('rego_type_error');
+    expect(env.data?.errors[0]?.message).toContain('input.foo');
+  });
+
+  // ── Happy path: schema file path ──────────────────────────────────────────
+
+  it('accepts a schemaPath inside allowed roots and passes --schema to opa', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const schemaFile = fixturePath('inputs', 'rbac.json');
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x',
+      schemaPath: schemaFile,
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--schema');
+  });
+
+  // ── Happy path: file-based policy paths ───────────────────────────────────
+
+  it('accepts policy paths instead of inline source', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+      inlineSchema: { type: 'object', properties: { user: { type: 'string' } } },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(true);
+  });
+
+  // ── strict flag ───────────────────────────────────────────────────────────
+
+  it('passes --strict to opa when strict: true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object' },
+      strict: true,
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--strict');
+  });
+
+  it('does not pass --strict when strict is omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object' },
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).not.toContain('--strict');
+  });
+
+  // ── Policy input validation ───────────────────────────────────────────────
+
+  it('rejects calls without source or paths', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.message).toMatch(/source.*paths/i);
+  });
+
+  it('rejects calls with both source and paths', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+
+  // ── Schema input validation ───────────────────────────────────────────────
+
+  it('rejects calls without inlineSchema or schemaPath', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.message).toMatch(/inlineSchema.*schemaPath/i);
+  });
+
+  it('rejects calls with both inlineSchema and schemaPath', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object' },
+      schemaPath: fixturePath('inputs', 'rbac.json'),
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+
+  // ── Path validation ───────────────────────────────────────────────────────
+
+  it('rejects policy paths outside allowed roots', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      paths: ['/outside/policy.rego'],
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects schemaPath outside allowed roots', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      schemaPath: '/etc/schemas/input.json',
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('rejects a schemaPath that does not exist inside the allowed root', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      schemaPath: fixturePath('nonexistent-schema.json'),
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_FOUND');
+  });
+
+  it('rejects a policy path that does not exist inside the allowed root', async () => {
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      paths: [fixturePath('policies', 'nonexistent.rego')],
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_FOUND');
+  });
+
+  // ── Binary / subprocess error propagation ────────────────────────────────
+
+  it('maps a missing opa binary to OPA_BINARY_NOT_FOUND', async () => {
+    mockRun.mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+    expect(env.error?.hint).toMatch(/OPA_BINARY/);
+  });
+
+  it('maps a subprocess timeout to TIMEOUT', async () => {
+    mockRun.mockResolvedValueOnce(spawnTimedOut());
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('TIMEOUT');
+  });
+
+  // ── Non-JSON stderr fallback ──────────────────────────────────────────────
+
+  it('returns INVALID_REGO with details when opa exits non-zero but stderr is not JSON', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(1, 'opa: error: module compile failed'));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'broken rego ###',
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect((env.error?.details as { stderr?: string } | undefined)?.stderr).toMatch(
+      /module compile failed/,
+    );
+  });
+
+  // ── Inline source: temp path sanitization ────────────────────────────────
+
+  it('replaces temp file paths with <inline> in error locations when source is inline', async () => {
+    const errors = [
+      {
+        code: 'rego_type_error',
+        message: 'undefined ref: input.missing',
+        location: {
+          file: '/tmp/orygn-opa-mcp-9b1a4e2c-d4f3-4f8b-9e3a-1c2d3e4f5a6b.rego',
+          row: 3,
+          col: 10,
+        },
+      },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors })));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x\nimport rego.v1\nallow if input.missing == "x"',
+      inlineSchema: { type: 'object', properties: { user: { type: 'string' } } },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors[0]?.location?.file).toBe('<inline>');
+    expect(env.data?.errors[0]?.location?.row).toBe(3);
+  });
+
+  it('preserves on-disk file paths in error locations when paths are used', async () => {
+    const errors = [
+      {
+        code: 'rego_type_error',
+        message: 'undefined ref: input.missing',
+        location: { file: '/abs/policies/policy.rego', row: 5, col: 3 },
+      },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors })));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+      inlineSchema: { type: 'object', properties: { user: { type: 'string' } } },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors[0]?.location?.file).toBe('/abs/policies/policy.rego');
+  });
+
+  // ── Error records with no location field ─────────────────────────────────
+
+  it('handles error records with no location field without throwing', async () => {
+    const errors = [{ code: 'rego_type_error', message: 'undefined ref: input.x' }];
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors })));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x\nallow if input.x',
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors[0]?.code).toBe('rego_type_error');
+  });
+
+  // ── Inline schema is serialized and passed to OPA ─────────────────────────
+
+  it('passes --schema flag to opa for inline schema', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    await callTool(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object', properties: { action: { type: 'string' } } },
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--schema');
+    // The argument after --schema must be a path (the temp file), not the JSON itself
+    const schemaIdx = args.indexOf('--schema');
+    expect(schemaIdx).toBeGreaterThan(-1);
+    const schemaArg = args[schemaIdx + 1];
+    expect(typeof schemaArg).toBe('string');
+    // It should be a file path containing our prefix, not raw JSON
+    expect(schemaArg).toMatch(/orygn-schema-/);
+    expect(schemaArg).toMatch(/schema\.json$/);
+  });
+
+  // ── Multiple errors in a single response ─────────────────────────────────
+
+  it('surfaces all errors from opa output when multiple schema violations exist', async () => {
+    const errors = [
+      {
+        code: 'rego_type_error',
+        message: 'undefined ref: input.foo',
+        location: { file: 'p.rego', row: 3, col: 5 },
+      },
+      {
+        code: 'rego_type_error',
+        message: 'undefined ref: input.bar',
+        location: { file: 'p.rego', row: 4, col: 5 },
+      },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors })));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x\nallow if input.foo\nallow if input.bar',
+      inlineSchema: { type: 'object', properties: { user: { type: 'string' } } },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors).toHaveLength(2);
+    expect(env.data?.errors[1]?.message).toContain('input.bar');
+  });
+
+  // ── opa exits non-zero but errors array is empty ──────────────────────────
+
+  it('returns valid: false with empty errors when opa stderr has empty errors array', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors: [] })));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors).toEqual([]);
   });
 });

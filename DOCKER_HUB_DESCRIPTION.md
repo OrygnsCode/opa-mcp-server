@@ -81,10 +81,10 @@ inside the container.
 
 ## What's inside
 
-**47 tools across six categories:**
+**48 tools across six categories:**
 
-- **Authoring** -- `rego_format`, `rego_lint`, `rego_check`, `rego_parse`, `rego_deps`,
-  `rego_inspect`, `rego_capabilities`
+- **Authoring** -- `rego_format`, `rego_lint`, `rego_check`, `rego_check_schema`, `rego_parse`,
+  `rego_deps`, `rego_inspect`, `rego_capabilities`
 - **Evaluation** -- `rego_eval`, `rego_test`, `rego_bench`, `rego_profile`, `rego_coverage_gaps`,
   `rego_compile`
 - **Bundles** -- `rego_bundle_build`, `rego_bundle_sign`, `rego_bundle_verify`,

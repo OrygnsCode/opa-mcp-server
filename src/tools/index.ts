@@ -5,8 +5,9 @@
  * here in order; ordering doesn't affect behavior but keeps the
  * declaration site tidy.
  *
- * Tools (47 total):
- *   Category A -- Authoring:        rego_format, rego_check, rego_lint,
+ * Tools (48 total):
+ *   Category A -- Authoring:        rego_format, rego_check,
+ *                                   rego_check_schema, rego_lint,
  *                                   rego_parse_ast, rego_inspect,
  *                                   rego_capabilities, rego_deps
  *   Category B -- Evaluation:       rego_eval, rego_eval_with_explain,

@@ -91,7 +91,7 @@ describe('buildServer()', () => {
       _registeredResources: Record<string, unknown>;
     }
     const registry = server as unknown as Registry;
-    expect(Object.keys(registry._registeredTools)).toHaveLength(47);
+    expect(Object.keys(registry._registeredTools)).toHaveLength(48);
     expect(Object.keys(registry._registeredPrompts)).toHaveLength(3);
     expect(Object.keys(registry._registeredResources)).toHaveLength(3);
   });
@@ -202,7 +202,7 @@ describe('main()', () => {
     // Confirm the server actually wired up tools (sanity check that
     // env-derived config did not throw).
     const tools = await client.listTools();
-    expect(tools.tools.length).toBe(47);
+    expect(tools.tools.length).toBe(48);
     await client.close();
   });
 
