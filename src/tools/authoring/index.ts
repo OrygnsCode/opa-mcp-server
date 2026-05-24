@@ -10,6 +10,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { registerRegoCapabilities } from './capabilities.js';
 import { registerRegoCheck } from './check.js';
+import { registerRegoCheckSchema } from './check-schema.js';
 import { registerRegoDeps } from './deps.js';
 import { registerRegoFormat } from './format.js';
 import { registerRegoInspect } from './inspect.js';
@@ -20,6 +21,7 @@ import { registerRegoParseAst } from './parse.js';
 export function registerAuthoringTools(server: McpServer, config: Config): void {
   registerRegoFormat(server, config);
   registerRegoCheck(server, config);
+  registerRegoCheckSchema(server, config);
   registerRegoLint(server, config);
   registerRegoParseAst(server, config);
   registerRegoInspect(server, config);
