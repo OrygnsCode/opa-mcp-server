@@ -18,10 +18,10 @@ environment.
 +--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------------+
 |  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal · conftest |
 |   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API          |
-+--------------------+   47 tools    +-----------------+                +------------------------+
++--------------------+   48 tools    +-----------------+                +------------------------+
 ```
 
-> **Status:** v0.1.10. Tool surface, error codes, and
+> **Status:** v0.1.11. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 

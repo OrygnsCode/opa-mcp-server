@@ -17,6 +17,21 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-05-24
+
+### Added
+
+- **`rego_check_schema` (48 tools total)** -- new authoring tool that runs
+  `opa check --schema` to validate that every `input.*` field reference in a
+  Rego policy exists in the provided JSON Schema. Schema violations surface as
+  `rego_type_error` diagnostics with file/line locations. Accepts the schema
+  inline (`inlineSchema` -- pass the `schema` output of `rego_infer_input_schema`
+  directly) or as a path to a JSON Schema file on disk (`schemaPath`). Closes the
+  infer-then-validate loop: use `rego_infer_input_schema` to derive the schema
+  from an existing policy, then validate a new or modified policy against it
+  without leaving the MCP session. Supports `strict` mode and all standard
+  path-validation and subprocess error handling.
+
 ## [0.1.10] - 2026-05-22
 
 ### Added
@@ -608,7 +623,9 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.10...v0.1.11
+[0.1.10]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.6...v0.1.7

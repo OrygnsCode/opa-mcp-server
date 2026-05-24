@@ -2,7 +2,7 @@
 
 **Model Context Protocol (MCP) server for Open Policy Agent (OPA) and the Rego policy language.**
 
-Wraps the OPA CLI, the OPA REST API, and the Regal linter behind 47 schema-validated tools so
+Wraps the OPA CLI, the OPA REST API, and the Regal linter behind 48 schema-validated tools so
 any MCP-compatible client (Claude Desktop, Claude Code, Cursor, VS Code, Zed, Windsurf) can
 author, evaluate, and debug Rego policies through a structured tool surface instead of free-form
 CLI text.
@@ -52,7 +52,7 @@ The container speaks MCP over stdio. Wire it into your client by pointing it at
 | Tag                  | Meaning                                 |
 | -------------------- | --------------------------------------- |
 | `latest`             | Latest stable release.                  |
-| `0.1.10`, `0.1`, `0` | SemVer aliases for the current release. |
+| `0.1.11`, `0.1`, `0` | SemVer aliases for the current release. |
 
 Versioned tags follow Semantic Versioning. The public surface for SemVer purposes is the set of
 registered tools, prompts, and resources, their input/output schemas, and the recognized
