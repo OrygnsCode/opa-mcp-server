@@ -28,15 +28,15 @@ export function inferTypes(
   clauses: VerifyRuleClause[][],
   inputPaths: Map<string, string[]>,
 ): TypeInferenceResult {
-  // Pass 1: collect local-variable → input-path aliases from assign expressions.
-  // This lets sort evidence from "x >= 21" propagate back to "input.age"
-  // when the clause contains "x := input.age".
-  const localAliases = new Map<string, string>(); // local_var_name → input_ref_path
+  // Pass 1: collect every local-variable assignment as a raw VerifyValue.
+  // This covers both direct (x := input.age) and chained (x := y; y := input.age)
+  // assignments. resolveToInputPath follows chains transitively.
+  const localAssignments = new Map<string, VerifyValue>(); // local_var_name → assigned VerifyValue
   for (const ruleClauses of clauses) {
     for (const clause of ruleClauses) {
       for (const expr of clause.expressions) {
-        if (expr.kind === 'assign' && expr.value.kind === 'input_ref') {
-          localAliases.set(expr.local, expr.value.path);
+        if (expr.kind === 'assign') {
+          localAssignments.set(expr.local, expr.value);
         }
       }
     }
@@ -48,11 +48,12 @@ export function inferTypes(
     evidence.set(path, new Set());
   }
 
-  // Pass 2: collect sort evidence from all expressions, resolving locals via aliases.
+  // Pass 2: collect sort evidence from all expressions, resolving locals via the
+  // assignment map (transitively, so x := y; y := input.age propagates correctly).
   for (const ruleClauses of clauses) {
     for (const clause of ruleClauses) {
       for (const expr of clause.expressions) {
-        collectEvidence(expr, evidence, localAliases);
+        collectEvidence(expr, evidence, localAssignments);
       }
     }
   }
@@ -81,36 +82,36 @@ export function inferTypes(
 function collectEvidence(
   expr: VerifyExpr,
   evidence: Map<string, Set<SortEvidence>>,
-  localAliases: Map<string, string>,
+  localAssignments: Map<string, VerifyValue>,
 ): void {
   switch (expr.kind) {
     case 'eq':
     case 'neq':
-      addLiteralEvidence(expr.left, expr.right, evidence, localAliases);
-      addLiteralEvidence(expr.right, expr.left, evidence, localAliases);
+      addLiteralEvidence(expr.left, expr.right, evidence, localAssignments);
+      addLiteralEvidence(expr.right, expr.left, evidence, localAssignments);
       break;
     case 'assign':
-      // The local variable itself is not an input path; evidence flows via localAliases.
+      // The local variable itself is not an input path; evidence flows via localAssignments.
       break;
     case 'gt':
     case 'gte':
     case 'lt':
     case 'lte':
-      addSortEvidence(expr.left, 'int', evidence, localAliases);
-      addSortEvidence(expr.right, 'int', evidence, localAliases);
+      addSortEvidence(expr.left, 'int', evidence, localAssignments);
+      addSortEvidence(expr.right, 'int', evidence, localAssignments);
       break;
     case 'startswith':
     case 'endswith':
-      addSortEvidence(expr.str, 'string', evidence, localAliases);
+      addSortEvidence(expr.str, 'string', evidence, localAssignments);
       break;
     case 'contains':
-      addSortEvidence(expr.str, 'string', evidence, localAliases);
+      addSortEvidence(expr.str, 'string', evidence, localAssignments);
       break;
     case 'regex_match':
-      addSortEvidence(expr.str, 'string', evidence, localAliases);
+      addSortEvidence(expr.str, 'string', evidence, localAssignments);
       break;
     case 'bool_check':
-      addSortEvidence(expr.ref, 'bool', evidence, localAliases);
+      addSortEvidence(expr.ref, 'bool', evidence, localAssignments);
       break;
     default:
       break;
@@ -118,25 +119,39 @@ function collectEvidence(
 }
 
 /**
- * Resolve a VerifyValue to an input path string.
- * Returns undefined for literals, local vars with no alias, etc.
+ * Follow an assignment chain from a VerifyValue back to an input path.
+ *
+ * Handles transitive local-variable chains:
+ *   x := y; y := input.age  →  resolveToInputPath(x) = 'input.age'
+ *
+ * Returns undefined when the chain terminates at a literal, an unaliased
+ * local, a data ref, or a cycle.
  */
 function resolveToInputPath(
   value: VerifyValue,
-  localAliases: Map<string, string>,
+  localAssignments: Map<string, VerifyValue>,
 ): string | undefined {
-  if (value.kind === 'input_ref') return value.path;
-  if (value.kind === 'local_var') return localAliases.get(value.name);
-  return undefined;
+  const visited = new Set<string>();
+  let current: VerifyValue = value;
+
+  while (true) {
+    if (current.kind === 'input_ref') return current.path;
+    if (current.kind !== 'local_var') return undefined; // literal or unsupported
+    if (visited.has(current.name)) return undefined;    // cycle guard
+    visited.add(current.name);
+    const next = localAssignments.get(current.name);
+    if (next === undefined) return undefined;            // unassigned local
+    current = next;
+  }
 }
 
 function addLiteralEvidence(
   subject: VerifyValue,
   comparand: VerifyValue,
   evidence: Map<string, Set<SortEvidence>>,
-  localAliases: Map<string, string>,
+  localAssignments: Map<string, VerifyValue>,
 ): void {
-  const path = resolveToInputPath(subject, localAliases);
+  const path = resolveToInputPath(subject, localAssignments);
   if (path === undefined) return;
   switch (comparand.kind) {
     case 'literal_string': addPathEvidence(path, 'string', evidence); break;
@@ -150,9 +165,9 @@ function addSortEvidence(
   value: VerifyValue,
   sort: SortEvidence,
   evidence: Map<string, Set<SortEvidence>>,
-  localAliases: Map<string, string>,
+  localAssignments: Map<string, VerifyValue>,
 ): void {
-  const path = resolveToInputPath(value, localAliases);
+  const path = resolveToInputPath(value, localAssignments);
   if (path === undefined) return;
   addPathEvidence(path, sort, evidence);
 }

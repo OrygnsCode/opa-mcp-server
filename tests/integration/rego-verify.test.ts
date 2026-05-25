@@ -270,7 +270,25 @@ allow {
     expect(age).toBeLessThanOrEqual(100);
   });
 
-
+  it('handles two-level chain: y := input.user.age; x := y; x >= 21 (transitive sort propagation)', async () => {
+    const policy = `
+package authz
+allow {
+  y := input.user.age
+  x := y
+  x >= 21
+  x <= 100
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    const user = ce['user'] as Record<string, unknown>;
+    const age = user?.['age'] as number;
+    expect(typeof age).toBe('number');
+    expect(age).toBeGreaterThanOrEqual(21);
+    expect(age).toBeLessThanOrEqual(100);
+  });
 });
 
 describe('rego_verify - multi-clause OR correctness', () => {
