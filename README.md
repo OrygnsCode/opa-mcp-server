@@ -15,10 +15,10 @@ VS Code, Windsurf, Zed, and others) into a first-class
 environment.
 
 ```
-+--------------------+  MCP / stdio  +-----------------+  spawn / HTTP  +------------------------+
-|  Claude · Cursor · | ------------> |  @orygn/opa-mcp | -------------> |  opa · regal · conftest |
-|   VS Code · ...    | <------------ |                 | <------------- |  OPA REST API          |
-+--------------------+   48 tools    +-----------------+                +------------------------+
++--------------------+ MCP/stdio  +-----------------+ spawn/HTTP +---------------------+
+|  Claude · Cursor · |----------> | @orygn/opa-mcp  |----------> | opa · regal         |
+|   VS Code · ...    |<---------- |                 |<---------- | conftest · REST API  |
++--------------------+  48 tools  +-----------------+            +---------------------+
 ```
 
 > **Status:** v0.1.11. Tool surface, error codes, and
