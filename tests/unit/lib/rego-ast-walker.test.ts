@@ -341,6 +341,135 @@ describe('walkModule - rule inlining', () => {
     // Multi-clause rules can't be safely inlined -- should be unsupported
     expect(expr.kind).toBe('unsupported');
   });
+
+  it('inlines multi-expression helper rule (two body expressions)', () => {
+    const mod = makeModule([
+      // is_admin { input.user.role == "admin"; input.user.active == true }
+      boolRule('is_admin', [
+        binExpr('equal', inputRef('user', 'role'), strLit('admin')),
+        binExpr('equal', inputRef('user', 'active'), boolLit(true)),
+      ]),
+      boolRule('allow', [{ index: 0, terms: varTerm('is_admin') }]),
+    ]);
+    const result = walkModule(mod);
+    const allowClauses = result.rules.get('allow')!;
+    expect(allowClauses).toHaveLength(1);
+    // Both conditions from is_admin must appear in allow's clause
+    const exprs = allowClauses[0]!.expressions;
+    expect(exprs).toHaveLength(2);
+    expect(exprs[0]!.kind).toBe('eq');
+    expect(exprs[1]!.kind).toBe('eq');
+    // First: input.user.role == "admin"
+    const e0 = exprs[0] as Extract<VerifyExpr, { kind: 'eq' }>;
+    expect(e0.left).toEqual({ kind: 'input_ref', path: 'input.user.role', segments: ['user', 'role'] });
+    expect(e0.right).toEqual({ kind: 'literal_string', value: 'admin' });
+    // Second: input.user.active == true
+    const e1 = exprs[1] as Extract<VerifyExpr, { kind: 'eq' }>;
+    expect(e1.left).toEqual({ kind: 'input_ref', path: 'input.user.active', segments: ['user', 'active'] });
+    expect(e1.right).toEqual({ kind: 'literal_bool', value: true });
+  });
+
+  it('inlines multi-expression helper rule (three body expressions)', () => {
+    const mod = makeModule([
+      // is_eligible { input.age >= 18; input.age <= 65; input.active == true }
+      boolRule('is_eligible', [
+        binExpr('gte', inputRef('age'), numLit(18)),
+        binExpr('lte', inputRef('age'), numLit(65)),
+        binExpr('equal', inputRef('active'), boolLit(true)),
+      ]),
+      boolRule('allow', [{ index: 0, terms: varTerm('is_eligible') }]),
+    ]);
+    const result = walkModule(mod);
+    const clause = result.rules.get('allow')![0]!;
+    expect(clause.expressions).toHaveLength(3);
+    expect(clause.expressions[0]!.kind).toBe('gte');
+    expect(clause.expressions[1]!.kind).toBe('lte');
+    expect(clause.expressions[2]!.kind).toBe('eq');
+  });
+
+  it('inlines multi-expression helper plus additional caller conditions', () => {
+    const mod = makeModule([
+      // is_admin { input.role == "admin"; input.active == true }
+      boolRule('is_admin', [
+        binExpr('equal', inputRef('role'), strLit('admin')),
+        binExpr('equal', inputRef('active'), boolLit(true)),
+      ]),
+      // allow { is_admin; input.region == "us" }
+      boolRule('allow', [
+        { index: 0, terms: varTerm('is_admin') },
+        binExpr('equal', inputRef('region'), strLit('us')),
+      ]),
+    ]);
+    const result = walkModule(mod);
+    const clause = result.rules.get('allow')![0]!;
+    // is_admin expands to 2 exprs + allow adds 1 more = 3 total
+    expect(clause.expressions).toHaveLength(3);
+    const kinds = clause.expressions.map((e) => e.kind);
+    expect(kinds).toEqual(['eq', 'eq', 'eq']);
+  });
+
+  it('inlines nested multi-expression helper transitively', () => {
+    const mod = makeModule([
+      // is_active { input.active == true; input.enabled == true }
+      boolRule('is_active', [
+        binExpr('equal', inputRef('active'), boolLit(true)),
+        binExpr('equal', inputRef('enabled'), boolLit(true)),
+      ]),
+      // is_admin_active { is_active; input.role == "admin" }
+      boolRule('is_admin_active', [
+        { index: 0, terms: varTerm('is_active') },
+        binExpr('equal', inputRef('role'), strLit('admin')),
+      ]),
+      // allow { is_admin_active }
+      boolRule('allow', [{ index: 0, terms: varTerm('is_admin_active') }]),
+    ]);
+    const result = walkModule(mod);
+    const clause = result.rules.get('allow')![0]!;
+    // is_active (2) + is_admin_active's own role check (1) = 3 total in allow's clause
+    expect(clause.expressions).toHaveLength(3);
+    expect(clause.expressions.every((e) => e.kind !== 'unsupported')).toBe(true);
+  });
+
+  it('marks NAF inside multi-expression helper body as unsupported', () => {
+    const mod = makeModule([
+      // has_naf { not input.blocked; input.role == "admin" }
+      boolRule('has_naf', [
+        asExpr({ index: 0, negated: true, terms: inputRef('blocked') }),
+        binExpr('equal', inputRef('role'), strLit('admin')),
+      ]),
+      boolRule('allow', [{ index: 0, terms: varTerm('has_naf') }]),
+    ]);
+    const result = walkModule(mod);
+    const clause = result.rules.get('allow')![0]!;
+    // NAF expr is unsupported, the eq expr is fine
+    expect(clause.expressions).toHaveLength(2);
+    expect(clause.expressions[0]!.kind).toBe('unsupported');
+    expect(clause.expressions[1]!.kind).toBe('eq');
+    expect(result.unsupported.some((u) => u.constructType === 'naf')).toBe(true);
+  });
+
+  it('inlines helper with string built-in as one of multiple body expressions', () => {
+    const mod = makeModule([
+      // is_api_admin { startswith(input.path, "/api/"); input.role == "admin" }
+      boolRule('is_api_admin', [
+        asExpr({
+          index: 0,
+          terms: [
+            { type: 'ref', value: [{ type: 'var', value: 'startswith' }] },
+            inputRef('path'),
+            strLit('/api/'),
+          ],
+        }),
+        binExpr('equal', inputRef('role'), strLit('admin')),
+      ]),
+      boolRule('allow', [{ index: 0, terms: varTerm('is_api_admin') }]),
+    ]);
+    const result = walkModule(mod);
+    const clause = result.rules.get('allow')![0]!;
+    expect(clause.expressions).toHaveLength(2);
+    expect(clause.expressions[0]!.kind).toBe('startswith');
+    expect(clause.expressions[1]!.kind).toBe('eq');
+  });
 });
 
 describe('walkModule - clause index scoping', () => {

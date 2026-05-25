@@ -291,6 +291,150 @@ allow {
   });
 });
 
+describe('rego_verify - multi-expression helper rule inlining', () => {
+  it('satisfiable: two-condition helper - witness satisfies both conditions', async () => {
+    const policy = `
+package authz
+is_admin {
+  input.user.role == "admin"
+  input.user.active == true
+}
+allow { is_admin }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    const user = ce['user'] as Record<string, unknown>;
+    expect(user?.['role']).toBe('admin');
+    expect(user?.['active']).toBe(true);
+  });
+
+  it('satisfiable: three-condition helper - witness satisfies all three', async () => {
+    const policy = `
+package authz
+is_eligible {
+  input.age >= 18
+  input.age <= 65
+  input.active == true
+}
+allow { is_eligible }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    const age = ce['age'] as number;
+    expect(typeof age).toBe('number');
+    expect(age).toBeGreaterThanOrEqual(18);
+    expect(age).toBeLessThanOrEqual(65);
+    expect(ce['active']).toBe(true);
+  });
+
+  it('satisfiable: multi-expr helper plus extra condition in allow - all must hold', async () => {
+    const policy = `
+package authz
+is_admin {
+  input.role == "admin"
+  input.active == true
+}
+allow {
+  is_admin
+  input.region == "us"
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    expect(ce['role']).toBe('admin');
+    expect(ce['active']).toBe(true);
+    expect(ce['region']).toBe('us');
+  });
+
+  it('always_true: multi-expr helper finds counterexample correctly', async () => {
+    const policy = `
+package authz
+is_admin {
+  input.user.role == "admin"
+  input.user.active == true
+}
+allow { is_admin }
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    // Not always true -- counterexample where role != "admin" or active != true
+    expect(result?.verdict).toBe('counterexample');
+    expect(result?.counterexample).toBeDefined();
+  });
+
+  it('satisfiable: nested helper inlining with multi-expr at each level', async () => {
+    const policy = `
+package authz
+is_active {
+  input.active == true
+  input.enabled == true
+}
+is_admin_active {
+  is_active
+  input.role == "admin"
+}
+allow { is_admin_active }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    expect(ce['active']).toBe(true);
+    expect(ce['enabled']).toBe(true);
+    expect(ce['role']).toBe('admin');
+  });
+
+  it('satisfiable: string built-in inside multi-expr helper', async () => {
+    const policy = `
+package authz
+is_api_admin {
+  startswith(input.path, "/api/")
+  input.role == "admin"
+}
+allow { is_api_admin }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    expect(typeof ce['path']).toBe('string');
+    expect((ce['path'] as string).startsWith('/api/')).toBe(true);
+    expect(ce['role']).toBe('admin');
+  });
+
+  it('satisfiable: int range in multi-expr helper returns valid witness', async () => {
+    const policy = `
+package authz
+is_valid_age {
+  input.user.age >= 21
+  input.user.age <= 99
+}
+allow { is_valid_age }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    const user = ce['user'] as Record<string, unknown>;
+    const age = user?.['age'] as number;
+    expect(typeof age).toBe('number');
+    expect(age).toBeGreaterThanOrEqual(21);
+    expect(age).toBeLessThanOrEqual(99);
+  });
+
+  it('inconclusive: NAF inside multi-expr helper makes clause unsupported', async () => {
+    const policy = `
+package authz
+is_unblocked_admin {
+  not input.blocked
+  input.role == "admin"
+}
+allow { is_unblocked_admin }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('inconclusive');
+  });
+});
+
 describe('rego_verify - multi-clause OR correctness', () => {
   it('proves always_true for a rule that covers all inputs via two clauses', async () => {
     // allow is true when role==admin OR when NOT role==admin (covers everything)

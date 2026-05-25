@@ -148,7 +148,7 @@ function walkExpression(
 
   // Single-term expression.
   if (!Array.isArray(terms)) {
-    return [walkSingleTerm(terms, ruleName, clauseIndex, ruleNames, inliningStack, depth, result, ast)];
+    return walkSingleTerm(terms, ruleName, clauseIndex, ruleNames, inliningStack, depth, result, ast);
   }
 
   // Array of terms: terms[0] is the operator ref, rest are arguments.
@@ -193,7 +193,7 @@ function walkSingleTerm(
   depth: number,
   result: VerifyWalkResult,
   ast: OpaModule,
-): VerifyExpr {
+): VerifyExpr[] {
   // Bare var: could be a cross-rule reference or a local variable.
   if (term.type === 'var' && typeof term.value === 'string') {
     const varName = term.value;
@@ -201,7 +201,7 @@ function walkSingleTerm(
       return inlineRule(varName, ruleName, clauseIndex, ruleNames, inliningStack, depth, result, ast);
     }
     // Local var used as bool check -- unusual but handle gracefully.
-    return { kind: 'bool_check', ref: { kind: 'local_var', name: scopedLocal(clauseIndex, varName) } };
+    return [{ kind: 'bool_check', ref: { kind: 'local_var', name: scopedLocal(clauseIndex, varName) } }];
   }
 
   // Bare ref: input.field (bool truthiness check) or data.* (unsupported).
@@ -210,15 +210,15 @@ function walkSingleTerm(
     const root = refTerms[0];
     if (root?.type === 'var' && root.value === 'input') {
       const vv = extractInputRef(refTerms, result);
-      if (vv) return { kind: 'bool_check', ref: vv };
+      if (vv) return [{ kind: 'bool_check', ref: vv }];
     }
     if (root?.type === 'var' && root.value === 'data') {
       addUnsupported(result, 'data_ref', `Rule '${ruleName}' references external data (data.*).`);
-      return { kind: 'unsupported', constructType: 'data_ref', reason: 'data reference' };
+      return [{ kind: 'unsupported', constructType: 'data_ref', reason: 'data reference' }];
     }
     // Ref to another package rule or unknown -- unsupported.
     addUnsupported(result, 'unknown_ref', `Rule '${ruleName}' contains an unresolvable reference.`);
-    return { kind: 'unsupported', constructType: 'unknown_ref', reason: 'unresolvable reference' };
+    return [{ kind: 'unsupported', constructType: 'unknown_ref', reason: 'unresolvable reference' }];
   }
 
   // Comprehension types as bare terms.
@@ -229,23 +229,20 @@ function walkSingleTerm(
     term.type === 'every'
   ) {
     addUnsupported(result, 'comprehension_or_every', `Rule '${ruleName}' uses a comprehension or 'every'.`);
-    return { kind: 'unsupported', constructType: 'comprehension_or_every', reason: term.type };
+    return [{ kind: 'unsupported', constructType: 'comprehension_or_every', reason: term.type }];
   }
 
   addUnsupported(result, 'unknown_expression', `Rule '${ruleName}' has an unrecognized single-term expression (type: ${term.type}).`);
-  return { kind: 'unsupported', constructType: 'unknown_expression', reason: term.type };
+  return [{ kind: 'unsupported', constructType: 'unknown_expression', reason: term.type }];
 }
 
 /**
- * Inline a rule reference: instead of treating `is_admin` as opaque,
- * substitute "is_admin is true" with "all of is_admin's conditions hold".
+ * Inline a rule reference: substitute "helper_rule is true" with all of
+ * that rule's body conditions, flattened into the caller's clause (AND).
  *
- * Returns a single bool_check on a synthetic local if the rule cannot be
- * inlined (cycles, depth exceeded, multiple clauses -- too complex).
- * For simplicity, if the target has exactly one clause, inline its
- * expressions directly (they become part of the current clause's AND).
- * If it has multiple clauses (OR), mark as unsupported for now -- the
- * OR semantics cannot be represented in a single VerifyExpr.
+ * Supports any number of body expressions in the target rule's single clause.
+ * Multi-clause rules (OR semantics) are still marked unsupported because
+ * they cannot be flattened into the caller's AND chain.
  */
 function inlineRule(
   targetName: string,
@@ -256,15 +253,15 @@ function inlineRule(
   depth: number,
   result: VerifyWalkResult,
   ast: OpaModule,
-): VerifyExpr {
+): VerifyExpr[] {
   if (inliningStack.has(targetName)) {
     addUnsupported(result, 'recursive_rule', `Rules '${callerName}' and '${targetName}' form a recursive cycle.`);
-    return { kind: 'unsupported', constructType: 'recursive_rule', reason: 'recursive rule reference' };
+    return [{ kind: 'unsupported', constructType: 'recursive_rule', reason: 'recursive rule reference' }];
   }
 
   if (depth >= MAX_INLINE_DEPTH) {
     addUnsupported(result, 'inline_depth_exceeded', `Rule inlining exceeded maximum depth (${MAX_INLINE_DEPTH}).`);
-    return { kind: 'unsupported', constructType: 'inline_depth_exceeded', reason: 'max inline depth' };
+    return [{ kind: 'unsupported', constructType: 'inline_depth_exceeded', reason: 'max inline depth' }];
   }
 
   // Find all non-default clauses for targetName.
@@ -276,63 +273,70 @@ function inlineRule(
     // Rule only has a default (always false/true) -- treat as literal.
     const defVal = ast.rules.find((r) => r.head.name === targetName && r.default === true);
     const v = defVal ? (extractLiteralValue(defVal.head.value) ?? false) : false;
-    return { kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: v as boolean } };
+    return [{ kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: v as boolean } }];
   }
 
   if (targetRules.length > 1) {
-    // Multiple clauses: OR semantics can't be reduced to a single AND expr.
+    // Multiple clauses: OR semantics can't be flattened into the caller's AND.
     addUnsupported(result, 'multi_clause_inline', `Rule '${targetName}' (referenced from '${callerName}') has multiple clauses; OR inlining is not supported in Phase 1.`);
-    return { kind: 'unsupported', constructType: 'multi_clause_inline', reason: 'multi-clause rule reference' };
+    return [{ kind: 'unsupported', constructType: 'multi_clause_inline', reason: 'multi-clause rule reference' }];
   }
 
   const targetRule = targetRules[0]!;
 
-  // Check for unsupported constructs in the target rule itself.
   if (targetRule.else !== undefined) {
     addUnsupported(result, 'else_chain', `Inlined rule '${targetName}' uses an else chain.`);
-    return { kind: 'unsupported', constructType: 'else_chain', reason: 'else chain in inlined rule' };
+    return [{ kind: 'unsupported', constructType: 'else_chain', reason: 'else chain in inlined rule' }];
   }
 
-  // We have exactly one clause with a bool true head -- safe to inline.
-  // Walk the target rule's body in the context of the current clause
-  // (sharing clauseIndex scope for local vars).
   const newStack = new Set(inliningStack);
   newStack.add(targetName);
 
-  // Recursively walk the target rule's body. We collect its expressions
-  // and return them as a synthetic compound expr via a wrapper.
-  // Since VerifyExpr is flat, we encode inlined multi-expr bodies as
-  // a series of eq constraints. The engine handles multiple exprs per
-  // clause, so we use a marker to signal inline expansion needed.
-  // SIMPLIFICATION: only inline single-expression bodies in Phase 1.
   const bodyExprs = targetRule.body.filter(
     (e) => !((!Array.isArray(e.terms)) && e.terms.type === 'boolean'),
   );
 
   if (bodyExprs.length === 0) {
-    // Empty / trivially-true body: inlined rule always fires.
-    return { kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: true } };
+    return [{ kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: true } }];
   }
 
-  if (bodyExprs.length > 1) {
-    addUnsupported(result, 'multi_expr_inline', `Inlined rule '${targetName}' has multiple body expressions; complex inlining is not supported in Phase 1.`);
-    return { kind: 'unsupported', constructType: 'multi_expr_inline', reason: 'multi-expression inline' };
+  // Walk every body expression and collect into a flat list. Each becomes an
+  // additional conjunct in the caller's clause (AND semantics). This handles
+  // any number of conditions in the helper rule, including transitive inlining
+  // of nested helpers.
+  let anonCounter = 0;
+  const inlined: VerifyExpr[] = [];
+
+  for (const bodyExpr of bodyExprs) {
+    if (bodyExpr.negated === true) {
+      addUnsupported(result, 'naf', `Inlined rule '${targetName}' uses negation-as-failure.`);
+      inlined.push({ kind: 'unsupported', constructType: 'naf', reason: 'negation-as-failure in inlined rule' });
+      continue;
+    }
+
+    if (bodyExpr.with !== undefined) {
+      addUnsupported(result, 'with_modifier', `Inlined rule '${targetName}' uses a 'with' modifier.`);
+      inlined.push({ kind: 'unsupported', constructType: 'with_modifier', reason: 'with modifier in inlined rule' });
+      continue;
+    }
+
+    const ve = walkExpression(
+      bodyExpr,
+      targetName,
+      clauseIndex,
+      ruleNames,
+      newStack,
+      depth + 1,
+      result,
+      ast,
+      () => anonCounter++,
+    );
+    for (const e of ve) inlined.push(e);
   }
 
-  // Single body expression -- inline it directly.
-  const inlined = walkExpression(
-    bodyExprs[0]!,
-    targetName,
-    clauseIndex,
-    ruleNames,
-    newStack,
-    depth + 1,
-    result,
-    ast,
-    () => 0,
-  );
-
-  return inlined[0] ?? { kind: 'unsupported', constructType: 'inline_empty', reason: 'empty inline result' };
+  return inlined.length > 0
+    ? inlined
+    : [{ kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: true } }];
 }
 
 /**
