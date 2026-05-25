@@ -236,6 +236,43 @@ describe('rego_verify - error handling', () => {
   });
 });
 
+describe('rego_verify - local variable assignment', () => {
+  it('handles x := input.role; x == "admin" (string assign)', async () => {
+    const policy = `
+package authz
+allow {
+  x := input.role
+  x == "admin"
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    expect(ce?.['role']).toBe('admin');
+  });
+
+  it('handles age := input.user.age; age >= 21 (int assign propagates sort)', async () => {
+    const policy = `
+package authz
+allow {
+  age := input.user.age
+  age >= 21
+  age <= 100
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    const ce = result?.counterexample as Record<string, unknown>;
+    const user = ce['user'] as Record<string, unknown>;
+    const age = user?.['age'] as number;
+    expect(typeof age).toBe('number');
+    expect(age).toBeGreaterThanOrEqual(21);
+    expect(age).toBeLessThanOrEqual(100);
+  });
+
+
+});
+
 describe('rego_verify - multi-clause OR correctness', () => {
   it('proves always_true for a rule that covers all inputs via two clauses', async () => {
     // allow is true when role==admin OR when NOT role==admin (covers everything)

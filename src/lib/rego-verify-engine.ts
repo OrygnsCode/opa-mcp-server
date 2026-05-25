@@ -78,7 +78,7 @@ export async function runVerify(
   }
 
   // Type inference + Z3 setup
-  const typeResult = inferTypes(walked.rules.values(), walked.inputPaths);
+  const typeResult = inferTypes([...walked.rules.values()], walked.inputPaths);
   for (const conflict of typeResult.conflicts) {
     warnings.push(conflict.reason);
   }

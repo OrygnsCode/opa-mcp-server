@@ -9,6 +9,9 @@
  *   4. Compared to a number literal, or in gt/gte/lt/lte → int
  *   5. Conflicting evidence → uninterpreted (equality-only in encoder)
  *   6. No evidence → string (safe default: Z3 string theory is flexible)
+ *
+ * Local variable aliases (x := input.path) are resolved so that sort
+ * evidence from comparisons on x propagates back to input.path.
  */
 import type { VerifyExpr, VerifyRuleClause, VerifyValue } from './rego-ir.js';
 
@@ -22,21 +25,34 @@ export interface TypeInferenceResult {
 type SortEvidence = 'string' | 'int' | 'bool';
 
 export function inferTypes(
-  clauses: IterableIterator<VerifyRuleClause[]>,
+  clauses: VerifyRuleClause[][],
   inputPaths: Map<string, string[]>,
 ): TypeInferenceResult {
-  const evidence = new Map<string, Set<SortEvidence>>();
+  // Pass 1: collect local-variable → input-path aliases from assign expressions.
+  // This lets sort evidence from "x >= 21" propagate back to "input.age"
+  // when the clause contains "x := input.age".
+  const localAliases = new Map<string, string>(); // local_var_name → input_ref_path
+  for (const ruleClauses of clauses) {
+    for (const clause of ruleClauses) {
+      for (const expr of clause.expressions) {
+        if (expr.kind === 'assign' && expr.value.kind === 'input_ref') {
+          localAliases.set(expr.local, expr.value.path);
+        }
+      }
+    }
+  }
 
-  // Initialize all known paths.
+  // Initialize evidence sets from all known paths.
+  const evidence = new Map<string, Set<SortEvidence>>();
   for (const path of inputPaths.keys()) {
     evidence.set(path, new Set());
   }
 
-  // Collect evidence from every clause of every rule.
+  // Pass 2: collect sort evidence from all expressions, resolving locals via aliases.
   for (const ruleClauses of clauses) {
     for (const clause of ruleClauses) {
       for (const expr of clause.expressions) {
-        collectEvidence(expr, evidence);
+        collectEvidence(expr, evidence, localAliases);
       }
     }
   }
@@ -62,59 +78,71 @@ export function inferTypes(
   return { sorts, conflicts };
 }
 
-function collectEvidence(expr: VerifyExpr, evidence: Map<string, Set<SortEvidence>>): void {
+function collectEvidence(
+  expr: VerifyExpr,
+  evidence: Map<string, Set<SortEvidence>>,
+  localAliases: Map<string, string>,
+): void {
   switch (expr.kind) {
     case 'eq':
     case 'neq':
-      addLiteralEvidence(expr.left, expr.right, evidence);
-      addLiteralEvidence(expr.right, expr.left, evidence);
+      addLiteralEvidence(expr.left, expr.right, evidence, localAliases);
+      addLiteralEvidence(expr.right, expr.left, evidence, localAliases);
       break;
     case 'assign':
-      // The value being assigned tells us the local's type, not an input path.
+      // The local variable itself is not an input path; evidence flows via localAliases.
       break;
     case 'gt':
     case 'gte':
     case 'lt':
     case 'lte':
-      addSortEvidence(expr.left, 'int', evidence);
-      addSortEvidence(expr.right, 'int', evidence);
+      addSortEvidence(expr.left, 'int', evidence, localAliases);
+      addSortEvidence(expr.right, 'int', evidence, localAliases);
       break;
     case 'startswith':
     case 'endswith':
-      addSortEvidence(expr.str, 'string', evidence);
+      addSortEvidence(expr.str, 'string', evidence, localAliases);
       break;
     case 'contains':
-      addSortEvidence(expr.str, 'string', evidence);
+      addSortEvidence(expr.str, 'string', evidence, localAliases);
       break;
     case 'regex_match':
-      addSortEvidence(expr.str, 'string', evidence);
+      addSortEvidence(expr.str, 'string', evidence, localAliases);
       break;
     case 'bool_check':
-      addSortEvidence(expr.ref, 'bool', evidence);
+      addSortEvidence(expr.ref, 'bool', evidence, localAliases);
       break;
     default:
       break;
   }
 }
 
+/**
+ * Resolve a VerifyValue to an input path string.
+ * Returns undefined for literals, local vars with no alias, etc.
+ */
+function resolveToInputPath(
+  value: VerifyValue,
+  localAliases: Map<string, string>,
+): string | undefined {
+  if (value.kind === 'input_ref') return value.path;
+  if (value.kind === 'local_var') return localAliases.get(value.name);
+  return undefined;
+}
+
 function addLiteralEvidence(
   subject: VerifyValue,
   comparand: VerifyValue,
   evidence: Map<string, Set<SortEvidence>>,
+  localAliases: Map<string, string>,
 ): void {
-  if (subject.kind !== 'input_ref') return;
+  const path = resolveToInputPath(subject, localAliases);
+  if (path === undefined) return;
   switch (comparand.kind) {
-    case 'literal_string':
-      addSortEvidence(subject, 'string', evidence);
-      break;
-    case 'literal_number':
-      addSortEvidence(subject, 'int', evidence);
-      break;
-    case 'literal_bool':
-      addSortEvidence(subject, 'bool', evidence);
-      break;
-    default:
-      break;
+    case 'literal_string': addPathEvidence(path, 'string', evidence); break;
+    case 'literal_number': addPathEvidence(path, 'int', evidence); break;
+    case 'literal_bool': addPathEvidence(path, 'bool', evidence); break;
+    default: break;
   }
 }
 
@@ -122,8 +150,18 @@ function addSortEvidence(
   value: VerifyValue,
   sort: SortEvidence,
   evidence: Map<string, Set<SortEvidence>>,
+  localAliases: Map<string, string>,
 ): void {
-  if (value.kind !== 'input_ref') return;
-  const ev = evidence.get(value.path);
+  const path = resolveToInputPath(value, localAliases);
+  if (path === undefined) return;
+  addPathEvidence(path, sort, evidence);
+}
+
+function addPathEvidence(
+  path: string,
+  sort: SortEvidence,
+  evidence: Map<string, Set<SortEvidence>>,
+): void {
+  const ev = evidence.get(path);
   if (ev !== undefined) ev.add(sort);
 }

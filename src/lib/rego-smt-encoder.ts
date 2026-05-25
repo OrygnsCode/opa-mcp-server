@@ -88,7 +88,8 @@ export function encodeRule(
   const clauseFormulas: Z3Bool[] = [];
   for (const clause of clauses) {
     const localVars = new Map<string, Z3AnyExpr>();
-    const clauseResult = encodeClause(clause, ctx, localVars);
+    const localSorts = new Map<string, Z3Sort>();
+    const clauseResult = encodeClause(clause, ctx, localVars, localSorts);
     if (clauseResult.formula !== null) {
       clauseFormulas.push(clauseResult.formula);
     }
@@ -114,6 +115,7 @@ function encodeClause(
   clause: VerifyRuleClause,
   ctx: EncoderContext,
   localVars: Map<string, Z3AnyExpr>,
+  localSorts: Map<string, Z3Sort>,
 ): ClauseResult {
   const { Z3 } = ctx;
   const warnings: string[] = [];
@@ -122,7 +124,7 @@ function encodeClause(
   for (const expr of clause.expressions) {
     if (expr.kind === 'unsupported') continue; // engine skips these clauses already
 
-    const encoded = encodeExpr(expr, ctx, localVars, warnings);
+    const encoded = encodeExpr(expr, ctx, localVars, localSorts, warnings);
     if (encoded !== null) {
       conjuncts.push(encoded);
     }
@@ -143,71 +145,72 @@ function encodeExpr(
   expr: VerifyExpr,
   ctx: EncoderContext,
   localVars: Map<string, Z3AnyExpr>,
+  localSorts: Map<string, Z3Sort>,
   warnings: string[],
 ): Z3Bool | null {
   const { Z3 } = ctx;
 
   switch (expr.kind) {
     case 'eq': {
-      const l = resolveValue(expr.left, ctx, localVars, warnings);
-      const r = resolveValue(expr.right, ctx, localVars, warnings);
+      const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
+      const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
       return Z3.Eq(l, r) as Z3Bool;
     }
     case 'neq': {
-      const l = resolveValue(expr.left, ctx, localVars, warnings);
-      const r = resolveValue(expr.right, ctx, localVars, warnings);
+      const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
+      const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
       return Z3.Not(Z3.Eq(l, r)) as Z3Bool;
     }
     case 'gt': {
-      const l = resolveValue(expr.left, ctx, localVars, warnings);
-      const r = resolveValue(expr.right, ctx, localVars, warnings);
+      const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
+      const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
       return Z3.GT(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
     }
     case 'gte': {
-      const l = resolveValue(expr.left, ctx, localVars, warnings);
-      const r = resolveValue(expr.right, ctx, localVars, warnings);
+      const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
+      const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
       return Z3.GE(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
     }
     case 'lt': {
-      const l = resolveValue(expr.left, ctx, localVars, warnings);
-      const r = resolveValue(expr.right, ctx, localVars, warnings);
+      const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
+      const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
       return Z3.LT(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
     }
     case 'lte': {
-      const l = resolveValue(expr.left, ctx, localVars, warnings);
-      const r = resolveValue(expr.right, ctx, localVars, warnings);
+      const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
+      const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
       return Z3.LE(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
     }
     case 'startswith': {
-      const str = resolveValue(expr.str, ctx, localVars, warnings);
-      const prefix = resolveValue(expr.prefix, ctx, localVars, warnings);
+      const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
+      const prefix = resolveValue(expr.prefix, ctx, localVars, localSorts, warnings);
       if (str === null || prefix === null) return null;
       // Z3 string API: prefix.prefixOf(str) means "prefix is a prefix of str"
       type StringExpr = ReturnType<Z3Context['String']['const']>;
       return (prefix as StringExpr).prefixOf(str as StringExpr) as Z3Bool;
     }
     case 'endswith': {
-      const str = resolveValue(expr.str, ctx, localVars, warnings);
-      const suffix = resolveValue(expr.suffix, ctx, localVars, warnings);
+      const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
+      const suffix = resolveValue(expr.suffix, ctx, localVars, localSorts, warnings);
       if (str === null || suffix === null) return null;
       type StringExpr = ReturnType<Z3Context['String']['const']>;
       return (suffix as StringExpr).suffixOf(str as StringExpr) as Z3Bool;
     }
     case 'contains': {
-      const str = resolveValue(expr.str, ctx, localVars, warnings);
-      const sub = resolveValue(expr.sub, ctx, localVars, warnings);
+      const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
+      const sub = resolveValue(expr.sub, ctx, localVars, localSorts, warnings);
       if (str === null || sub === null) return null;
       type StringExpr = ReturnType<Z3Context['String']['const']>;
       return (str as StringExpr).contains(sub as StringExpr) as Z3Bool;
     }
     case 'regex_match': {
-      const str = resolveValue(expr.str, ctx, localVars, warnings);
+      const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
       if (str === null) return null;
       type StringExpr = ReturnType<Z3Context['String']['const']>;
 
@@ -222,29 +225,48 @@ function encodeExpr(
       }
 
       // Variable pattern: fall back to literal match (approximate).
-      const pat = resolveValue(expr.pattern, ctx, localVars, warnings);
+      const pat = resolveValue(expr.pattern, ctx, localVars, localSorts, warnings);
       if (pat === null) return null;
       warnings.push('regex_match with variable pattern uses literal string match approximation.');
       const re = Z3.Re.toRe(pat as StringExpr);
       return Z3.InRe(str as StringExpr, re) as Z3Bool;
     }
     case 'bool_check': {
-      const ref = resolveValue(expr.ref, ctx, localVars, warnings);
+      const ref = resolveValue(expr.ref, ctx, localVars, localSorts, warnings);
       if (ref === null) return null;
       // Treat as: ref == true
       return Z3.Eq(ref, Z3.Bool.val(true)) as Z3Bool;
     }
     case 'assign': {
-      // x := value → create a local constant and constrain it to the value.
-      const val = resolveValue(expr.value, ctx, localVars, warnings);
+      // x := value → determine the sort from the RHS, create a correctly-typed
+      // local constant, then constrain it to equal the value.
+      const rhsSort = sortOfVerifyValue(expr.value, ctx, localSorts);
+      const val = resolveValue(expr.value, ctx, localVars, localSorts, warnings);
       if (val === null) return null;
-      // The sort of the local var is inferred from the RHS value.
-      const localConst = createLocalVar(Z3, expr.local, val, localVars);
-      if (localConst === null) return null;
+      const localConst = createLocalVar(Z3, expr.local, rhsSort, localVars, localSorts);
       return Z3.Eq(localConst, val) as Z3Bool;
     }
     case 'unsupported':
       return null;
+  }
+}
+
+/**
+ * Return the Z3Sort for a VerifyValue without creating any Z3 expressions.
+ * Used to determine the sort of a local variable at assignment time.
+ */
+function sortOfVerifyValue(
+  value: VerifyValue,
+  ctx: EncoderContext,
+  localSorts: Map<string, Z3Sort>,
+): Z3Sort {
+  switch (value.kind) {
+    case 'literal_string': return 'string';
+    case 'literal_number': return 'int';
+    case 'literal_bool': return 'bool';
+    case 'literal_null': return 'string'; // best-effort; null is untyped in Rego
+    case 'input_ref': return ctx.sorts.get(value.path) ?? 'string';
+    case 'local_var': return localSorts.get(value.name) ?? 'string';
   }
 }
 
@@ -255,6 +277,7 @@ function resolveValue(
   value: VerifyValue,
   ctx: EncoderContext,
   localVars: Map<string, Z3AnyExpr>,
+  localSorts: Map<string, Z3Sort>,
   warnings: string[],
 ): Z3AnyExpr | null {
   const { Z3, inputVars } = ctx;
@@ -270,13 +293,11 @@ function resolveValue(
     }
     case 'local_var': {
       const v = localVars.get(value.name);
-      if (v === undefined) {
-        // Local not yet created (used before assign) -- create as string var.
-        const c = Z3.String.const(value.name);
-        localVars.set(value.name, c);
-        return c;
-      }
-      return v;
+      if (v !== undefined) return v;
+      // Local referenced before its assign expression -- create with the sort
+      // recorded by a prior encodeExpr call, or default to string.
+      const sort = localSorts.get(value.name) ?? 'string';
+      return createLocalVar(Z3, value.name, sort, localVars, localSorts);
     }
     case 'literal_string':
       return Z3.String.val(value.value);
@@ -285,43 +306,44 @@ function resolveValue(
     case 'literal_bool':
       return Z3.Bool.val(value.value);
     case 'literal_null':
-      // Encode null as a fresh uninterpreted constant named "__null".
       warnings.push('null literal encoded as uninterpreted constant.');
       return null;
   }
 }
 
 /**
- * Create a Z3 constant for a local variable, inferring its sort from the
- * RHS value's Z3 type. Caches it so subsequent references to the same
- * local use the same constant.
+ * Create a Z3 constant for a local variable with an explicitly-known sort.
+ * Caches it so subsequent references to the same local reuse the same constant.
  */
 function createLocalVar(
   Z3: Z3Context,
   name: string,
-  rhs: Z3AnyExpr,
+  sort: Z3Sort,
   localVars: Map<string, Z3AnyExpr>,
-): Z3AnyExpr | null {
+  localSorts: Map<string, Z3Sort>,
+): Z3AnyExpr {
   if (localVars.has(name)) return localVars.get(name)!;
 
-  // Infer the sort from the RHS expression's string representation
-  // (Z3 sorts are embedded in the expression type). We use a heuristic:
-  // check if the rhs is a string/int/bool constant.
-  const rhsStr = rhs.toString();
   let c: Z3AnyExpr;
-
-  if (rhsStr.startsWith('"') || rhsStr.includes('str')) {
-    c = Z3.String.const(name);
-  } else if (rhsStr.match(/^-?\d+$/) || rhsStr.includes('Int')) {
-    c = Z3.Int.const(name);
-  } else if (rhsStr === 'true' || rhsStr === 'false') {
-    c = Z3.Bool.const(name);
-  } else {
-    // Default to string for unknown.
-    c = Z3.String.const(name);
+  switch (sort) {
+    case 'string':
+      c = Z3.String.const(name);
+      break;
+    case 'int':
+      c = Z3.Int.const(name);
+      break;
+    case 'bool':
+      c = Z3.Bool.const(name);
+      break;
+    case 'uninterpreted': {
+      const s = Z3.Sort.declare(name + '_sort');
+      c = Z3.Const(name, s) as unknown as Z3AnyExpr;
+      break;
+    }
   }
 
   localVars.set(name, c);
+  localSorts.set(name, sort);
   return c;
 }
 
