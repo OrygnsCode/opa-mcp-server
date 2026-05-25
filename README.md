@@ -17,8 +17,8 @@ environment.
 ```
 +--------------------+ MCP/stdio  +-----------------+ spawn/HTTP +---------------------+
 |  Claude · Cursor · |----------> | @orygn/opa-mcp  |----------> | opa · regal         |
-|   VS Code · ...    |<---------- |                 |<---------- | conftest · REST API |
-+--------------------+  48 tools  +-----------------+            +---------------------+
+|   VS Code · ...    |<---------- |                 |<---------- | conftest · REST API  |
++--------------------+  49 tools  +-----------------+            +---------------------+
 ```
 
 > **Status:** v0.1.11. Tool surface, error codes, and
@@ -412,6 +412,7 @@ the tasks agents are actually asked to do.
 | `rego_fix`                    | Run `regal fix` to auto-apply mechanical fixes: `opa-fmt`, `use-rego-v1`, `use-assignment-operator`, `no-whitespace-comment`, and `directory-package-mismatch`. Use `dryRun: true` to preview changes first. Returns a per-file breakdown of which rules were applied and, for `directory-package-mismatch`, the new path the file was moved to.                                  |
 | `rego_format_write`           | Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to list which files would change without modifying them. Validates all files parse successfully before writing any. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags. Only requires `opa`.                                                              |
 | `rego_policy_diff`            | Evaluate the same query against two policies in parallel and compare the results. Returns `equal: true/false`, the raw value from each side (`resultA`/`resultB`), and `changedPaths` -- dot/bracket JSON paths that differ. Each side takes inline source or a file/directory path. Useful for verifying refactor equivalence or mapping divergence between two policy versions. |
+| `rego_verify`                 | Formally verify a property about a Rego rule using SMT solving (Microsoft Z3 via WASM). Unlike testing, this checks ALL possible inputs mathematically and either proves the property holds or returns a concrete counterexample. Supports `always_true`, `never_true`, and `satisfiable` property kinds. Handles equality, comparison, string built-ins (`startswith`, `endswith`, `contains`, `regex.match`), multi-clause rules, and cross-rule inlining. Reports `INCONCLUSIVE` for negation-as-failure and comprehensions. |
 
 ### Category F: Conftest (configuration policy testing)
 

@@ -5,7 +5,7 @@
  * here in order; ordering doesn't affect behavior but keeps the
  * declaration site tidy.
  *
- * Tools (48 total):
+ * Tools (49 total):
  *   Category A -- Authoring:        rego_format, rego_check,
  *                                   rego_check_schema, rego_lint,
  *                                   rego_parse_ast, rego_inspect,
@@ -30,7 +30,8 @@
  *                                   rego_security_audit,
  *                                   rego_infer_input_schema,
  *                                   rego_fix, rego_format_write,
- *                                   rego_migrate_v1, rego_policy_diff
+ *                                   rego_migrate_v1, rego_policy_diff,
+ *                                   rego_verify
  *   Category F -- Conftest:         conftest_test, conftest_verify,
  *                                   conftest_pull, conftest_push
  *   Category G -- Meta:             mcp_server_info

@@ -2,7 +2,7 @@
 
 **Model Context Protocol (MCP) server for Open Policy Agent (OPA) and the Rego policy language.**
 
-Wraps the OPA CLI, the OPA REST API, and the Regal linter behind 48 schema-validated tools so
+Wraps the OPA CLI, the OPA REST API, and the Regal linter behind 49 schema-validated tools so
 any MCP-compatible client (Claude Desktop, Claude Code, Cursor, VS Code, Zed, Windsurf) can
 author, evaluate, and debug Rego policies through a structured tool surface instead of free-form
 CLI text.
@@ -81,7 +81,7 @@ inside the container.
 
 ## What's inside
 
-**48 tools across six categories:**
+**49 tools across six categories:**
 
 - **Authoring** -- `rego_format`, `rego_lint`, `rego_check`, `rego_check_schema`, `rego_parse`,
   `rego_deps`, `rego_inspect`, `rego_capabilities`
@@ -94,7 +94,8 @@ inside the container.
   `opa_compile_query`, `opa_health`, `opa_status`, `opa_config`
 - **Helpers** -- `rego_explain_decision`, `rego_describe_policy`, `rego_generate_test_skeleton`,
   `rego_suggest_fix`, `rego_fix`, `rego_format_write`, `rego_security_audit`,
-  `rego_coverage_gaps`, `rego_infer_input_schema`, `rego_policy_diff`, `mcp_server_info`
+  `rego_coverage_gaps`, `rego_infer_input_schema`, `rego_policy_diff`, `rego_verify`,
+  `mcp_server_info`
 - **Conftest** -- `conftest_test`, `conftest_verify`, `conftest_pull`, `conftest_push`
   _(requires conftest binary -- not bundled; see note above)_
 

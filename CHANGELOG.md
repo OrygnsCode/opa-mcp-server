@@ -17,6 +17,26 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-05-25
+
+### Added
+
+- **`rego_verify` (49 tools total)** -- formal SMT-based verification for Rego
+  policies using Microsoft Z3 (WASM). Unlike testing, which checks specific
+  inputs, `rego_verify` examines ALL possible inputs mathematically and either
+  proves a property holds or returns a concrete counterexample. Three property
+  kinds are supported: `always_true` (prove a rule is true for every input),
+  `never_true` (prove a rule never fires), and `satisfiable` (find at least one
+  satisfying input as a witness). Supports equality and inequality operators,
+  string built-ins (`startswith`, `endswith`, `contains`, `regex.match`),
+  comparison operators (`<`, `<=`, `>`, `>=`), multi-clause rules (OR
+  semantics), cross-rule inlining (depth <= 5, cycle-safe), and mixed-type
+  input paths. Reports `INCONCLUSIVE` for negation-as-failure (`not`),
+  comprehensions, and other constructs that cannot be encoded in Z3.
+  Counterexamples are returned as nested JSON ready for use with `opa eval
+  --input`. Powered by a layered pipeline: OPA AST walker (IR), Z3 type
+  inferencer, and SMT encoder.
+
 ## [0.1.11] - 2026-05-24
 
 ### Added
