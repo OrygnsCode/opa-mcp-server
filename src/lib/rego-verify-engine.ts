@@ -18,6 +18,7 @@ import { inferTypes } from './rego-type-inferencer.js';
 import { createInputVars, encodeRule } from './rego-smt-encoder.js';
 import { extractCounterexample, formatCounterexample, type CounterexampleInput } from './rego-counterexample.js';
 import { describeProperty, type VerifyProperty } from './rego-property-parser.js';
+import { getZ3 } from './rego-z3.js';
 
 // Monotonically increasing counter used to generate a unique prefix for all
 // Z3 constant names within each runVerify call. This prevents sort conflicts
@@ -25,7 +26,6 @@ import { describeProperty, type VerifyProperty } from './rego-property-parser.js
 // (e.g. two policies using input.x as string vs int) within the shared Z3
 // singleton context.
 let _verifyCallCounter = 0;
-import { getZ3 } from './rego-z3.js';
 
 export type VerifyVerdict = 'proven' | 'counterexample' | 'inconclusive' | 'unsatisfiable';
 
