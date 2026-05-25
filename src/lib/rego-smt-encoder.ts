@@ -30,6 +30,11 @@ export interface EncoderContext {
   Z3: Z3Context;
   inputVars: Map<string, Z3AnyExpr>;
   sorts: Map<string, Z3Sort>;
+  /** Per-call unique prefix for all Z3 constant names. Prevents sort conflicts
+   *  when the same input path is inferred as different sorts across calls in the
+   *  same Z3 singleton context (e.g. one policy treats input.x as string, another
+   *  as int). Each call gets a fresh prefix so constants never collide. */
+  callId: string;
 }
 
 export interface EncodedRule {
@@ -39,18 +44,20 @@ export interface EncodedRule {
 
 /**
  * Create Z3 constants for all input paths based on inferred sorts.
- * Returns the variable map and any uninterpreted sort declarations.
+ * Each constant name is prefixed with callId to ensure uniqueness across
+ * verification calls in the same Z3 singleton context.
  */
 export function createInputVars(
   Z3: Z3Context,
   inputPaths: Map<string, string[]>,
   sorts: Map<string, Z3Sort>,
+  callId: string,
 ): Map<string, Z3AnyExpr> {
   const vars = new Map<string, Z3AnyExpr>();
 
   for (const path of inputPaths.keys()) {
     const sort = sorts.get(path) ?? 'string';
-    const varName = pathToVarName(path);
+    const varName = `${callId}_${pathToVarName(path)}`;
 
     switch (sort) {
       case 'string':
@@ -243,7 +250,7 @@ function encodeExpr(
       const rhsSort = sortOfVerifyValue(expr.value, ctx, localSorts);
       const val = resolveValue(expr.value, ctx, localVars, localSorts, warnings);
       if (val === null) return null;
-      const localConst = createLocalVar(Z3, expr.local, rhsSort, localVars, localSorts);
+      const localConst = createLocalVar(Z3, expr.local, rhsSort, localVars, localSorts, ctx.callId);
       return Z3.Eq(localConst, val) as Z3Bool;
     }
     case 'unsupported':
@@ -297,7 +304,7 @@ function resolveValue(
       // Local referenced before its assign expression -- create with the sort
       // recorded by a prior encodeExpr call, or default to string.
       const sort = localSorts.get(value.name) ?? 'string';
-      return createLocalVar(Z3, value.name, sort, localVars, localSorts);
+      return createLocalVar(Z3, value.name, sort, localVars, localSorts, ctx.callId);
     }
     case 'literal_string':
       return Z3.String.val(value.value);
@@ -314,6 +321,7 @@ function resolveValue(
 /**
  * Create a Z3 constant for a local variable with an explicitly-known sort.
  * Caches it so subsequent references to the same local reuse the same constant.
+ * The callId prefix ensures names are unique across calls in the same Z3 context.
  */
 function createLocalVar(
   Z3: Z3Context,
@@ -321,23 +329,25 @@ function createLocalVar(
   sort: Z3Sort,
   localVars: Map<string, Z3AnyExpr>,
   localSorts: Map<string, Z3Sort>,
+  callId: string,
 ): Z3AnyExpr {
   if (localVars.has(name)) return localVars.get(name)!;
 
+  const z3Name = `${callId}_${name}`;
   let c: Z3AnyExpr;
   switch (sort) {
     case 'string':
-      c = Z3.String.const(name);
+      c = Z3.String.const(z3Name);
       break;
     case 'int':
-      c = Z3.Int.const(name);
+      c = Z3.Int.const(z3Name);
       break;
     case 'bool':
-      c = Z3.Bool.const(name);
+      c = Z3.Bool.const(z3Name);
       break;
     case 'uninterpreted': {
-      const s = Z3.Sort.declare(name + '_sort');
-      c = Z3.Const(name, s) as unknown as Z3AnyExpr;
+      const s = Z3.Sort.declare(z3Name + '_sort');
+      c = Z3.Const(z3Name, s) as unknown as Z3AnyExpr;
       break;
     }
   }
@@ -375,10 +385,11 @@ type StringExpr = ReturnType<Z3Context['String']['const']>;
  * Returns null if the pattern is too complex and InRe should be used.
  *
  * Handled idioms:
- *   ^lit$       → Eq(str, lit)
- *   ^lit.*      → prefixOf(lit, str)
- *   .*lit$      → suffixOf(lit, str)
- *   .*lit.*     → contains(str, lit)
+ *   .*  / ^.*$ / ^.* / .*$   → Bool.val(true)  (matches any string)
+ *   ^lit$                     → Eq(str, lit)
+ *   ^lit.*                    → prefixOf(lit, str)
+ *   .*lit$                    → suffixOf(lit, str)
+ *   .*lit.*                   → contains(str, lit)
  */
 function tryRegexAsStringConstraint(
   Z3: Z3Context,
@@ -388,6 +399,11 @@ function tryRegexAsStringConstraint(
   const hasStart = pattern.startsWith('^');
   const hasEnd = pattern.endsWith('$') && !pattern.endsWith('\\$');
   const core = pattern.slice(hasStart ? 1 : 0, hasEnd ? pattern.length - 1 : undefined);
+
+  // Pure wildcard: .* (with or without anchors) matches any string -- always true.
+  if (core === '.*') {
+    return Z3.Bool.val(true) as Z3Bool;
+  }
 
   // ^lit$ → exact equality
   if (hasStart && hasEnd && isRegexLiteral(core)) {

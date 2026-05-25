@@ -18,9 +18,16 @@ import { inferTypes } from './rego-type-inferencer.js';
 import { createInputVars, encodeRule } from './rego-smt-encoder.js';
 import { extractCounterexample, formatCounterexample, type CounterexampleInput } from './rego-counterexample.js';
 import { describeProperty, type VerifyProperty } from './rego-property-parser.js';
+
+// Monotonically increasing counter used to generate a unique prefix for all
+// Z3 constant names within each runVerify call. This prevents sort conflicts
+// when the same input path is inferred with different sorts across calls
+// (e.g. two policies using input.x as string vs int) within the shared Z3
+// singleton context.
+let _verifyCallCounter = 0;
 import { getZ3 } from './rego-z3.js';
 
-export type VerifyVerdict = 'proven' | 'counterexample' | 'inconclusive';
+export type VerifyVerdict = 'proven' | 'counterexample' | 'inconclusive' | 'unsatisfiable';
 
 export interface VerifyResult {
   verdict: VerifyVerdict;
@@ -48,14 +55,29 @@ export async function runVerify(
   const walked = walkModule(ast);
   const warnings: string[] = [];
 
-  // Check for unsupported constructs in the target rule
   const targetClauses = walked.rules.get(property.ruleName);
+
+  // Collect only the construct types that actually appear in the target rule's
+  // clause expressions. This prevents unsupported constructs from OTHER rules
+  // in the same module (e.g. a "deny" rule with NAF) from being reported when
+  // verifying an unrelated "allow" rule that is fully encodable.
+  const unsupportedTypesInTarget = new Set<string>();
+  for (const clause of targetClauses ?? []) {
+    for (const expr of clause.expressions) {
+      if (expr.kind === 'unsupported') unsupportedTypesInTarget.add(expr.constructType);
+    }
+  }
   const unsupportedInRule = walked.unsupported.filter((u) =>
-    // Report all unsupported constructs; we can't know which rule they came from.
-    true,
+    unsupportedTypesInTarget.has(u.constructType),
   );
 
   if (targetClauses === undefined || targetClauses.length === 0) {
+    // A default-only rule (e.g. "default allow = false") has no clauses but a known
+    // constant value -- derive the correct verdict without running Z3.
+    const defaultValue = walked.defaults.get(property.ruleName);
+    if (typeof defaultValue === 'boolean') {
+      return solveDefaultOnlyRule(property, defaultValue, unsupportedInRule, warnings);
+    }
     return inconclusive(
       property,
       `Rule "${property.ruleName}" not found in the provided policy.`,
@@ -89,12 +111,17 @@ export async function runVerify(
 
   signal?.throwIfAborted();
 
-  const inputVars = createInputVars(Z3, walked.inputPaths, typeResult.sorts);
-  const ctx = { Z3, inputVars, sorts: typeResult.sorts };
+  const callId = `v${_verifyCallCounter++}`;
+  const inputVars = createInputVars(Z3, walked.inputPaths, typeResult.sorts, callId);
+  const ctx = { Z3, inputVars, sorts: typeResult.sorts, callId };
   const encoded = encodeRule(targetClauses, ctx);
   warnings.push(...encoded.warnings);
 
-  // Build the formula to check based on property kind
+  // Z3's high-level Solver and Model objects use FinalizationRegistry internally
+  // (solver_dec_ref / model_dec_ref) so they are cleaned up when GC'd.
+  // We avoid holding a reference to the Model beyond extractCounterexample so
+  // it becomes eligible for GC as soon as the call returns, reducing WASM heap
+  // pressure under high call volume.
   const solver = new Z3.Solver();
 
   // Set timeout to prevent hanging on complex policies
@@ -136,9 +163,9 @@ export async function runVerify(
 
   if (solverResult === 'unsat') {
     if (property.kind === 'satisfiable') {
-      // No satisfying input found - rule is dead code
+      // No satisfying input exists -- rule is dead code or has contradictory conditions.
       return {
-        verdict: 'proven',
+        verdict: 'unsatisfiable',
         property: describeProperty(property),
         rule: property.ruleName,
         unsupportedConstructs: unsupportedInRule,
@@ -157,9 +184,9 @@ export async function runVerify(
     };
   }
 
-  // SAT: extract the model
-  const model = solver.model();
-  const ce = extractCounterexample(model, inputVars, typeResult.sorts);
+  // SAT: pass solver.model() inline so the Model object is not kept alive
+  // beyond extractCounterexample -- it becomes GC-eligible immediately after.
+  const ce = extractCounterexample(solver.model(), inputVars, typeResult.sorts);
   const ceFormatted = formatCounterexample(ce);
 
   if (property.kind === 'satisfiable') {
@@ -206,4 +233,91 @@ function inconclusive(
     warnings,
     message: `INCONCLUSIVE: ${reason}`,
   };
+}
+
+/**
+ * Return the correct verdict for a rule that has no non-default clauses
+ * (e.g. "default allow = false"). The rule always evaluates to its constant
+ * default value, so no Z3 solving is needed.
+ */
+function solveDefaultOnlyRule(
+  property: VerifyProperty,
+  defaultValue: boolean,
+  unsupportedConstructs: Array<{ constructType: string; description: string }>,
+  warnings: string[],
+): VerifyResult {
+  // An empty input object is a valid witness/counterexample since the rule
+  // fires (or doesn't) unconditionally regardless of input.
+  const emptyWitness: CounterexampleInput = {};
+  const emptyFormatted = formatCounterexample(emptyWitness);
+  const prop = describeProperty(property);
+  const name = property.ruleName;
+
+  switch (property.kind) {
+    case 'always_true':
+      if (defaultValue) {
+        return {
+          verdict: 'proven',
+          property: prop,
+          rule: name,
+          unsupportedConstructs,
+          warnings,
+          message: `PROVEN: ${prop}. Rule "${name}" is defined only as "default = true" and is always true.`,
+        };
+      }
+      return {
+        verdict: 'counterexample',
+        property: prop,
+        rule: name,
+        counterexample: emptyWitness,
+        counterexampleFormatted: emptyFormatted,
+        unsupportedConstructs,
+        warnings,
+        message: `COUNTEREXAMPLE: Rule "${name}" is defined only as "default = false" and is never true. Any input is a counterexample to "always true".`,
+      };
+
+    case 'never_true':
+      if (!defaultValue) {
+        return {
+          verdict: 'proven',
+          property: prop,
+          rule: name,
+          unsupportedConstructs,
+          warnings,
+          message: `PROVEN: ${prop}. Rule "${name}" is defined only as "default = false" and is never true.`,
+        };
+      }
+      return {
+        verdict: 'counterexample',
+        property: prop,
+        rule: name,
+        counterexample: emptyWitness,
+        counterexampleFormatted: emptyFormatted,
+        unsupportedConstructs,
+        warnings,
+        message: `COUNTEREXAMPLE: Rule "${name}" is defined only as "default = true" and is always true. Any input is a counterexample to "never true".`,
+      };
+
+    case 'satisfiable':
+      if (defaultValue) {
+        return {
+          verdict: 'proven',
+          property: prop,
+          rule: name,
+          counterexample: emptyWitness,
+          counterexampleFormatted: emptyFormatted,
+          unsupportedConstructs,
+          warnings,
+          message: `SATISFIABLE: Rule "${name}" is defined only as "default = true" -- any input satisfies it.`,
+        };
+      }
+      return {
+        verdict: 'unsatisfiable',
+        property: prop,
+        rule: name,
+        unsupportedConstructs,
+        warnings,
+        message: `UNSATISFIABLE: Rule "${name}" is defined only as "default = false" -- no input can make it true.`,
+      };
+  }
 }

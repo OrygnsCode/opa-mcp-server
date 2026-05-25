@@ -163,6 +163,33 @@ describe('rego_verify - satisfiable', () => {
     // Z3 should return a path starting with /api/v2/
     expect(path.startsWith('/api/v2/')).toBe(true);
   });
+
+  it('returns unsatisfiable verdict for a rule that can never fire (contradictory conditions)', async () => {
+    // input.role must equal both "admin" AND "editor" simultaneously -- impossible
+    const policy = `
+package authz
+allow {
+  input.role == "admin"
+  input.role == "editor"
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('unsatisfiable');
+    expect(result?.counterexample).toBeUndefined();
+  });
+
+  it('returns unsatisfiable verdict for impossible integer constraint', async () => {
+    // age must be both >= 100 AND <= 50 simultaneously -- impossible
+    const policy = `
+package authz
+allow {
+  input.age >= 100
+  input.age <= 50
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('unsatisfiable');
+  });
 });
 
 describe('rego_verify - never_true', () => {
@@ -183,6 +210,58 @@ describe('rego_verify - NAF (inconclusive)', () => {
   });
 });
 
+describe('rego_verify - unsupported construct attribution', () => {
+  it('verifying a clean allow rule in a module with a NAF deny rule does not report NAF as unsupported', async () => {
+    // deny uses NAF, allow does not. Verifying allow should not attribute deny's NAF to allow.
+    const policy = `
+package authz
+allow {
+  input.user.role == "admin"
+}
+deny {
+  not input.user.active
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    // unsupportedConstructs for the allow rule should be empty -- NAF is from deny, not allow
+    expect(result?.unsupportedConstructs).toHaveLength(0);
+  });
+
+  it('verifying a rule WITH NAF does report NAF as unsupported', async () => {
+    const policy = `
+package authz
+allow {
+  input.user.role == "admin"
+}
+allow {
+  not input.blocked
+}
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    // Second allow clause has NAF -> inconclusive, and NAF IS reported
+    expect(result?.verdict).toBe('inconclusive');
+    expect(result?.unsupportedConstructs.some((u) => u.constructType === 'naf')).toBe(true);
+  });
+
+  it('two completely separate rules - unsupported from rule B never bleeds into rule A results', async () => {
+    const policy = `
+package authz
+allow {
+  input.role == "admin"
+}
+other_rule {
+  not input.blocked
+  input.role == "guest"
+}
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    // allow has no unsupported constructs of its own
+    expect(result?.unsupportedConstructs).toHaveLength(0);
+  });
+});
+
 describe('rego_verify - regex.match', () => {
   it('can verify regex-based rules', async () => {
     const result = await verify(regexPolicy, 'allow', 'satisfiable');
@@ -192,6 +271,109 @@ describe('rego_verify - regex.match', () => {
     const user = ce['user'] as Record<string, unknown>;
     expect(typeof user?.['name']).toBe('string');
     expect((user?.['name'] as string).startsWith('admin')).toBe(true);
+  });
+
+  it('always_true: regex.match(".*", input.x) is tautological - proven', async () => {
+    const policy = `
+package authz
+allow { regex.match(".*", input.x) }
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    expect(result?.verdict).toBe('proven');
+  });
+
+  it('always_true: regex.match("^.*$", input.x) is tautological - proven', async () => {
+    const policy = `
+package authz
+allow { regex.match("^.*$", input.x) }
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    expect(result?.verdict).toBe('proven');
+  });
+
+  it('always_true: regex.match("^.*", input.x) is tautological - proven', async () => {
+    const policy = `
+package authz
+allow { regex.match("^.*", input.x) }
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    expect(result?.verdict).toBe('proven');
+  });
+
+  it('always_true: regex.match(".*$", input.x) is tautological - proven', async () => {
+    const policy = `
+package authz
+allow { regex.match(".*$", input.x) }
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    expect(result?.verdict).toBe('proven');
+  });
+
+  it('always_true: regex.match("^admin.*", input.x) is NOT tautological - counterexample', async () => {
+    const policy = `
+package authz
+allow { regex.match("^admin.*", input.x) }
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    // "foo" does not start with "admin" -- counterexample exists
+    expect(result?.verdict).toBe('counterexample');
+  });
+});
+
+describe('rego_verify - default-only rule', () => {
+  it('always_true: default=false → counterexample (rule is never true)', async () => {
+    const policy = `
+package authz
+default allow = false
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    expect(result?.verdict).toBe('counterexample');
+  });
+
+  it('always_true: default=true → proven (rule is always true)', async () => {
+    const policy = `
+package authz
+default allow = true
+`;
+    const result = await verify(policy, 'allow', 'always_true');
+    expect(result?.verdict).toBe('proven');
+  });
+
+  it('never_true: default=false → proven (rule is never true)', async () => {
+    const policy = `
+package authz
+default allow = false
+`;
+    const result = await verify(policy, 'allow', 'never_true');
+    expect(result?.verdict).toBe('proven');
+  });
+
+  it('never_true: default=true → counterexample (rule fires on every input)', async () => {
+    const policy = `
+package authz
+default allow = true
+`;
+    const result = await verify(policy, 'allow', 'never_true');
+    expect(result?.verdict).toBe('counterexample');
+  });
+
+  it('satisfiable: default=false → unsatisfiable (no input makes it true)', async () => {
+    const policy = `
+package authz
+default allow = false
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('unsatisfiable');
+  });
+
+  it('satisfiable: default=true → proven with empty witness', async () => {
+    const policy = `
+package authz
+default allow = true
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('proven');
+    expect(result?.counterexample).toBeDefined();
   });
 });
 
@@ -451,5 +633,63 @@ allow {
 `;
     const result = await verify(exhaustivePolicy, 'allow', 'always_true');
     expect(result?.verdict).toBe('proven');
+  });
+});
+
+describe('rego_verify - cross-call Z3 sort isolation', () => {
+  it('same input path inferred as string in call 1 and int in call 2 - both succeed', async () => {
+    // input.value == "hello" → inferred as string
+    const stringPolicy = `
+package authz
+allow { input.value == "hello" }
+`;
+    // input.value >= 10 → inferred as int
+    const intPolicy = `
+package authz
+allow { input.value >= 10 }
+`;
+    // Run both sequentially - without namespacing, the second call would crash with a Z3 sort conflict
+    const r1 = await verify(stringPolicy, 'allow', 'satisfiable');
+    const r2 = await verify(intPolicy, 'allow', 'satisfiable');
+    expect(r1?.verdict).toBe('proven');
+    expect(r2?.verdict).toBe('proven');
+    // Witness from call 1 should be a string
+    const ce1 = r1?.counterexample as Record<string, unknown>;
+    expect(typeof ce1['value']).toBe('string');
+    // Witness from call 2 should be a number >= 10
+    const ce2 = r2?.counterexample as Record<string, unknown>;
+    expect(typeof ce2['value']).toBe('number');
+    expect((ce2['value'] as number)).toBeGreaterThanOrEqual(10);
+  });
+
+  it('same input path inferred as bool in call 1 and string in call 2 - both succeed', async () => {
+    const boolPolicy = `
+package authz
+allow { input.flag == true }
+`;
+    const strPolicy = `
+package authz
+allow { input.flag == "yes" }
+`;
+    const r1 = await verify(boolPolicy, 'allow', 'satisfiable');
+    const r2 = await verify(strPolicy, 'allow', 'satisfiable');
+    expect(r1?.verdict).toBe('proven');
+    expect(r2?.verdict).toBe('proven');
+  });
+
+  it('three sequential calls with conflicting sorts on input.x all return correct results', async () => {
+    const p1 = `package authz\nallow { input.x == "str" }`;
+    const p2 = `package authz\nallow { input.x >= 0 }`;
+    const p3 = `package authz\nallow { input.x == true }`;
+
+    const [r1, r2, r3] = await Promise.all([
+      verify(p1, 'allow', 'satisfiable'),
+      verify(p2, 'allow', 'satisfiable'),
+      verify(p3, 'allow', 'satisfiable'),
+    ]);
+
+    expect(r1?.verdict).toBe('proven');
+    expect(r2?.verdict).toBe('proven');
+    expect(r3?.verdict).toBe('proven');
   });
 });

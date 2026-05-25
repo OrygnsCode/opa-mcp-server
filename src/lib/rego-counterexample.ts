@@ -11,7 +11,6 @@
  */
 import type { init as Z3Init } from 'z3-solver';
 import type { Z3Sort } from './rego-type-inferencer.js';
-import { varNameToPath } from './rego-smt-encoder.js';
 
 type Z3Context = ReturnType<Awaited<ReturnType<typeof Z3Init>>['Context']>;
 type Z3Model = ReturnType<InstanceType<Z3Context['Solver']>['model']>;
