@@ -36,11 +36,7 @@ const asExpr = (obj: object): OpaExpression => obj as unknown as OpaExpression;
 function binExpr(op: string, left: object, right: object): OpaExpression {
   return {
     index: 0,
-    terms: [
-      { type: 'ref', value: [{ type: 'var', value: op }] },
-      left,
-      right,
-    ],
+    terms: [{ type: 'ref', value: [{ type: 'var', value: op }] }, left, right],
   } as unknown as OpaExpression;
 }
 
@@ -80,7 +76,11 @@ describe('walkModule - basic eq expression', () => {
     expect(clauses[0]!.expressions).toHaveLength(1);
     const expr = clauses[0]!.expressions[0]! as Extract<VerifyExpr, { kind: 'eq' }>;
     expect(expr.kind).toBe('eq');
-    expect(expr.left).toEqual({ kind: 'input_ref', path: 'input.user.role', segments: ['user', 'role'] });
+    expect(expr.left).toEqual({
+      kind: 'input_ref',
+      path: 'input.user.role',
+      segments: ['user', 'role'],
+    });
     expect(expr.right).toEqual({ kind: 'literal_string', value: 'admin' });
   });
 });
@@ -115,9 +115,7 @@ describe('walkModule - operator names', () => {
   ];
   for (const [opaOp, irKind] of ops) {
     it(`maps OPA operator "${opaOp}" to IR kind "${irKind}"`, () => {
-      const mod = makeModule([
-        boolRule('allow', [binExpr(opaOp, inputRef('count'), numLit(5))]),
-      ]);
+      const mod = makeModule([boolRule('allow', [binExpr(opaOp, inputRef('count'), numLit(5))])]);
       const result = walkModule(mod);
       const expr = result.rules.get('allow')![0]!.expressions[0]!;
       expect(expr.kind).toBe(irKind);
@@ -161,7 +159,10 @@ describe('walkModule - string built-ins', () => {
       ]),
     ]);
     const result = walkModule(mod);
-    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<VerifyExpr, { kind: 'startswith' }>;
+    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<
+      VerifyExpr,
+      { kind: 'startswith' }
+    >;
     expect(expr.kind).toBe('startswith');
     expect(expr.str).toEqual({ kind: 'input_ref', path: 'input.path', segments: ['path'] });
     expect(expr.prefix).toEqual({ kind: 'literal_string', value: '/api/' });
@@ -181,7 +182,10 @@ describe('walkModule - string built-ins', () => {
       ]),
     ]);
     const result = walkModule(mod);
-    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<VerifyExpr, { kind: 'endswith' }>;
+    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<
+      VerifyExpr,
+      { kind: 'endswith' }
+    >;
     expect(expr.kind).toBe('endswith');
     expect(expr.suffix).toEqual({ kind: 'literal_string', value: '.json' });
   });
@@ -200,7 +204,10 @@ describe('walkModule - string built-ins', () => {
       ]),
     ]);
     const result = walkModule(mod);
-    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<VerifyExpr, { kind: 'contains' }>;
+    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<
+      VerifyExpr,
+      { kind: 'contains' }
+    >;
     expect(expr.kind).toBe('contains');
     expect(expr.sub).toEqual({ kind: 'literal_string', value: 'secret' });
   });
@@ -226,7 +233,10 @@ describe('walkModule - string built-ins', () => {
       ]),
     ]);
     const result = walkModule(mod);
-    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<VerifyExpr, { kind: 'regex_match' }>;
+    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<
+      VerifyExpr,
+      { kind: 'regex_match' }
+    >;
     expect(expr.kind).toBe('regex_match');
     expect(expr.pattern).toEqual({ kind: 'literal_string', value: '^admin.*' });
     expect(expr.str).toEqual({ kind: 'input_ref', path: 'input.user', segments: ['user'] });
@@ -251,9 +261,7 @@ describe('walkModule - negation (NAF)', () => {
 
   it('records NAF as an unsupported construct', () => {
     const mod = makeModule([
-      boolRule('allow', [
-        { index: 0, negated: true, terms: inputRef('blocked') },
-      ]),
+      boolRule('allow', [{ index: 0, negated: true, terms: inputRef('blocked') }]),
     ]);
     const result = walkModule(mod);
     expect(result.unsupported.length).toBeGreaterThan(0);
@@ -263,11 +271,7 @@ describe('walkModule - negation (NAF)', () => {
 
 describe('walkModule - bool_check (bare input ref)', () => {
   it('produces bool_check for a bare input ref truthiness check', () => {
-    const mod = makeModule([
-      boolRule('allow', [
-        { index: 0, terms: inputRef('admin') },
-      ]),
-    ]);
+    const mod = makeModule([boolRule('allow', [{ index: 0, terms: inputRef('admin') }])]);
     const result = walkModule(mod);
     const expr = result.rules.get('allow')![0]!.expressions[0]!;
     expect(expr.kind).toBe('bool_check');
@@ -281,9 +285,7 @@ describe('walkModule - input path collection', () => {
         binExpr('equal', inputRef('user', 'role'), strLit('admin')),
         binExpr('equal', inputRef('action'), strLit('read')),
       ]),
-      boolRule('allow', [
-        binExpr('equal', inputRef('user', 'dept'), strLit('eng')),
-      ]),
+      boolRule('allow', [binExpr('equal', inputRef('user', 'dept'), strLit('eng'))]),
     ]);
     const result = walkModule(mod);
     expect(result.inputPaths.has('input.user.role')).toBe(true);
@@ -312,9 +314,7 @@ describe('walkModule - rule inlining', () => {
       // is_admin { input.user.role == "admin" }
       boolRule('is_admin', [binExpr('equal', inputRef('user', 'role'), strLit('admin'))]),
       // allow { is_admin }  -- bare var term, as OPA AST produces
-      boolRule('allow', [
-        { index: 0, terms: varTerm('is_admin') },
-      ]),
+      boolRule('allow', [{ index: 0, terms: varTerm('is_admin') }]),
     ]);
     const result = walkModule(mod);
     const allowClauses = result.rules.get('allow')!;
@@ -323,7 +323,11 @@ describe('walkModule - rule inlining', () => {
     const expr = allowClauses[0]!.expressions[0]!;
     expect(expr.kind).toBe('eq');
     const eqExpr = expr as Extract<VerifyExpr, { kind: 'eq' }>;
-    expect(eqExpr.left).toEqual({ kind: 'input_ref', path: 'input.user.role', segments: ['user', 'role'] });
+    expect(eqExpr.left).toEqual({
+      kind: 'input_ref',
+      path: 'input.user.role',
+      segments: ['user', 'role'],
+    });
   });
 
   it('does not inline multi-clause helper (returns unsupported)', () => {
@@ -331,9 +335,7 @@ describe('walkModule - rule inlining', () => {
       // multi_check has two clauses -- inlining would change OR semantics
       boolRule('multi_check', [binExpr('equal', inputRef('a'), strLit('x'))]),
       boolRule('multi_check', [binExpr('equal', inputRef('b'), strLit('y'))]),
-      boolRule('allow', [
-        { index: 0, terms: varTerm('multi_check') },
-      ]),
+      boolRule('allow', [{ index: 0, terms: varTerm('multi_check') }]),
     ]);
     const result = walkModule(mod);
     const allowClauses = result.rules.get('allow')!;
@@ -361,11 +363,19 @@ describe('walkModule - rule inlining', () => {
     expect(exprs[1]!.kind).toBe('eq');
     // First: input.user.role == "admin"
     const e0 = exprs[0] as Extract<VerifyExpr, { kind: 'eq' }>;
-    expect(e0.left).toEqual({ kind: 'input_ref', path: 'input.user.role', segments: ['user', 'role'] });
+    expect(e0.left).toEqual({
+      kind: 'input_ref',
+      path: 'input.user.role',
+      segments: ['user', 'role'],
+    });
     expect(e0.right).toEqual({ kind: 'literal_string', value: 'admin' });
     // Second: input.user.active == true
     const e1 = exprs[1] as Extract<VerifyExpr, { kind: 'eq' }>;
-    expect(e1.left).toEqual({ kind: 'input_ref', path: 'input.user.active', segments: ['user', 'active'] });
+    expect(e1.left).toEqual({
+      kind: 'input_ref',
+      path: 'input.user.active',
+      segments: ['user', 'active'],
+    });
     expect(e1.right).toEqual({ kind: 'literal_bool', value: true });
   });
 
@@ -489,11 +499,12 @@ describe('walkModule - clause index scoping', () => {
 
 describe('walkModule - literal types', () => {
   it('produces literal_number for number comparand', () => {
-    const mod = makeModule([
-      boolRule('allow', [binExpr('gte', inputRef('age'), numLit(18))]),
-    ]);
+    const mod = makeModule([boolRule('allow', [binExpr('gte', inputRef('age'), numLit(18))])]);
     const result = walkModule(mod);
-    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<VerifyExpr, { kind: 'gte' }>;
+    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<
+      VerifyExpr,
+      { kind: 'gte' }
+    >;
     expect(expr.right).toEqual({ kind: 'literal_number', value: 18 });
   });
 
@@ -502,7 +513,10 @@ describe('walkModule - literal types', () => {
       boolRule('allow', [binExpr('equal', inputRef('verified'), boolLit(true))]),
     ]);
     const result = walkModule(mod);
-    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<VerifyExpr, { kind: 'eq' }>;
+    const expr = result.rules.get('allow')![0]!.expressions[0]! as Extract<
+      VerifyExpr,
+      { kind: 'eq' }
+    >;
     expect(expr.right).toEqual({ kind: 'literal_bool', value: true });
   });
 });

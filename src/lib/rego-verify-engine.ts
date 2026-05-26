@@ -16,7 +16,11 @@ import type { OpaModule } from './rego-ast-types.js';
 import { walkModule } from './rego-ast-walker.js';
 import { inferTypes } from './rego-type-inferencer.js';
 import { createInputVars, encodeRule } from './rego-smt-encoder.js';
-import { extractCounterexample, formatCounterexample, type CounterexampleInput } from './rego-counterexample.js';
+import {
+  extractCounterexample,
+  formatCounterexample,
+  type CounterexampleInput,
+} from './rego-counterexample.js';
 import { describeProperty, type VerifyProperty } from './rego-property-parser.js';
 import { getZ3 } from './rego-z3.js';
 
@@ -203,9 +207,10 @@ export async function runVerify(
   }
 
   // always_true / never_true: SAT means we found a violation
-  const ceLabel = property.kind === 'always_true'
-    ? 'input where rule is FALSE'
-    : 'input where rule is TRUE (violates "never")';
+  const ceLabel =
+    property.kind === 'always_true'
+      ? 'input where rule is FALSE'
+      : 'input where rule is TRUE (violates "never")';
 
   return {
     verdict: 'counterexample',

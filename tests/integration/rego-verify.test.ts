@@ -659,7 +659,7 @@ allow { input.value >= 10 }
     // Witness from call 2 should be a number >= 10
     const ce2 = r2?.counterexample as Record<string, unknown>;
     expect(typeof ce2['value']).toBe('number');
-    expect((ce2['value'] as number)).toBeGreaterThanOrEqual(10);
+    expect(ce2['value'] as number).toBeGreaterThanOrEqual(10);
   });
 
   it('same input path inferred as bool in call 1 and string in call 2 - both succeed', async () => {

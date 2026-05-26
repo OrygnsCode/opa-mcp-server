@@ -15,16 +15,15 @@
 import type { init as Z3Init } from 'z3-solver';
 
 import type { Z3Sort } from './rego-type-inferencer.js';
-import type {
-  VerifyExpr,
-  VerifyRuleClause,
-  VerifyValue,
-} from './rego-ir.js';
+import type { VerifyExpr, VerifyRuleClause, VerifyValue } from './rego-ir.js';
 
 type Z3Context = ReturnType<Awaited<ReturnType<typeof Z3Init>>['Context']>;
 type Z3Bool = ReturnType<Z3Context['Bool']['const']>;
 type Z3Expr = Parameters<Z3Context['Solver']['prototype']['add']>[0];
-type Z3AnyExpr = Z3Bool | ReturnType<Z3Context['Int']['const']> | ReturnType<Z3Context['String']['const']>;
+type Z3AnyExpr =
+  | Z3Bool
+  | ReturnType<Z3Context['Int']['const']>
+  | ReturnType<Z3Context['String']['const']>;
 
 export interface EncoderContext {
   Z3: Z3Context;
@@ -85,10 +84,7 @@ export function createInputVars(
  * Encode a complete rule as a Z3 Bool formula.
  * rule_formula = clause_0 OR clause_1 OR ... OR clause_n
  */
-export function encodeRule(
-  clauses: VerifyRuleClause[],
-  ctx: EncoderContext,
-): EncodedRule {
+export function encodeRule(clauses: VerifyRuleClause[], ctx: EncoderContext): EncodedRule {
   const { Z3 } = ctx;
   const warnings: string[] = [];
 
@@ -174,25 +170,37 @@ function encodeExpr(
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
       const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
-      return Z3.GT(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
+      return Z3.GT(
+        l as ReturnType<Z3Context['Int']['const']>,
+        r as ReturnType<Z3Context['Int']['const']>,
+      ) as Z3Bool;
     }
     case 'gte': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
       const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
-      return Z3.GE(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
+      return Z3.GE(
+        l as ReturnType<Z3Context['Int']['const']>,
+        r as ReturnType<Z3Context['Int']['const']>,
+      ) as Z3Bool;
     }
     case 'lt': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
       const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
-      return Z3.LT(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
+      return Z3.LT(
+        l as ReturnType<Z3Context['Int']['const']>,
+        r as ReturnType<Z3Context['Int']['const']>,
+      ) as Z3Bool;
     }
     case 'lte': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
       const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
-      return Z3.LE(l as ReturnType<Z3Context['Int']['const']>, r as ReturnType<Z3Context['Int']['const']>) as Z3Bool;
+      return Z3.LE(
+        l as ReturnType<Z3Context['Int']['const']>,
+        r as ReturnType<Z3Context['Int']['const']>,
+      ) as Z3Bool;
     }
     case 'startswith': {
       const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
@@ -268,12 +276,18 @@ function sortOfVerifyValue(
   localSorts: Map<string, Z3Sort>,
 ): Z3Sort {
   switch (value.kind) {
-    case 'literal_string': return 'string';
-    case 'literal_number': return 'int';
-    case 'literal_bool': return 'bool';
-    case 'literal_null': return 'string'; // best-effort; null is untyped in Rego
-    case 'input_ref': return ctx.sorts.get(value.path) ?? 'string';
-    case 'local_var': return localSorts.get(value.name) ?? 'string';
+    case 'literal_string':
+      return 'string';
+    case 'literal_number':
+      return 'int';
+    case 'literal_bool':
+      return 'bool';
+    case 'literal_null':
+      return 'string'; // best-effort; null is untyped in Rego
+    case 'input_ref':
+      return ctx.sorts.get(value.path) ?? 'string';
+    case 'local_var':
+      return localSorts.get(value.name) ?? 'string';
   }
 }
 
@@ -462,7 +476,13 @@ interface ParseResult {
   isAllChar?: boolean; // true when the atom is "." (any single char)
 }
 
-function parseAlternation(Z3: Z3Context, reSort: Z3ReSort, s: string, start: number, end: number): ParseResult {
+function parseAlternation(
+  Z3: Z3Context,
+  reSort: Z3ReSort,
+  s: string,
+  start: number,
+  end: number,
+): ParseResult {
   const branches: Z3Re[] = [];
   let i = start;
   let segStart = i;
@@ -481,7 +501,13 @@ function parseAlternation(Z3: Z3Context, reSort: Z3ReSort, s: string, start: num
   return { re: branches.reduce((a, b) => Z3.Union(a, b)), end };
 }
 
-function parseConcatenation(Z3: Z3Context, reSort: Z3ReSort, s: string, start: number, end: number): ParseResult {
+function parseConcatenation(
+  Z3: Z3Context,
+  reSort: Z3ReSort,
+  s: string,
+  start: number,
+  end: number,
+): ParseResult {
   const atoms: Z3Re[] = [];
   let i = start;
 
@@ -496,7 +522,13 @@ function parseConcatenation(Z3: Z3Context, reSort: Z3ReSort, s: string, start: n
   return { re: Z3.ReConcat(...atoms), end };
 }
 
-function parseAtomWithQuantifier(Z3: Z3Context, reSort: Z3ReSort, s: string, i: number, limit: number): ParseResult {
+function parseAtomWithQuantifier(
+  Z3: Z3Context,
+  reSort: Z3ReSort,
+  s: string,
+  i: number,
+  limit: number,
+): ParseResult {
   const { re: base, end: atomEnd, isAllChar } = parseAtom(Z3, reSort, s, i, limit);
   let re = base;
   let j = atomEnd;
@@ -521,14 +553,22 @@ function parseAtomWithQuantifier(Z3: Z3Context, reSort: Z3ReSort, s: string, i: 
   return { re, end: j };
 }
 
-function parseAtom(Z3: Z3Context, reSort: Z3ReSort, s: string, i: number, limit: number): ParseResult {
+function parseAtom(
+  Z3: Z3Context,
+  reSort: Z3ReSort,
+  s: string,
+  i: number,
+  limit: number,
+): ParseResult {
   const c = s[i];
 
   if (c === '\\' && i + 1 < limit) {
     const esc = s[i + 1];
     switch (esc) {
-      case 'd': return { re: Z3.Range(Z3.String.val('0'), Z3.String.val('9')), end: i + 2 };
-      case 'D': return { re: Z3.Complement(Z3.Range(Z3.String.val('0'), Z3.String.val('9'))), end: i + 2 };
+      case 'd':
+        return { re: Z3.Range(Z3.String.val('0'), Z3.String.val('9')), end: i + 2 };
+      case 'D':
+        return { re: Z3.Complement(Z3.Range(Z3.String.val('0'), Z3.String.val('9'))), end: i + 2 };
       case 'w': {
         const az = Z3.Range(Z3.String.val('a'), Z3.String.val('z'));
         const AZ = Z3.Range(Z3.String.val('A'), Z3.String.val('Z'));
@@ -565,7 +605,10 @@ function parseAtom(Z3: Z3Context, reSort: Z3ReSort, s: string, i: number, limit:
     let depth = 1;
     let j = i + 1;
     while (j < limit && depth > 0) {
-      if (s[j] === '\\') { j += 2; continue; }
+      if (s[j] === '\\') {
+        j += 2;
+        continue;
+      }
       if (s[j] === '(') depth++;
       if (s[j] === ')') depth--;
       j++;

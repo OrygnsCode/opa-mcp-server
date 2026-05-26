@@ -8,7 +8,10 @@
 import { describe, expect, it } from 'vitest';
 import { init } from 'z3-solver';
 
-import { extractCounterexample, formatCounterexample } from '../../../src/lib/rego-counterexample.js';
+import {
+  extractCounterexample,
+  formatCounterexample,
+} from '../../../src/lib/rego-counterexample.js';
 import type { Z3Sort } from '../../../src/lib/rego-type-inferencer.js';
 
 // Shared Z3 context - initialized once for the whole suite.
@@ -35,7 +38,14 @@ describe('extractCounterexample - string var', () => {
     expect(await solver.check()).toBe('sat');
     const model = solver.model();
 
-    const inputVars = new Map([['input.user.role', roleVar as Parameters<typeof extractCounterexample>[1] extends Map<string, infer V> ? V : never]]);
+    const inputVars = new Map([
+      [
+        'input.user.role',
+        roleVar as Parameters<typeof extractCounterexample>[1] extends Map<string, infer V>
+          ? V
+          : never,
+      ],
+    ]);
     const sorts = new Map<string, Z3Sort>([['input.user.role', 'string']]);
 
     const ce = extractCounterexample(model, inputVars as Map<string, never>, sorts);

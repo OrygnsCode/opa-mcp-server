@@ -19,17 +19,14 @@ import type { OpaModule } from '../../lib/rego-ast-types.js';
 
 const RegoVerifyInput = {
   source: z.string().min(1).describe('Rego source to verify.'),
-  rule: z
-    .string()
-    .min(1)
-    .describe('Name of the rule to verify (e.g. "allow", "deny").'),
+  rule: z.string().min(1).describe('Name of the rule to verify (e.g. "allow", "deny").'),
   kind: z
     .enum(['always_true', 'never_true', 'satisfiable'])
     .describe(
       'Property to prove:\n' +
-      '  always_true  - rule is true for every possible input (finds inputs that violate this)\n' +
-      '  never_true   - rule is never true for any input (finds inputs that trigger it)\n' +
-      '  satisfiable  - at least one input exists where rule is true (returns a witness)',
+        '  always_true  - rule is true for every possible input (finds inputs that violate this)\n' +
+        '  never_true   - rule is never true for any input (finds inputs that trigger it)\n' +
+        '  satisfiable  - at least one input exists where rule is true (returns a witness)',
     ),
 };
 
@@ -87,7 +84,7 @@ export function registerRegoVerify(server: McpServer, config: Config): void {
         if (result.unsupportedConstructs.length > 0) {
           warnings.push(
             `${result.unsupportedConstructs.length} unsupported construct(s) were skipped: ` +
-            result.unsupportedConstructs.map((u) => u.constructType).join(', '),
+              result.unsupportedConstructs.map((u) => u.constructType).join(', '),
           );
         }
 

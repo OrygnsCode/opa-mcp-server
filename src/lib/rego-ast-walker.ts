@@ -9,13 +9,7 @@
  *
  * The encoder never touches OPA AST types -- all AST knowledge lives here.
  */
-import type {
-  OpaExpression,
-  OpaModule,
-  OpaRule,
-  OpaTerm,
-  OpaTermValue,
-} from './rego-ast-types.js';
+import type { OpaExpression, OpaModule, OpaRule, OpaTerm, OpaTermValue } from './rego-ast-types.js';
 import type {
   UnsupportedConstruct,
   VerifyExpr,
@@ -28,14 +22,14 @@ const MAX_INLINE_DEPTH = 5;
 
 /** Operator names (first-term ref) that Phase 1 can encode in SMT. */
 const SUPPORTED_BINARY_OPS = new Set([
-  'equal',      // ==
-  'eq',         // = (unification)
-  'assign',     // :=
-  'neq',        // !=
-  'gt',         // >
-  'gte',        // >=
-  'lt',         // <
-  'lte',        // <=
+  'equal', // ==
+  'eq', // = (unification)
+  'assign', // :=
+  'neq', // !=
+  'gt', // >
+  'gte', // >=
+  'lt', // <
+  'lte', // <=
   'startswith',
   'endswith',
   'contains',
@@ -148,7 +142,16 @@ function walkExpression(
 
   // Single-term expression.
   if (!Array.isArray(terms)) {
-    return walkSingleTerm(terms, ruleName, clauseIndex, ruleNames, inliningStack, depth, result, ast);
+    return walkSingleTerm(
+      terms,
+      ruleName,
+      clauseIndex,
+      ruleNames,
+      inliningStack,
+      depth,
+      result,
+      ast,
+    );
   }
 
   // Array of terms: terms[0] is the operator ref, rest are arguments.
@@ -158,27 +161,63 @@ function walkExpression(
 
   const opName = getOperatorName(opTerm);
   if (opName === null) {
-    addUnsupported(result, 'unknown_operator', `Rule '${ruleName}' has an expression with an unrecognized operator shape.`);
-    return [{ kind: 'unsupported', constructType: 'unknown_operator', reason: 'unrecognized operator' }];
+    addUnsupported(
+      result,
+      'unknown_operator',
+      `Rule '${ruleName}' has an expression with an unrecognized operator shape.`,
+    );
+    return [
+      { kind: 'unsupported', constructType: 'unknown_operator', reason: 'unrecognized operator' },
+    ];
   }
 
   // Detect unsupported constructs from the operator.
-  const comprehensionOps = new Set(['arraycomprehension', 'setcomprehension', 'objectcomprehension']);
+  const comprehensionOps = new Set([
+    'arraycomprehension',
+    'setcomprehension',
+    'objectcomprehension',
+  ]);
   if (opName === 'every' || args.some((a) => comprehensionOps.has(a.type))) {
-    addUnsupported(result, 'comprehension_or_every', `Rule '${ruleName}' uses a comprehension or 'every'.`);
-    return [{ kind: 'unsupported', constructType: 'comprehension_or_every', reason: 'comprehension or every' }];
+    addUnsupported(
+      result,
+      'comprehension_or_every',
+      `Rule '${ruleName}' uses a comprehension or 'every'.`,
+    );
+    return [
+      {
+        kind: 'unsupported',
+        constructType: 'comprehension_or_every',
+        reason: 'comprehension or every',
+      },
+    ];
   }
   // Check if any arg itself is a comprehension/every term type
   for (const arg of args) {
     if (comprehensionOps.has(arg.type) || arg.type === 'every') {
-      addUnsupported(result, 'comprehension_or_every', `Rule '${ruleName}' uses a comprehension or 'every'.`);
-      return [{ kind: 'unsupported', constructType: 'comprehension_or_every', reason: 'comprehension' }];
+      addUnsupported(
+        result,
+        'comprehension_or_every',
+        `Rule '${ruleName}' uses a comprehension or 'every'.`,
+      );
+      return [
+        { kind: 'unsupported', constructType: 'comprehension_or_every', reason: 'comprehension' },
+      ];
     }
   }
 
   if (!SUPPORTED_BINARY_OPS.has(opName)) {
-    addUnsupported(result, 'unknown_builtin', `Rule '${ruleName}' calls unsupported built-in '${opName}'.`);
-    return [{ kind: 'unsupported', constructType: 'unknown_builtin', reason: `unsupported built-in '${opName}'` }];
+    addUnsupported(
+      result,
+      'unknown_builtin',
+      `Rule '${ruleName}' calls unsupported built-in '${opName}'.`,
+    );
+    return [
+      {
+        kind: 'unsupported',
+        constructType: 'unknown_builtin',
+        reason: `unsupported built-in '${opName}'`,
+      },
+    ];
   }
 
   return [buildBinaryExpr(opName, args, ruleName, clauseIndex, result, nextAnon)];
@@ -198,10 +237,21 @@ function walkSingleTerm(
   if (term.type === 'var' && typeof term.value === 'string') {
     const varName = term.value;
     if (ruleNames.has(varName)) {
-      return inlineRule(varName, ruleName, clauseIndex, ruleNames, inliningStack, depth, result, ast);
+      return inlineRule(
+        varName,
+        ruleName,
+        clauseIndex,
+        ruleNames,
+        inliningStack,
+        depth,
+        result,
+        ast,
+      );
     }
     // Local var used as bool check -- unusual but handle gracefully.
-    return [{ kind: 'bool_check', ref: { kind: 'local_var', name: scopedLocal(clauseIndex, varName) } }];
+    return [
+      { kind: 'bool_check', ref: { kind: 'local_var', name: scopedLocal(clauseIndex, varName) } },
+    ];
   }
 
   // Bare ref: input.field (bool truthiness check) or data.* (unsupported).
@@ -218,7 +268,9 @@ function walkSingleTerm(
     }
     // Ref to another package rule or unknown -- unsupported.
     addUnsupported(result, 'unknown_ref', `Rule '${ruleName}' contains an unresolvable reference.`);
-    return [{ kind: 'unsupported', constructType: 'unknown_ref', reason: 'unresolvable reference' }];
+    return [
+      { kind: 'unsupported', constructType: 'unknown_ref', reason: 'unresolvable reference' },
+    ];
   }
 
   // Comprehension types as bare terms.
@@ -228,11 +280,19 @@ function walkSingleTerm(
     term.type === 'objectcomprehension' ||
     term.type === 'every'
   ) {
-    addUnsupported(result, 'comprehension_or_every', `Rule '${ruleName}' uses a comprehension or 'every'.`);
+    addUnsupported(
+      result,
+      'comprehension_or_every',
+      `Rule '${ruleName}' uses a comprehension or 'every'.`,
+    );
     return [{ kind: 'unsupported', constructType: 'comprehension_or_every', reason: term.type }];
   }
 
-  addUnsupported(result, 'unknown_expression', `Rule '${ruleName}' has an unrecognized single-term expression (type: ${term.type}).`);
+  addUnsupported(
+    result,
+    'unknown_expression',
+    `Rule '${ruleName}' has an unrecognized single-term expression (type: ${term.type}).`,
+  );
   return [{ kind: 'unsupported', constructType: 'unknown_expression', reason: term.type }];
 }
 
@@ -255,49 +315,83 @@ function inlineRule(
   ast: OpaModule,
 ): VerifyExpr[] {
   if (inliningStack.has(targetName)) {
-    addUnsupported(result, 'recursive_rule', `Rules '${callerName}' and '${targetName}' form a recursive cycle.`);
-    return [{ kind: 'unsupported', constructType: 'recursive_rule', reason: 'recursive rule reference' }];
+    addUnsupported(
+      result,
+      'recursive_rule',
+      `Rules '${callerName}' and '${targetName}' form a recursive cycle.`,
+    );
+    return [
+      { kind: 'unsupported', constructType: 'recursive_rule', reason: 'recursive rule reference' },
+    ];
   }
 
   if (depth >= MAX_INLINE_DEPTH) {
-    addUnsupported(result, 'inline_depth_exceeded', `Rule inlining exceeded maximum depth (${MAX_INLINE_DEPTH}).`);
-    return [{ kind: 'unsupported', constructType: 'inline_depth_exceeded', reason: 'max inline depth' }];
+    addUnsupported(
+      result,
+      'inline_depth_exceeded',
+      `Rule inlining exceeded maximum depth (${MAX_INLINE_DEPTH}).`,
+    );
+    return [
+      { kind: 'unsupported', constructType: 'inline_depth_exceeded', reason: 'max inline depth' },
+    ];
   }
 
   // Find all non-default clauses for targetName.
-  const targetRules = ast.rules.filter(
-    (r) => r.head.name === targetName && r.default !== true,
-  );
+  const targetRules = ast.rules.filter((r) => r.head.name === targetName && r.default !== true);
 
   if (targetRules.length === 0) {
     // Rule only has a default (always false/true) -- treat as literal.
     const defVal = ast.rules.find((r) => r.head.name === targetName && r.default === true);
     const v = defVal ? (extractLiteralValue(defVal.head.value) ?? false) : false;
-    return [{ kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: v as boolean } }];
+    return [
+      {
+        kind: 'eq',
+        left: { kind: 'literal_bool', value: true },
+        right: { kind: 'literal_bool', value: v as boolean },
+      },
+    ];
   }
 
   if (targetRules.length > 1) {
     // Multiple clauses: OR semantics can't be flattened into the caller's AND.
-    addUnsupported(result, 'multi_clause_inline', `Rule '${targetName}' (referenced from '${callerName}') has multiple clauses; OR inlining is not supported in Phase 1.`);
-    return [{ kind: 'unsupported', constructType: 'multi_clause_inline', reason: 'multi-clause rule reference' }];
+    addUnsupported(
+      result,
+      'multi_clause_inline',
+      `Rule '${targetName}' (referenced from '${callerName}') has multiple clauses; OR inlining is not supported in Phase 1.`,
+    );
+    return [
+      {
+        kind: 'unsupported',
+        constructType: 'multi_clause_inline',
+        reason: 'multi-clause rule reference',
+      },
+    ];
   }
 
   const targetRule = targetRules[0]!;
 
   if (targetRule.else !== undefined) {
     addUnsupported(result, 'else_chain', `Inlined rule '${targetName}' uses an else chain.`);
-    return [{ kind: 'unsupported', constructType: 'else_chain', reason: 'else chain in inlined rule' }];
+    return [
+      { kind: 'unsupported', constructType: 'else_chain', reason: 'else chain in inlined rule' },
+    ];
   }
 
   const newStack = new Set(inliningStack);
   newStack.add(targetName);
 
   const bodyExprs = targetRule.body.filter(
-    (e) => !((!Array.isArray(e.terms)) && e.terms.type === 'boolean'),
+    (e) => !(!Array.isArray(e.terms) && e.terms.type === 'boolean'),
   );
 
   if (bodyExprs.length === 0) {
-    return [{ kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: true } }];
+    return [
+      {
+        kind: 'eq',
+        left: { kind: 'literal_bool', value: true },
+        right: { kind: 'literal_bool', value: true },
+      },
+    ];
   }
 
   // Walk every body expression and collect into a flat list. Each becomes an
@@ -310,13 +404,25 @@ function inlineRule(
   for (const bodyExpr of bodyExprs) {
     if (bodyExpr.negated === true) {
       addUnsupported(result, 'naf', `Inlined rule '${targetName}' uses negation-as-failure.`);
-      inlined.push({ kind: 'unsupported', constructType: 'naf', reason: 'negation-as-failure in inlined rule' });
+      inlined.push({
+        kind: 'unsupported',
+        constructType: 'naf',
+        reason: 'negation-as-failure in inlined rule',
+      });
       continue;
     }
 
     if (bodyExpr.with !== undefined) {
-      addUnsupported(result, 'with_modifier', `Inlined rule '${targetName}' uses a 'with' modifier.`);
-      inlined.push({ kind: 'unsupported', constructType: 'with_modifier', reason: 'with modifier in inlined rule' });
+      addUnsupported(
+        result,
+        'with_modifier',
+        `Inlined rule '${targetName}' uses a 'with' modifier.`,
+      );
+      inlined.push({
+        kind: 'unsupported',
+        constructType: 'with_modifier',
+        reason: 'with modifier in inlined rule',
+      });
       continue;
     }
 
@@ -336,7 +442,13 @@ function inlineRule(
 
   return inlined.length > 0
     ? inlined
-    : [{ kind: 'eq', left: { kind: 'literal_bool', value: true }, right: { kind: 'literal_bool', value: true } }];
+    : [
+        {
+          kind: 'eq',
+          left: { kind: 'literal_bool', value: true },
+          right: { kind: 'literal_bool', value: true },
+        },
+      ];
 }
 
 /**
@@ -351,7 +463,11 @@ function buildBinaryExpr(
   nextAnon: () => number,
 ): VerifyExpr {
   if (args.length < 2) {
-    addUnsupported(result, 'arity_error', `Operator '${opName}' in rule '${ruleName}' has fewer than 2 arguments.`);
+    addUnsupported(
+      result,
+      'arity_error',
+      `Operator '${opName}' in rule '${ruleName}' has fewer than 2 arguments.`,
+    );
     return { kind: 'unsupported', constructType: 'arity_error', reason: `${opName} arity` };
   }
 
@@ -359,7 +475,11 @@ function buildBinaryExpr(
   const right = termToValue(args[1]!, clauseIndex, result, nextAnon);
 
   if (left === null || right === null) {
-    return { kind: 'unsupported', constructType: 'unsupported_value', reason: 'unsupported operand type' };
+    return {
+      kind: 'unsupported',
+      constructType: 'unsupported_value',
+      reason: 'unsupported operand type',
+    };
   }
 
   switch (opName) {
@@ -371,7 +491,11 @@ function buildBinaryExpr(
       const a0 = args[0]!;
       if (a0.type !== 'var' || typeof a0.value !== 'string') {
         addUnsupported(result, 'complex_assign', `Complex assignment in rule '${ruleName}'.`);
-        return { kind: 'unsupported', constructType: 'complex_assign', reason: 'non-var LHS in assign' };
+        return {
+          kind: 'unsupported',
+          constructType: 'complex_assign',
+          reason: 'non-var LHS in assign',
+        };
       }
       return { kind: 'assign', local: scopedLocal(clauseIndex, a0.value), value: right };
     }
@@ -395,7 +519,11 @@ function buildBinaryExpr(
       // regex.match(pattern, string) -- pattern is args[0], string is args[1].
       return { kind: 'regex_match', pattern: left, str: right };
     default:
-      addUnsupported(result, 'unknown_builtin', `Rule '${ruleName}' calls unsupported built-in '${opName}'.`);
+      addUnsupported(
+        result,
+        'unknown_builtin',
+        `Rule '${ruleName}' calls unsupported built-in '${opName}'.`,
+      );
       return { kind: 'unsupported', constructType: 'unknown_builtin', reason: opName };
   }
 }
@@ -445,10 +573,7 @@ function termToValue(
 /**
  * Extract an input.* ref into a VerifyValue and register it in inputPaths.
  */
-function extractInputRef(
-  refTerms: OpaTerm[],
-  result: VerifyWalkResult,
-): VerifyValue | null {
+function extractInputRef(refTerms: OpaTerm[], result: VerifyWalkResult): VerifyValue | null {
   const segments: string[] = [];
   for (let i = 1; i < refTerms.length; i++) {
     const t = refTerms[i]!;
@@ -553,7 +678,10 @@ export function collectAllInputPaths(node: unknown, out: Map<string, string[]>):
       for (let i = 1; i < terms.length; i++) {
         const t = terms[i]!;
         if (t.type === 'string' && typeof t.value === 'string') segs.push(t.value);
-        else { ok = false; break; }
+        else {
+          ok = false;
+          break;
+        }
       }
       if (ok && segs.length > 0) {
         const path = 'input.' + segs.join('.');

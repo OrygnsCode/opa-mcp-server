@@ -44,7 +44,10 @@ export function parseProperty(raw: unknown): PropertyParseResult {
   const obj = raw as Record<string, unknown>;
 
   if (typeof obj['rule'] !== 'string' || obj['rule'].trim() === '') {
-    errors.push({ field: 'rule', message: 'Must be a non-empty string naming the Rego rule to verify.' });
+    errors.push({
+      field: 'rule',
+      message: 'Must be a non-empty string naming the Rego rule to verify.',
+    });
   }
 
   if (typeof obj['kind'] !== 'string' || !VALID_KINDS.has(obj['kind'] as PropertyKind)) {

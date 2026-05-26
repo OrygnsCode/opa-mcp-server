@@ -137,10 +137,10 @@ function resolveToInputPath(
   while (true) {
     if (current.kind === 'input_ref') return current.path;
     if (current.kind !== 'local_var') return undefined; // literal or unsupported
-    if (visited.has(current.name)) return undefined;    // cycle guard
+    if (visited.has(current.name)) return undefined; // cycle guard
     visited.add(current.name);
     const next = localAssignments.get(current.name);
-    if (next === undefined) return undefined;            // unassigned local
+    if (next === undefined) return undefined; // unassigned local
     current = next;
   }
 }
@@ -154,10 +154,17 @@ function addLiteralEvidence(
   const path = resolveToInputPath(subject, localAssignments);
   if (path === undefined) return;
   switch (comparand.kind) {
-    case 'literal_string': addPathEvidence(path, 'string', evidence); break;
-    case 'literal_number': addPathEvidence(path, 'int', evidence); break;
-    case 'literal_bool': addPathEvidence(path, 'bool', evidence); break;
-    default: break;
+    case 'literal_string':
+      addPathEvidence(path, 'string', evidence);
+      break;
+    case 'literal_number':
+      addPathEvidence(path, 'int', evidence);
+      break;
+    case 'literal_bool':
+      addPathEvidence(path, 'bool', evidence);
+      break;
+    default:
+      break;
   }
 }
 

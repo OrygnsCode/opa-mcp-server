@@ -14,7 +14,10 @@ import type { Z3Sort } from './rego-type-inferencer.js';
 
 type Z3Context = ReturnType<Awaited<ReturnType<typeof Z3Init>>['Context']>;
 type Z3Model = ReturnType<InstanceType<Z3Context['Solver']>['model']>;
-type Z3AnyExpr = ReturnType<Z3Context['Bool']['const']> | ReturnType<Z3Context['Int']['const']> | ReturnType<Z3Context['String']['const']>;
+type Z3AnyExpr =
+  | ReturnType<Z3Context['Bool']['const']>
+  | ReturnType<Z3Context['Int']['const']>
+  | ReturnType<Z3Context['String']['const']>;
 
 export type CounterexampleInput = Record<string, unknown>;
 
