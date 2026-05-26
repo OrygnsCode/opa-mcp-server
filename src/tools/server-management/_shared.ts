@@ -51,7 +51,7 @@ export function mapOpaClientError(
   }
   if (e instanceof OpaUnreachableError) {
     return err('OPA_UNREACHABLE', `OPA server unreachable at ${e.url}`, {
-      hint: 'Confirm OPA_URL points at a running OPA server (e.g. `curl $OPA_URL/health`).',
+      hint: 'No running OPA server was found at OPA_URL. To start one locally: `opa run --server`. For production, OPA is typically deployed as a sidecar or standalone service. Verify the address with `curl $OPA_URL/health`. Set OPA_URL to the correct base URL if needed.',
       details: { url: e.url },
     });
   }
