@@ -16,7 +16,7 @@ import type { Z3Sort } from '../../../src/lib/rego-type-inferencer.js';
 
 // Shared Z3 context - initialized once for the whole suite.
 // Vitest runs each test file in a worker, so this is safe.
- 
+
 let Z3: any;
 
 async function getZ3(): Promise<ReturnType<Awaited<ReturnType<typeof init>>['Context']>> {
@@ -38,12 +38,7 @@ describe('extractCounterexample - string var', () => {
     expect(await solver.check()).toBe('sat');
     const model = solver.model();
 
-    const inputVars = new Map([
-      [
-        'input.user.role',
-        roleVar,
-      ],
-    ]);
+    const inputVars = new Map([['input.user.role', roleVar]]);
     const sorts = new Map<string, Z3Sort>([['input.user.role', 'string']]);
 
     const ce = extractCounterexample(model, inputVars, sorts);

@@ -427,7 +427,7 @@ function tryRegexAsStringConstraint(
   if (hasStart && core.endsWith('.*')) {
     const prefix = core.slice(0, -2);
     if (isRegexLiteral(prefix)) {
-      return (Z3.String.val(prefix)).prefixOf(str);
+      return Z3.String.val(prefix).prefixOf(str);
     }
   }
 
@@ -435,7 +435,7 @@ function tryRegexAsStringConstraint(
   if (hasEnd && core.startsWith('.*')) {
     const suffix = core.slice(2);
     if (isRegexLiteral(suffix)) {
-      return (Z3.String.val(suffix)).suffixOf(str);
+      return Z3.String.val(suffix).suffixOf(str);
     }
   }
 
