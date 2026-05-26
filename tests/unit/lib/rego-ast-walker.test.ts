@@ -60,7 +60,7 @@ const boolLit = (v: boolean) => ({ type: 'boolean', value: v });
 /** Var term. */
 const varTerm = (name: string) => ({ type: 'var', value: name });
 /** Local var ref (bare var). */
-const localRef = (name: string) => ({ type: 'ref', value: [{ type: 'var', value: name }] });
+const _localRef = (name: string) => ({ type: 'ref', value: [{ type: 'var', value: name }] });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 

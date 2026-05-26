@@ -19,7 +19,6 @@ import type { VerifyExpr, VerifyRuleClause, VerifyValue } from './rego-ir.js';
 
 type Z3Context = ReturnType<Awaited<ReturnType<typeof Z3Init>>['Context']>;
 type Z3Bool = ReturnType<Z3Context['Bool']['const']>;
-type Z3Expr = Parameters<Z3Context['Solver']['prototype']['add']>[0];
 type Z3AnyExpr =
   | Z3Bool
   | ReturnType<Z3Context['Int']['const']>
@@ -106,7 +105,7 @@ export function encodeRule(clauses: VerifyRuleClause[], ctx: EncoderContext): En
     return { formula: clauseFormulas[0]!, warnings };
   }
 
-  return { formula: Z3.Or(...clauseFormulas) as Z3Bool, warnings };
+  return { formula: Z3.Or(...clauseFormulas), warnings };
 }
 
 interface ClauseResult {
@@ -141,7 +140,7 @@ function encodeClause(
     return { formula: conjuncts[0]!, warnings };
   }
 
-  return { formula: Z3.And(...conjuncts) as Z3Bool, warnings };
+  return { formula: Z3.And(...conjuncts), warnings };
 }
 
 function encodeExpr(
@@ -158,13 +157,13 @@ function encodeExpr(
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
       const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
-      return Z3.Eq(l, r) as Z3Bool;
+      return Z3.Eq(l, r);
     }
     case 'neq': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
       const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
       if (l === null || r === null) return null;
-      return Z3.Not(Z3.Eq(l, r)) as Z3Bool;
+      return Z3.Not(Z3.Eq(l, r));
     }
     case 'gt': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
@@ -173,7 +172,7 @@ function encodeExpr(
       return Z3.GT(
         l as ReturnType<Z3Context['Int']['const']>,
         r as ReturnType<Z3Context['Int']['const']>,
-      ) as Z3Bool;
+      );
     }
     case 'gte': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
@@ -182,7 +181,7 @@ function encodeExpr(
       return Z3.GE(
         l as ReturnType<Z3Context['Int']['const']>,
         r as ReturnType<Z3Context['Int']['const']>,
-      ) as Z3Bool;
+      );
     }
     case 'lt': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
@@ -191,7 +190,7 @@ function encodeExpr(
       return Z3.LT(
         l as ReturnType<Z3Context['Int']['const']>,
         r as ReturnType<Z3Context['Int']['const']>,
-      ) as Z3Bool;
+      );
     }
     case 'lte': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
@@ -200,7 +199,7 @@ function encodeExpr(
       return Z3.LE(
         l as ReturnType<Z3Context['Int']['const']>,
         r as ReturnType<Z3Context['Int']['const']>,
-      ) as Z3Bool;
+      );
     }
     case 'startswith': {
       const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
@@ -208,21 +207,21 @@ function encodeExpr(
       if (str === null || prefix === null) return null;
       // Z3 string API: prefix.prefixOf(str) means "prefix is a prefix of str"
       type StringExpr = ReturnType<Z3Context['String']['const']>;
-      return (prefix as StringExpr).prefixOf(str as StringExpr) as Z3Bool;
+      return (prefix as StringExpr).prefixOf(str as StringExpr);
     }
     case 'endswith': {
       const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
       const suffix = resolveValue(expr.suffix, ctx, localVars, localSorts, warnings);
       if (str === null || suffix === null) return null;
       type StringExpr = ReturnType<Z3Context['String']['const']>;
-      return (suffix as StringExpr).suffixOf(str as StringExpr) as Z3Bool;
+      return (suffix as StringExpr).suffixOf(str as StringExpr);
     }
     case 'contains': {
       const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
       const sub = resolveValue(expr.sub, ctx, localVars, localSorts, warnings);
       if (str === null || sub === null) return null;
       type StringExpr = ReturnType<Z3Context['String']['const']>;
-      return (str as StringExpr).contains(sub as StringExpr) as Z3Bool;
+      return (str as StringExpr).contains(sub as StringExpr);
     }
     case 'regex_match': {
       const str = resolveValue(expr.str, ctx, localVars, localSorts, warnings);
@@ -236,7 +235,7 @@ function encodeExpr(
         if (simplified !== null) return simplified;
 
         const re = compilePcreToZ3Re(Z3, expr.pattern.value);
-        return Z3.InRe(str as StringExpr, re) as Z3Bool;
+        return Z3.InRe(str as StringExpr, re);
       }
 
       // Variable pattern: fall back to literal match (approximate).
@@ -244,13 +243,13 @@ function encodeExpr(
       if (pat === null) return null;
       warnings.push('regex_match with variable pattern uses literal string match approximation.');
       const re = Z3.Re.toRe(pat as StringExpr);
-      return Z3.InRe(str as StringExpr, re) as Z3Bool;
+      return Z3.InRe(str as StringExpr, re);
     }
     case 'bool_check': {
       const ref = resolveValue(expr.ref, ctx, localVars, localSorts, warnings);
       if (ref === null) return null;
       // Treat as: ref == true
-      return Z3.Eq(ref, Z3.Bool.val(true)) as Z3Bool;
+      return Z3.Eq(ref, Z3.Bool.val(true));
     }
     case 'assign': {
       // x := value → determine the sort from the RHS, create a correctly-typed
@@ -259,7 +258,7 @@ function encodeExpr(
       const val = resolveValue(expr.value, ctx, localVars, localSorts, warnings);
       if (val === null) return null;
       const localConst = createLocalVar(Z3, expr.local, rhsSort, localVars, localSorts, ctx.callId);
-      return Z3.Eq(localConst, val) as Z3Bool;
+      return Z3.Eq(localConst, val);
     }
     case 'unsupported':
       return null;
@@ -416,19 +415,19 @@ function tryRegexAsStringConstraint(
 
   // Pure wildcard: .* (with or without anchors) matches any string -- always true.
   if (core === '.*') {
-    return Z3.Bool.val(true) as Z3Bool;
+    return Z3.Bool.val(true);
   }
 
   // ^lit$ → exact equality
   if (hasStart && hasEnd && isRegexLiteral(core)) {
-    return Z3.Eq(str, Z3.String.val(core)) as Z3Bool;
+    return Z3.Eq(str, Z3.String.val(core));
   }
 
   // ^lit.* → startswith
   if (hasStart && core.endsWith('.*')) {
     const prefix = core.slice(0, -2);
     if (isRegexLiteral(prefix)) {
-      return (Z3.String.val(prefix) as StringExpr).prefixOf(str) as Z3Bool;
+      return (Z3.String.val(prefix)).prefixOf(str);
     }
   }
 
@@ -436,7 +435,7 @@ function tryRegexAsStringConstraint(
   if (hasEnd && core.startsWith('.*')) {
     const suffix = core.slice(2);
     if (isRegexLiteral(suffix)) {
-      return (Z3.String.val(suffix) as StringExpr).suffixOf(str) as Z3Bool;
+      return (Z3.String.val(suffix)).suffixOf(str);
     }
   }
 
@@ -444,7 +443,7 @@ function tryRegexAsStringConstraint(
   if (core.startsWith('.*') && core.endsWith('.*')) {
     const sub = core.slice(2, -2);
     if (isRegexLiteral(sub)) {
-      return str.contains(Z3.String.val(sub) as StringExpr) as Z3Bool;
+      return str.contains(Z3.String.val(sub));
     }
   }
 

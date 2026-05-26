@@ -9,14 +9,8 @@
  *
  * The encoder never touches OPA AST types -- all AST knowledge lives here.
  */
-import type { OpaExpression, OpaModule, OpaRule, OpaTerm, OpaTermValue } from './rego-ast-types.js';
-import type {
-  UnsupportedConstruct,
-  VerifyExpr,
-  VerifyRuleClause,
-  VerifyValue,
-  VerifyWalkResult,
-} from './rego-ir.js';
+import type { OpaExpression, OpaModule, OpaRule, OpaTerm } from './rego-ast-types.js';
+import type { VerifyExpr, VerifyValue, VerifyWalkResult } from './rego-ir.js';
 
 const MAX_INLINE_DEPTH = 5;
 

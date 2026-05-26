@@ -46,19 +46,23 @@ export function extractCounterexample(
         try {
           value = (evaluated as ReturnType<Z3Context['String']['const']>).asString();
         } catch {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string
           value = evaluated.toString().replace(/^"|"$/g, '');
         }
         break;
       case 'int': {
         // Z3 formats negative integers as "(- N)" in SMT notation.
-        const intStr = evaluated.toString().replace(/\(\-\s+(\d+)\)/, '-$1');
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string
+        const intStr = evaluated.toString().replace(/\(-\s+(\d+)\)/, '-$1');
         value = Number(intStr);
         break;
       }
       case 'bool':
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         value = evaluated.toString() === 'true';
         break;
       case 'uninterpreted':
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         value = `<opaque:${evaluated.toString()}>`;
         break;
     }
