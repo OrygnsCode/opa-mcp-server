@@ -1,6 +1,6 @@
 {
   "name": "@orygn/opa-mcp",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "mcpName": "io.github.OrygnsCode/opa-mcp",
   "description": "Model Context Protocol server for Open Policy Agent (OPA). Author, validate, debug, and explain Rego policies through any MCP-compatible client.",
   "type": "module",
@@ -64,6 +64,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "z3-solver": "^4.16.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

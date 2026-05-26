@@ -23,6 +23,8 @@ export type ToolErrorCode =
   | 'HTTP_SEND_BLOCKED'
   | 'TIMEOUT'
   | 'CANCELLED'
+  | 'VERIFY_INCONCLUSIVE'
+  | 'Z3_INIT_ERROR'
   | 'UNKNOWN_ERROR';
 
 /** Structured error payload. */

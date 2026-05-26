@@ -17,6 +17,72 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-05-25
+
+### Added
+
+- **`rego_verify` (49 tools total)** -- formal SMT-based verification for Rego
+  policies using Microsoft Z3 (WASM). Unlike testing, which checks specific
+  inputs, `rego_verify` examines ALL possible inputs mathematically and either
+  proves a property holds or returns a concrete counterexample. Three property
+  kinds are supported: `always_true` (prove a rule is true for every input),
+  `never_true` (prove a rule never fires), and `satisfiable` (find at least one
+  satisfying input as a witness). Supports equality and inequality operators,
+  string built-ins (`startswith`, `endswith`, `contains`, `regex.match`),
+  comparison operators (`<`, `<=`, `>`, `>=`), multi-clause rules (OR
+  semantics), cross-rule inlining (depth <= 5, cycle-safe), and mixed-type
+  input paths. Reports `INCONCLUSIVE` for negation-as-failure (`not`),
+  comprehensions, and other constructs that cannot be encoded in Z3.
+  Counterexamples are returned as nested JSON ready for use with `opa eval
+  --input`. Powered by a layered pipeline: OPA AST walker (IR), Z3 type
+  inferencer, and SMT encoder.
+
+### Fixed
+
+- **Transitive local variable chains in type inferencer.** Sort inference
+  previously stopped after one level of indirection (`x := input.user.role`
+  was resolved, but `y := x; y == "admin"` was not). The inferencer now
+  follows chains of arbitrary depth with a cycle guard, so intermediate
+  local variables are correctly typed regardless of how many assignments
+  separate them from an `input.*` path.
+
+- **Multi-expression helper rule inlining.** Helper rules with multiple body
+  expressions (e.g. `is_adult { x := input.age; x >= 18 }`) previously only
+  inlined the first expression. The walker now flattens all body expressions
+  into the caller clause as AND conjuncts, matching OPA's actual evaluation
+  semantics. Inlining also correctly handles per-expression negation-as-failure
+  and `with` modifiers inside the helper body.
+
+- **`.*` regex patterns always encode as true.** `regex.match(".*", x)` and
+  equivalent anchored forms (`^.*$`, `^.*`, `.*$`) previously created an
+  unsatisfiable or redundant Z3 string constraint. They now short-circuit to
+  `Bool.val(true)` since any string matches the pattern.
+
+- **`unsatisfiable` verdict for dead-code rules.** When verifying a
+  `satisfiable` property and Z3 returns UNSAT, the tool now returns
+  `verdict: "unsatisfiable"` with a clear message indicating the rule is dead
+  code or has contradictory conditions. Previously this case fell through as a
+  generic inconclusive result.
+
+- **Default-only rule verdicts.** Rules with only a `default` clause (e.g.
+  `default allow = false`) previously returned `INCONCLUSIVE` because the
+  solver found no non-default clauses to encode. The engine now detects this
+  case and returns the correct verdict directly -- `PROVEN`, `COUNTEREXAMPLE`,
+  `SATISFIABLE`, or `UNSATISFIABLE` -- without invoking Z3, using an empty
+  `{}` witness where applicable.
+
+- **Unsupported construct attribution scoped to target rule.** The
+  `unsupportedConstructs` field in the result previously listed constructs from
+  any rule in the module, including unrelated rules that were never evaluated.
+  It is now filtered to only constructs that appear in the target rule's own
+  clause expressions.
+
+- **Per-call Z3 variable namespacing.** All Z3 constant names are now prefixed
+  with a monotonically increasing call ID (`v0_`, `v1_`, ...). This prevents
+  sort-redeclaration errors when the same input path is inferred as different
+  sorts across successive calls (e.g. one policy uses `input.x` as a string,
+  the next uses it as an int) within the shared Z3 WASM singleton context.
+
 ## [0.1.11] - 2026-05-24
 
 ### Added
@@ -623,7 +689,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.8...v0.1.9
