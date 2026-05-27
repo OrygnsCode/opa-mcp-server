@@ -141,6 +141,13 @@ export interface TestInput {
    * (same stdout format as `coverage: true`).
    */
   threshold?: number;
+  /**
+   * Emit local variable values in trace output (`--var-values`). When set,
+   * each failing test record includes a `trace` array with per-step variable
+   * bindings. Useful for debugging table-driven tests: shows which case in an
+   * `every tc in cases { ... }` loop caused the failure.
+   */
+  varValues?: boolean;
 }
 
 /** Input for `opa bench`. */
@@ -434,6 +441,7 @@ export class OpaCli {
     if (input.coverage) args.push('--coverage');
     if (input.bench) args.push('--bench');
     if (input.runPattern) args.push('--run', input.runPattern);
+    if (input.varValues) args.push('--var-values');
     if (input.threshold !== undefined) args.push('--threshold', String(input.threshold));
     args.push(...input.paths);
     return this.run(args, undefined, signal);

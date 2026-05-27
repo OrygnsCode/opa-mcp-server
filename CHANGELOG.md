@@ -17,6 +17,27 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-05-27
+
+### Added
+
+- **`rego_test`: `varValues` parameter** -- passes `--var-values` to `opa test`.
+  When combined with `verbose: true`, each failing test record includes a `trace`
+  array with per-step local variable bindings. Essential for debugging
+  table-driven tests written with `every tc in cases { ... }`: the trace shows
+  the value of `tc` at the point of failure so you can pinpoint which case
+  caused the assertion to fail without adding `print` statements or splitting
+  the loop.
+
+- **`rego_generate_test_skeleton`: `tableStyle` parameter** -- when `true`,
+  generates table-driven test stubs instead of single-case stubs. Each rule
+  gets a `<name>_cases` array declared at package scope (with one scaffold entry
+  containing `description`, `input`, and `expected` keys) and a corresponding
+  `test_<name>` rule that iterates over it with `every tc in <name>_cases { ... }`.
+  Pair with `rego_test varValues: true` to see which case failed.
+  Default (`false` or omitted) retains the classic single-case skeleton for
+  backward compatibility.
+
 ## [0.1.12] - 2026-05-25
 
 ### Added

@@ -46,6 +46,12 @@ const RegoTestInput = {
     .describe(
       'Minimum coverage percentage required (0–100). Returns COVERAGE_BELOW_THRESHOLD when actual coverage falls below this value. Implicitly enables coverage-report output mode.',
     ),
+  varValues: z
+    .boolean()
+    .optional()
+    .describe(
+      'Include local variable bindings in trace output (`--var-values`). When a table-driven test using `every tc in cases { ... }` fails, the trace shows which `tc` triggered the failure. Has no effect unless `verbose: true` is also set (OPA only emits trace entries in verbose mode).',
+    ),
 };
 
 interface TestRecord {
@@ -111,7 +117,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
     {
       title: 'Run Rego tests',
       description:
-        'Run Rego unit tests with `opa test`. Returns aggregate pass/fail counts plus per-test records. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up. Use `runPattern` to filter by name regex. Use `threshold` to gate on a minimum coverage percentage (returns COVERAGE_BELOW_THRESHOLD on failure). Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.',
+        'Run Rego unit tests with `opa test`. Returns aggregate pass/fail counts plus per-test records. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up. Use `runPattern` to filter by name regex. Use `threshold` to gate on a minimum coverage percentage (returns COVERAGE_BELOW_THRESHOLD on failure). Use `varValues: true` with `verbose: true` to include local variable bindings in the trace -- essential for debugging table-driven tests written with `every tc in cases { ... }` to identify which case caused a failure. Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.',
       inputSchema: RegoTestInput,
       annotations: {
         readOnlyHint: true,
@@ -120,7 +126,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ paths, verbose, coverage, runPattern, threshold }, { signal }) => {
+    async ({ paths, verbose, coverage, runPattern, threshold, varValues }, { signal }) => {
       return withToolEnvelope<RegoTestOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
@@ -135,6 +141,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
             verbose,
             coverage: coverageMode,
             runPattern,
+            varValues,
             threshold,
           },
           signal,

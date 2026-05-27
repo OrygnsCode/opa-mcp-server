@@ -418,6 +418,98 @@ describe('rego_test', () => {
     const env = await callTool(server, 'rego_test', { paths: ['/outside/x'] });
     expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
   });
+
+  // ─── varValues ────────────────────────────────────────────────────────
+
+  it('forwards --var-values to opa when varValues: true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      varValues: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--var-values');
+  });
+
+  it('does not forward --var-values when varValues is false', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      varValues: false,
+    });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--var-values');
+  });
+
+  it('does not forward --var-values when varValues is omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--var-values');
+  });
+
+  it('can combine varValues: true with verbose: true', async () => {
+    // --var-values is only meaningful alongside --verbose; the tool should pass
+    // both flags without conflict.
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      verbose: true,
+      varValues: true,
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--verbose');
+    expect(args).toContain('--var-values');
+  });
+
+  it('preserves test records with trace data when varValues is set', async () => {
+    // When --var-values is set, OPA adds a `trace` array to each failing test
+    // record. The tool must not strip unknown fields -- they pass through as-is.
+    const traceRecord = {
+      name: 'test_table_case',
+      fail: true,
+      duration: 5,
+      trace: [
+        {
+          op: 'Eval',
+          node: { type: 'Every' },
+          locals: [{ key: 'tc', value: { input: {}, expected: true } }],
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([traceRecord])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      results: Array<{ name?: string; trace?: unknown; fail?: boolean }>;
+    }>(server, 'rego_test', { paths: [validRegoPath()], varValues: true });
+    expect(env.ok).toBe(true);
+    expect(env.data?.results[0]?.trace).toBeDefined();
+    expect(env.data?.results[0]?.fail).toBe(true);
+  });
+
+  it('places --var-values before --threshold in argv', async () => {
+    // Ordering matters: the test() handler must emit --var-values before --threshold.
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ coverage: 90 })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      varValues: true,
+      threshold: 80,
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    const varValuesIdx = args.indexOf('--var-values');
+    const thresholdIdx = args.indexOf('--threshold');
+    expect(varValuesIdx).toBeGreaterThan(-1);
+    expect(thresholdIdx).toBeGreaterThan(-1);
+    expect(varValuesIdx).toBeLessThan(thresholdIdx);
+  });
 });
 
 // ─── rego_bench ───────────────────────────────────────────────────────────

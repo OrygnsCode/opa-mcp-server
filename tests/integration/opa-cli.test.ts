@@ -397,6 +397,179 @@ describe('OpaCli integration', () => {
       expect(records).toHaveLength(1);
       expect(records[0]?.name).toBe('test_included');
     });
+
+    describe('--var-values flag', () => {
+      it('exits 0 and returns JSON records when all tests pass with varValues: true', async () => {
+        const dir = join(tmpWorkDir, 'tests-var-values-pass');
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, 'test_varvals.rego'),
+          [
+            'package varvals_test',
+            'import rego.v1',
+            'test_simple if {',
+            '  x := 1',
+            '  x == 1',
+            '}',
+          ].join('\n') + '\n',
+          'utf8',
+        );
+
+        const result = await opa.test({ paths: [dir], varValues: true, verbose: true });
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout.length).toBeGreaterThan(0);
+        // stdout must parse as a JSON array of test records.
+        const records = JSON.parse(result.stdout) as Array<{ name?: string }>;
+        expect(Array.isArray(records)).toBe(true);
+        expect(records.length).toBeGreaterThan(0);
+      });
+
+      it('includes trace with local variable bindings in failing test record', async () => {
+        // A failing test with a local variable. With --var-values + --verbose,
+        // OPA attaches a `trace` array to the failing record that includes the
+        // variable binding so the caller can see what `x` was.
+        const dir = join(tmpWorkDir, 'tests-var-values-fail-trace');
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, 'test_trace.rego'),
+          [
+            'package trace_test',
+            'import rego.v1',
+            'test_failing if {',
+            '  x := 42',
+            '  x == 99', // deliberate failure
+            '}',
+          ].join('\n') + '\n',
+          'utf8',
+        );
+
+        const result = await opa.test({ paths: [dir], varValues: true, verbose: true });
+        // Exit non-zero: one test fails.
+        expect(result.exitCode).not.toBe(0);
+        // OPA still emits the JSON array with the failing record on stdout.
+        expect(result.stdout.length).toBeGreaterThan(0);
+        const records = JSON.parse(result.stdout) as Array<{
+          name?: string;
+          fail?: boolean;
+          trace?: unknown[];
+        }>;
+        const failing = records.find((r) => r.fail === true);
+        expect(failing).toBeDefined();
+        // With --var-values, the failing record should carry a trace array.
+        expect(Array.isArray(failing?.trace)).toBe(true);
+        expect((failing?.trace ?? []).length).toBeGreaterThan(0);
+      });
+
+      it('passes without --var-values even when varValues is omitted -- trace absent', async () => {
+        // Baseline: without --var-values, failing records have no trace.
+        const dir = join(tmpWorkDir, 'tests-no-var-values');
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, 'test_novarvals.rego'),
+          [
+            'package novarvals_test',
+            'import rego.v1',
+            'test_failing if {',
+            '  y := 7',
+            '  y == 8', // deliberate failure
+            '}',
+          ].join('\n') + '\n',
+          'utf8',
+        );
+
+        const result = await opa.test({ paths: [dir] });
+        // Exit non-zero: one test fails.
+        expect(result.exitCode).not.toBe(0);
+        const records = JSON.parse(result.stdout) as Array<{
+          fail?: boolean;
+          trace?: unknown;
+        }>;
+        const failing = records.find((r) => r.fail === true);
+        expect(failing).toBeDefined();
+        // Without --var-values, trace is absent from the record.
+        expect(failing?.trace).toBeUndefined();
+      });
+
+      it('works correctly with table-driven tests: trace shows failing case context', async () => {
+        // A table-driven test using `every tc in cases { ... }`.
+        // With --var-values + --verbose, the trace identifies which tc failed.
+        const dir = join(tmpWorkDir, 'tests-var-values-table');
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, 'policy.rego'),
+          ['package tbl', 'import rego.v1', 'allow if input.role == "admin"'].join('\n') + '\n',
+          'utf8',
+        );
+        await writeFile(
+          join(dir, 'policy_test.rego'),
+          [
+            'package tbl_test',
+            'import rego.v1',
+            'import data.tbl',
+            'allow_cases := [',
+            '  {"input": {"role": "admin"}, "expected": true},',
+            '  {"input": {"role": "viewer"}, "expected": false},', // will fail: allow is undefined, not false
+            ']',
+            'test_allow if {',
+            '  every tc in allow_cases {',
+            '    actual := tbl.allow with input as tc.input',
+            '    actual == tc.expected',
+            '  }',
+            '}',
+          ].join('\n') + '\n',
+          'utf8',
+        );
+
+        const result = await opa.test({ paths: [dir], varValues: true, verbose: true });
+        // The "viewer" case fails because `allow` is undefined (not false).
+        expect(result.exitCode).not.toBe(0);
+        const records = JSON.parse(result.stdout) as Array<{
+          name?: string;
+          fail?: boolean;
+          trace?: unknown[];
+        }>;
+        const failing = records.find((r) => r.fail === true);
+        expect(failing).toBeDefined();
+        expect(failing?.name).toBe('test_allow');
+        // With --var-values, OPA provides a trace that includes variable bindings
+        // from the failing iteration -- the caller can inspect tc to find the case.
+        expect(Array.isArray(failing?.trace)).toBe(true);
+      });
+
+      it('varValues: true with runPattern filters which tests emit trace', async () => {
+        // Sanity check: combining varValues with runPattern should still work.
+        const dir = join(tmpWorkDir, 'tests-var-values-filtered');
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, 'test_filtered.rego'),
+          [
+            'package filtered_test',
+            'import rego.v1',
+            'test_target if {',
+            '  z := 5',
+            '  z == 5',
+            '}',
+            'test_other if {',
+            '  w := 3',
+            '  w == 3',
+            '}',
+          ].join('\n') + '\n',
+          'utf8',
+        );
+
+        const result = await opa.test({
+          paths: [dir],
+          varValues: true,
+          verbose: true,
+          runPattern: '^data.filtered_test.test_target$',
+        });
+        expect(result.exitCode).toBe(0);
+        const records = JSON.parse(result.stdout) as Array<{ name?: string }>;
+        // Only the targeted test should appear.
+        expect(records).toHaveLength(1);
+        expect(records[0]?.name).toBe('test_target');
+      });
+    });
   });
 
   describe('build()', () => {
