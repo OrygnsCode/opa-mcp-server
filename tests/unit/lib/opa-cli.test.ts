@@ -290,13 +290,14 @@ describe('OpaCli', () => {
   });
 
   describe('test()', () => {
-    it('passes --verbose / --coverage / --bench / --run when set', async () => {
+    it('passes --verbose / --coverage / --bench / --run / --threshold when set', async () => {
       await opa.test({
         paths: ['/abs/tests'],
         verbose: true,
         coverage: true,
         bench: true,
         runPattern: '^TestAllow',
+        threshold: 80,
       });
       const args = mockRun.mock.calls[0]![1].args;
       expect(args).toEqual([
@@ -307,8 +308,22 @@ describe('OpaCli', () => {
         '--bench',
         '--run',
         '^TestAllow',
+        '--threshold',
+        '80',
         '/abs/tests',
       ]);
+    });
+
+    it('passes --threshold as a string-encoded number', async () => {
+      await opa.test({ paths: ['/abs/tests'], threshold: 75.5 });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args).toContain('--threshold');
+      expect(args[args.indexOf('--threshold') + 1]).toBe('75.5');
+    });
+
+    it('omits --threshold when not set', async () => {
+      await opa.test({ paths: ['/abs/tests'] });
+      expect(mockRun.mock.calls[0]![1].args).not.toContain('--threshold');
     });
 
     it('throws when paths is empty', async () => {
