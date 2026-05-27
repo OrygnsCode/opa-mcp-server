@@ -82,6 +82,120 @@ describe('OpaCli integration', () => {
       // unsafe-var depending on Rego version. We just assert there's an error.
       expect((parsed.errors ?? []).length).toBeGreaterThan(0);
     });
+
+    describe('--schema (schemaDir) flag', () => {
+      it('exits 0 and produces empty stderr when all input.* references match the schema', async () => {
+        const schemaFile = join(tmpWorkDir, 'schema-valid.json');
+        const policyFile = join(tmpWorkDir, 'policy-schema-valid.rego');
+        await writeFile(
+          schemaFile,
+          JSON.stringify({
+            $schema: 'http://json-schema.org/draft-07/schema#',
+            type: 'object',
+            properties: {
+              user: { type: 'string' },
+              action: { type: 'string' },
+            },
+          }),
+          'utf8',
+        );
+        await writeFile(
+          policyFile,
+          [
+            'package authz',
+            'import rego.v1',
+            'default allow := false',
+            'allow if { input.user == "admin"; input.action == "read" }',
+          ].join('\n') + '\n',
+          'utf8',
+        );
+
+        const result = await opa.check({ paths: [policyFile], schemaDir: schemaFile });
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr.trim()).toBe('');
+      });
+
+      it('exits 1 with rego_type_error on stderr when a policy ref is not in the schema', async () => {
+        const schemaFile = join(tmpWorkDir, 'schema-violation.json');
+        const policyFile = join(tmpWorkDir, 'policy-schema-violation.rego');
+        await writeFile(
+          schemaFile,
+          JSON.stringify({ type: 'object', properties: { user: { type: 'string' } } }),
+          'utf8',
+        );
+        await writeFile(
+          policyFile,
+          'package authz\nimport rego.v1\nallow if input.nonexistent_field == "x"\n',
+          'utf8',
+        );
+
+        const result = await opa.check({ paths: [policyFile], schemaDir: schemaFile });
+        expect(result.exitCode).not.toBe(0);
+        const parsed = JSON.parse(result.stderr) as {
+          errors?: Array<{ code?: string; message?: string }>;
+        };
+        expect(Array.isArray(parsed.errors)).toBe(true);
+        expect(parsed.errors!.length).toBeGreaterThan(0);
+        expect(parsed.errors![0]?.code).toBe('rego_type_error');
+        expect(parsed.errors![0]?.message).toContain('input.nonexistent_field');
+      });
+
+      it('reports all schema violations in a single run (not just the first)', async () => {
+        const schemaFile = join(tmpWorkDir, 'schema-multi.json');
+        const policyFile = join(tmpWorkDir, 'policy-schema-multi.rego');
+        await writeFile(
+          schemaFile,
+          JSON.stringify({ type: 'object', properties: { user: { type: 'string' } } }),
+          'utf8',
+        );
+        await writeFile(
+          policyFile,
+          'package authz\nimport rego.v1\nallow if { input.foo == "a"; input.bar == "b" }\n',
+          'utf8',
+        );
+
+        const result = await opa.check({ paths: [policyFile], schemaDir: schemaFile });
+        expect(result.exitCode).not.toBe(0);
+        const parsed = JSON.parse(result.stderr) as { errors?: Array<{ code?: string }> };
+        expect((parsed.errors ?? []).length).toBeGreaterThanOrEqual(2);
+        for (const e of parsed.errors ?? []) {
+          expect(e.code).toBe('rego_type_error');
+        }
+      });
+
+      it('exits 0 for inline source when all input refs match the schema', async () => {
+        const schemaFile = join(tmpWorkDir, 'schema-inline-ok.json');
+        await writeFile(
+          schemaFile,
+          JSON.stringify({ type: 'object', properties: { role: { type: 'string' } } }),
+          'utf8',
+        );
+        const result = await opa.check({
+          source: 'package authz\nimport rego.v1\nallow if input.role == "admin"\n',
+          schemaDir: schemaFile,
+        });
+        expect(result.exitCode).toBe(0);
+      });
+
+      it('exits non-zero for inline source when an input ref is absent from the schema', async () => {
+        const schemaFile = join(tmpWorkDir, 'schema-inline-fail.json');
+        await writeFile(
+          schemaFile,
+          JSON.stringify({ type: 'object', properties: { role: { type: 'string' } } }),
+          'utf8',
+        );
+        const result = await opa.check({
+          source: 'package authz\nimport rego.v1\nallow if input.notinschema == "x"\n',
+          schemaDir: schemaFile,
+        });
+        expect(result.exitCode).not.toBe(0);
+        const parsed = JSON.parse(result.stderr) as {
+          errors?: Array<{ code?: string }>;
+        };
+        expect((parsed.errors ?? []).length).toBeGreaterThan(0);
+        expect(parsed.errors![0]?.code).toBe('rego_type_error');
+      });
+    });
   });
 
   describe('parse()', () => {

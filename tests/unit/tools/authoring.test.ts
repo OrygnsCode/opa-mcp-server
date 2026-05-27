@@ -1172,4 +1172,21 @@ describe('rego_check_schema', () => {
     expect(env.data?.valid).toBe(false);
     expect(env.data?.errors).toEqual([]);
   });
+
+  // ── opa exits non-zero but errors key is absent from stderr JSON ──────────
+
+  it('returns valid: false with empty errors when opa stderr JSON has no errors key', async () => {
+    // Defensive: OPA could theoretically emit a JSON object without an 'errors' key.
+    // The handler must not crash and must default to empty errors array.
+    mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ warnings: ['something'] })));
+    const server = makeServer();
+    registerRegoCheckSchema(server, baseConfig);
+    const env = await callTool<RegoCheckSchemaOutput>(server, 'rego_check_schema', {
+      source: 'package x',
+      inlineSchema: { type: 'object' },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors).toEqual([]);
+  });
 });
