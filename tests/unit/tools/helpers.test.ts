@@ -282,6 +282,206 @@ describe('rego_generate_test_skeleton', () => {
     });
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
   });
+
+  // ─── tableStyle ──────────────────────────────────────────────────────
+
+  it('emits every-loop stubs when tableStyle: true', async () => {
+    const ast = {
+      package: {
+        path: [
+          { value: 'data', type: 'var' },
+          { value: 'authz', type: 'string' },
+        ],
+      },
+      rules: [{ head: { name: 'allow' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string; ruleNames: string[] }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package authz\nallow if true', tableStyle: true },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.ruleNames).toEqual(['allow']);
+    const file = env.data?.testFile ?? '';
+    // Package header matches the source package.
+    expect(file).toContain('package authz_test');
+    expect(file).toContain('import rego.v1');
+    expect(file).toContain('import data.authz');
+    // Cases array declared at package scope.
+    expect(file).toContain('allow_cases := [');
+    // Each case object has the three required scaffold keys.
+    expect(file).toContain('"description"');
+    expect(file).toContain('"input"');
+    expect(file).toContain('"expected"');
+    // The test rule uses `every` over the cases array.
+    expect(file).toContain('test_allow if {');
+    expect(file).toContain('every tc in allow_cases {');
+    // Body evaluates the rule under test with tc.input and compares to tc.expected.
+    expect(file).toContain('data.authz.allow with input as tc.input');
+    expect(file).toContain('actual == tc.expected');
+  });
+
+  it('tableStyle: false falls back to the classic single-case skeleton', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [{ head: { name: 'allow' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string }>(server, 'rego_generate_test_skeleton', {
+      source: 'package authz\nallow if true',
+      tableStyle: false,
+    });
+    expect(env.ok).toBe(true);
+    // Classic style: no `every` loop, no cases array.
+    expect(env.data?.testFile).not.toContain('every tc in');
+    expect(env.data?.testFile).not.toContain('_cases := [');
+    // Classic stub form.
+    expect(env.data?.testFile).toContain('test_allow if {');
+    expect(env.data?.testFile).toContain('# Arrange');
+  });
+
+  it('tableStyle omitted produces classic skeleton (backward-compatible default)', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [{ head: { name: 'deny' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string }>(server, 'rego_generate_test_skeleton', {
+      source: 'package authz\ndeny if false',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.testFile).not.toContain('every tc in');
+    expect(env.data?.testFile).toContain('# Arrange');
+  });
+
+  it('tableStyle: true generates one cases array and test per rule', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'rbac' }] },
+      rules: [{ head: { name: 'allow' } }, { head: { name: 'deny' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string; ruleNames: string[] }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package rbac\nallow if true\ndeny if false', tableStyle: true },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.ruleNames).toEqual(['allow', 'deny']);
+    const file = env.data?.testFile ?? '';
+    // Both rules get their own cases array.
+    expect(file).toContain('allow_cases := [');
+    expect(file).toContain('deny_cases := [');
+    // Both rules get their own every-loop test.
+    expect(file).toContain('test_allow if {');
+    expect(file).toContain('every tc in allow_cases {');
+    expect(file).toContain('test_deny if {');
+    expect(file).toContain('every tc in deny_cases {');
+    // Each test references its own cases variable (not the other's).
+    expect(file.match(/every tc in allow_cases/g)).toHaveLength(1);
+    expect(file.match(/every tc in deny_cases/g)).toHaveLength(1);
+  });
+
+  it('tableStyle: true with top-level package (no nested path) uses main_test package', async () => {
+    const ast = {
+      package: { path: [{ value: 'data', type: 'var' }] },
+      rules: [{ head: { name: 'allow' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string }>(server, 'rego_generate_test_skeleton', {
+      source: 'allow if true',
+      tableStyle: true,
+    });
+    expect(env.ok).toBe(true);
+    const file = env.data?.testFile ?? '';
+    // No nested package -> package main_test.
+    expect(file).toContain('package main_test');
+    // No import data.<empty>.
+    expect(file).not.toContain('import data.');
+    // Rule ref must not have a package prefix when packageName is empty.
+    expect(file).toContain('data.allow with input as tc.input');
+  });
+
+  it('tableStyle: true sanitizes dotted rule names (from head.ref) in cases variable and test name', async () => {
+    // head.ref form: allow.read -> safeName = allow_read
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'perms' }] },
+      rules: [
+        {
+          head: {
+            ref: [
+              { value: 'allow', type: 'var' },
+              { value: 'read', type: 'string' },
+            ],
+          },
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string; ruleNames: string[] }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package perms\nallow.read := true', tableStyle: true },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.ruleNames).toEqual(['allow.read']);
+    const file = env.data?.testFile ?? '';
+    // `.` in rule name -> `_` in the cases variable name.
+    expect(file).toContain('allow_read_cases := [');
+    expect(file).toContain('test_allow_read if {');
+    expect(file).toContain('every tc in allow_read_cases {');
+    // Rule ref uses the original dotted name (data.perms.allow.read).
+    expect(file).toContain('data.perms.allow.read with input as tc.input');
+  });
+
+  it('tableStyle: true still deduplicates repeated rule names', async () => {
+    // Same rule name appears twice in AST (common with incremental rules).
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'x' }] },
+      rules: [
+        { head: { name: 'allow' } },
+        { head: { name: 'allow' } }, // duplicate
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string }>(server, 'rego_generate_test_skeleton', {
+      source: 'package x\nallow := 1\nallow := 2',
+      tableStyle: true,
+    });
+    expect(env.ok).toBe(true);
+    // Deduplication: only one cases array and one test stub.
+    expect(env.data?.testFile.match(/allow_cases := \[/g)).toHaveLength(1);
+    expect(env.data?.testFile.match(/test_allow if/g)).toHaveLength(1);
+  });
+
+  it('tableStyle: true still returns INVALID_INPUT when no rules exist', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'empty' }] },
+      rules: [],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_generate_test_skeleton', {
+      source: 'package empty',
+      tableStyle: true,
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+  });
 });
 
 // ─── rego_describe_policy ─────────────────────────────────────────────────

@@ -15,6 +15,12 @@ import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/
 
 const RegoGenerateTestSkeletonInput = {
   source: z.string().min(1).describe('Rego source to generate tests for.'),
+  tableStyle: z
+    .boolean()
+    .optional()
+    .describe(
+      'Generate table-driven test stubs instead of single-case stubs. Each rule gets a `cases` array and an `every tc in cases { ... }` assertion loop. Pair with `rego_test varValues: true` to see which case failed.',
+    ),
 };
 
 interface AstPackage {
@@ -57,6 +63,41 @@ function ruleNameFromAst(rule: AstRule): string | undefined {
   return undefined;
 }
 
+function makeTableSkeleton(packageName: string, ruleNames: string[]): string {
+  const lines: string[] = [];
+  const testPackage = packageName ? `${packageName}_test` : 'main_test';
+  lines.push(`package ${testPackage}`);
+  lines.push('');
+  lines.push('import rego.v1');
+  if (packageName) {
+    lines.push(`import data.${packageName}`);
+  }
+  lines.push('');
+  for (const name of ruleNames) {
+    const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
+    const testName = `test_${safeName}`;
+    const ruleRef = packageName ? `data.${packageName}.${name}` : `data.${name}`;
+    const casesVar = `${safeName}_cases`;
+    lines.push(`# TODO: add test cases -- one object per scenario.`);
+    lines.push(`${casesVar} := [`);
+    lines.push(`\t{`);
+    lines.push(`\t\t"description": "TODO: describe what this case tests",`);
+    lines.push(`\t\t"input": {},`);
+    lines.push(`\t\t"expected": true,`);
+    lines.push(`\t},`);
+    lines.push(`]`);
+    lines.push('');
+    lines.push(`${testName} if {`);
+    lines.push(`\tevery tc in ${casesVar} {`);
+    lines.push(`\t\tactual := ${ruleRef} with input as tc.input`);
+    lines.push(`\t\tactual == tc.expected`);
+    lines.push(`\t}`);
+    lines.push(`}`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
 function makeSkeleton(packageName: string, ruleNames: string[]): string {
   const lines: string[] = [];
   const testPackage = packageName ? `${packageName}_test` : 'main_test';
@@ -91,7 +132,7 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
     {
       title: 'Generate Rego test skeleton',
       description:
-        'Generate a `*_test.rego` skeleton from a policy. Parses the AST, finds each rule, and emits one stub test per rule. The agent fills in realistic inputs and assertions.',
+        'Generate a `*_test.rego` skeleton from a policy. Parses the AST, finds each rule, and emits one stub test per rule. The agent fills in realistic inputs and assertions. With `tableStyle: true`, each stub uses an `every tc in cases { ... }` loop so you can add multiple input/expected pairs without duplicating assertion code.',
       inputSchema: RegoGenerateTestSkeletonInput,
       annotations: {
         readOnlyHint: true,
@@ -100,7 +141,7 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
         openWorldHint: false,
       },
     },
-    async ({ source }, { signal }) => {
+    async ({ source, tableStyle }, { signal }) => {
       return withToolEnvelope<RegoGenerateTestSkeletonOutput>(config, async () => {
         const result = await opa.parse({ source }, signal);
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
@@ -129,7 +170,9 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
           return err('INVALID_INPUT', 'No rules found in the source -- nothing to test.');
         }
 
-        const testFile = makeSkeleton(packageName, ruleNames);
+        const testFile = tableStyle
+          ? makeTableSkeleton(packageName, ruleNames)
+          : makeSkeleton(packageName, ruleNames);
         return ok<RegoGenerateTestSkeletonOutput>({ testFile, ruleNames });
       });
     },

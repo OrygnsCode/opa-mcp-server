@@ -290,13 +290,14 @@ describe('OpaCli', () => {
   });
 
   describe('test()', () => {
-    it('passes --verbose / --coverage / --bench / --run / --threshold when set', async () => {
+    it('passes --verbose / --coverage / --bench / --run / --var-values / --threshold when set', async () => {
       await opa.test({
         paths: ['/abs/tests'],
         verbose: true,
         coverage: true,
         bench: true,
         runPattern: '^TestAllow',
+        varValues: true,
         threshold: 80,
       });
       const args = mockRun.mock.calls[0]![1].args;
@@ -308,6 +309,7 @@ describe('OpaCli', () => {
         '--bench',
         '--run',
         '^TestAllow',
+        '--var-values',
         '--threshold',
         '80',
         '/abs/tests',
@@ -324,6 +326,31 @@ describe('OpaCli', () => {
     it('omits --threshold when not set', async () => {
       await opa.test({ paths: ['/abs/tests'] });
       expect(mockRun.mock.calls[0]![1].args).not.toContain('--threshold');
+    });
+
+    it('passes --var-values when varValues: true', async () => {
+      await opa.test({ paths: ['/abs/tests'], varValues: true });
+      expect(mockRun.mock.calls[0]![1].args).toContain('--var-values');
+    });
+
+    it('omits --var-values when varValues is false', async () => {
+      await opa.test({ paths: ['/abs/tests'], varValues: false });
+      expect(mockRun.mock.calls[0]![1].args).not.toContain('--var-values');
+    });
+
+    it('omits --var-values when varValues is not set', async () => {
+      await opa.test({ paths: ['/abs/tests'] });
+      expect(mockRun.mock.calls[0]![1].args).not.toContain('--var-values');
+    });
+
+    it('places --var-values before --threshold in argv', async () => {
+      await opa.test({ paths: ['/abs/tests'], varValues: true, threshold: 70 });
+      const args = mockRun.mock.calls[0]![1].args;
+      const varValuesIdx = args.indexOf('--var-values');
+      const thresholdIdx = args.indexOf('--threshold');
+      expect(varValuesIdx).toBeGreaterThan(-1);
+      expect(thresholdIdx).toBeGreaterThan(-1);
+      expect(varValuesIdx).toBeLessThan(thresholdIdx);
     });
 
     it('throws when paths is empty', async () => {
