@@ -192,6 +192,97 @@ describe('OpaCli integration', () => {
       // JSON output is one record per test (NDJSON-ish per opa).
       expect(result.stdout.length).toBeGreaterThan(0);
     });
+
+    it('emits coverage JSON (not a test-record array) when coverage:true', async () => {
+      const dir = join(tmpWorkDir, 'tests-coverage');
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, 'policy.rego'),
+        'package cov\nimport rego.v1\nallow if input.x == 1\ndeny if input.x == 0\n',
+        'utf8',
+      );
+      await writeFile(
+        join(dir, 'policy_test.rego'),
+        'package cov_test\nimport rego.v1\nimport data.cov\ntest_allow if { cov.allow with input as {"x": 1} }\n',
+        'utf8',
+      );
+
+      const result = await opa.test({ paths: [dir], coverage: true });
+      expect(result.exitCode).toBe(0);
+      // stdout must be the coverage JSON object, not a test-record array
+      const parsed = JSON.parse(result.stdout) as { coverage?: number; files?: unknown };
+      expect(typeof parsed.coverage).toBe('number');
+      expect(parsed.files).toBeDefined();
+    });
+
+    it('exits non-zero and writes threshold message to stderr when threshold is not met', async () => {
+      const dir = join(tmpWorkDir, 'tests-threshold-fail');
+      await mkdir(dir, { recursive: true });
+      // Policy has two rules; test only exercises one -> coverage < 100%
+      await writeFile(
+        join(dir, 'policy.rego'),
+        'package thresh\nimport rego.v1\nallow if input.x == 1\ndeny if input.x == 0\n',
+        'utf8',
+      );
+      await writeFile(
+        join(dir, 'policy_test.rego'),
+        'package thresh_test\nimport rego.v1\nimport data.thresh\ntest_allow if { thresh.allow with input as {"x": 1} }\n',
+        'utf8',
+      );
+
+      // Require 100% coverage -- impossible since deny is not tested.
+      const result = await opa.test({ paths: [dir], threshold: 100 });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toMatch(/threshold not met|got .* instead of/i);
+    });
+
+    it('exits 0 when threshold is met', async () => {
+      const dir = join(tmpWorkDir, 'tests-threshold-pass');
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, 'policy.rego'),
+        'package pass\nimport rego.v1\nallow if input.x == 1\n',
+        'utf8',
+      );
+      await writeFile(
+        join(dir, 'policy_test.rego'),
+        'package pass_test\nimport rego.v1\nimport data.pass\ntest_allow if { pass.allow with input as {"x": 1} }\n',
+        'utf8',
+      );
+
+      // Any threshold <= actual coverage passes.
+      const result = await opa.test({ paths: [dir], threshold: 50 });
+      expect(result.exitCode).toBe(0);
+      // stdout is coverage JSON (threshold implies coverage mode)
+      const parsed = JSON.parse(result.stdout) as { coverage?: number };
+      expect(typeof parsed.coverage).toBe('number');
+    });
+
+    it('filters tests with --run when runPattern is set', async () => {
+      const dir = join(tmpWorkDir, 'tests-run-filter');
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, 'test_filter.rego'),
+        [
+          'package filter_test',
+          'import rego.v1',
+          'test_included if 1 == 1',
+          'test_excluded if 2 == 2',
+        ].join('\n') + '\n',
+        'utf8',
+      );
+
+      // Only run the "included" test.
+      const result = await opa.test({
+        paths: [dir],
+        runPattern: '^data.filter_test.test_included$',
+      });
+      expect(result.exitCode).toBe(0);
+      // The array should contain only one record.
+      const records = JSON.parse(result.stdout) as Array<{ name?: string }>;
+      expect(records).toHaveLength(1);
+      expect(records[0]?.name).toBe('test_included');
+    });
   });
 
   describe('build()', () => {

@@ -129,12 +129,18 @@ export interface TestInput {
   paths: string[];
   /** Verbose output (per-test pass/fail details). */
   verbose?: boolean;
-  /** Emit per-line coverage. */
+  /** Emit per-line coverage as a JSON object on stdout (overrides the test-record JSON array format). */
   coverage?: boolean;
   /** Run only tests whose names match this regex. */
   runPattern?: string;
   /** Bench-style timing alongside test results. */
   bench?: boolean;
+  /**
+   * Minimum coverage percentage gate (0–100). OPA exits non-zero when actual
+   * coverage is below this value. Implicitly enables coverage-mode output
+   * (same stdout format as `coverage: true`).
+   */
+  threshold?: number;
 }
 
 /** Input for `opa bench`. */
@@ -428,6 +434,7 @@ export class OpaCli {
     if (input.coverage) args.push('--coverage');
     if (input.bench) args.push('--bench');
     if (input.runPattern) args.push('--run', input.runPattern);
+    if (input.threshold !== undefined) args.push('--threshold', String(input.threshold));
     args.push(...input.paths);
     return this.run(args, undefined, signal);
   }
