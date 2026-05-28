@@ -17,6 +17,27 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-05-28
+
+### Added
+
+- **`rego_explain_undefined`** -- new Category E helper (tool 50) that diagnoses
+  why a fully-qualified Rego query (e.g. `data.authz.allow`) produces no value.
+  Fuses three information sources: a plain `opa eval` to detect the defined/undefined
+  split, `opa eval --explain=full` for runtime trace analysis, and
+  `opa parse --json-include locations,-comments` for per-condition AST source text.
+  For rules that OPA's indexer enters and fails at runtime, the blocking condition is
+  identified by matching Fail-event rows against body-expression rows from the AST.
+  For rules eliminated by the indexer before entry (equality checks on `input.*`
+  being the most common case), each body expression is evaluated as a standalone
+  query to determine which condition is not satisfied. Returns `queryResult`,
+  `rulesFound`, `defaultValue`, a per-rule `rules` array with `blockingCondition`,
+  and a human-readable `summary` ready for direct narration.
+- **`ParseInput.includeLocations`** -- new optional flag on the `OpaCli.parse()`
+  method. When `true`, passes `--json-include locations,-comments` to `opa parse`,
+  adding base64-encoded source text and row/col data to every AST node. Used
+  internally by `rego_explain_undefined`.
+
 ## [0.1.13] - 2026-05-27
 
 ### Added

@@ -5,7 +5,7 @@
  * here in order; ordering doesn't affect behavior but keeps the
  * declaration site tidy.
  *
- * Tools (49 total):
+ * Tools (50 total):
  *   Category A -- Authoring:        rego_format, rego_check,
  *                                   rego_check_schema, rego_lint,
  *                                   rego_parse_ast, rego_inspect,
@@ -24,6 +24,7 @@
  *                                   opa_query_decision, opa_compile_query,
  *                                   opa_health, opa_status, opa_config
  *   Category E -- Helpers:          rego_explain_decision,
+ *                                   rego_explain_undefined,
  *                                   rego_generate_test_skeleton,
  *                                   rego_describe_policy,
  *                                   rego_suggest_fix,

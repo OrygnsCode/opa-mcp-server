@@ -12,6 +12,7 @@ import type { Config } from '../../config.js';
 import { registerRegoCoverageGaps } from './coverage-gaps.js';
 import { registerRegoDescribePolicy } from './describe-policy.js';
 import { registerRegoExplainDecision } from './explain-decision.js';
+import { registerRegoExplainUndefined } from './explain-undefined.js';
 import { registerRegoFix } from './fix.js';
 import { registerRegoFormatWrite } from './format-write.js';
 import { registerRegoGenerateTestSkeleton } from './generate-test-skeleton.js';
@@ -23,6 +24,7 @@ import { registerRegoVerify } from './verify.js';
 
 export function registerHelperTools(server: McpServer, config: Config): void {
   registerRegoExplainDecision(server, config);
+  registerRegoExplainUndefined(server, config);
   registerRegoGenerateTestSkeleton(server, config);
   registerRegoDescribePolicy(server, config);
   registerRegoSuggestFix(server, config);

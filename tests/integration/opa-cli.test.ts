@@ -206,6 +206,42 @@ describe('OpaCli integration', () => {
       const ast = JSON.parse(result.stdout) as { package?: unknown };
       expect(ast.package).toBeDefined();
     });
+
+    it('returns body expressions with location.text when includeLocations: true', async () => {
+      const source = 'package authz\nimport rego.v1\nallow if input.role == "admin"\n';
+      const result = await opa.parse({ source, includeLocations: true });
+      expect(result.exitCode).toBe(0);
+      const ast = JSON.parse(result.stdout) as {
+        rules?: Array<{ body?: Array<{ location?: { text?: string; row?: number } }> }>;
+      };
+      const bodyExprs = ast.rules?.flatMap((r) => r.body ?? []) ?? [];
+      expect(bodyExprs.length).toBeGreaterThan(0);
+      // At least one expression must carry a non-empty base64 text field.
+      const withText = bodyExprs.filter(
+        (e) => typeof e.location?.text === 'string' && e.location.text.length > 0,
+      );
+      expect(withText.length).toBeGreaterThan(0);
+      // Verify each text field decodes to a non-empty string.
+      for (const expr of withText) {
+        const decoded = Buffer.from(expr.location!.text!, 'base64').toString('utf8');
+        expect(decoded.length).toBeGreaterThan(0);
+        // The decoded text should contain the source expression.
+        expect(decoded).toMatch(/input\.role/);
+      }
+    });
+
+    it('does not include location.text fields when includeLocations is not set', async () => {
+      const source = 'package authz\nimport rego.v1\nallow if input.role == "admin"\n';
+      const result = await opa.parse({ source });
+      expect(result.exitCode).toBe(0);
+      const ast = JSON.parse(result.stdout) as {
+        rules?: Array<{ body?: Array<{ location?: { text?: string } }> }>;
+      };
+      const bodyExprs = ast.rules?.flatMap((r) => r.body ?? []) ?? [];
+      // Without includeLocations, expressions should not have a text field.
+      const withText = bodyExprs.filter((e) => typeof e.location?.text === 'string');
+      expect(withText.length).toBe(0);
+    });
   });
 
   describe('inspect()', () => {
