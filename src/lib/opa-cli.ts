@@ -65,6 +65,13 @@ export interface CheckInput {
 export interface ParseInput {
   /** Rego source to parse. */
   source: string;
+  /**
+   * Include source location data in the AST. When true, every AST node
+   * gains a `location.text` field (base64-encoded source text) plus
+   * `location.row` and `location.col`. Required by rego_explain_undefined
+   * to identify which body expression is blocking each rule.
+   */
+  includeLocations?: boolean;
 }
 
 /** Input for `opa inspect`. */
@@ -338,11 +345,16 @@ export class OpaCli {
 
   /**
    * Parse Rego source to a JSON AST. Stdout is the AST as JSON.
+   * Set `includeLocations: true` to add base64-encoded source text and
+   * row/col data to every AST node (`--json-include locations,-comments`).
    */
   async parse(input: ParseInput, signal?: AbortSignal): Promise<SpawnResult> {
-    return this.withTempSource(input.source, (path) =>
-      this.run(['parse', '--format=json', path], undefined, signal),
-    );
+    return this.withTempSource(input.source, (path) => {
+      const args = ['parse', '--format=json'];
+      if (input.includeLocations) args.push('--json-include', 'locations,-comments');
+      args.push(path);
+      return this.run(args, undefined, signal);
+    });
   }
 
   /**

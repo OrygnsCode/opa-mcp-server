@@ -7,6 +7,7 @@ import {
   makeServer,
   spawnFailure,
   spawnSuccess,
+  spawnUnreachable,
 } from './_helpers.js';
 
 vi.mock('../../../src/lib/subprocess.js', () => ({
@@ -737,5 +738,500 @@ describe('rego_suggest_fix', () => {
       'rego_recursion_error',
       'rego_compile_error',
     ]);
+  });
+});
+
+// ─── rego_explain_undefined ───────────────────────────────────────────────
+
+// Helper: base64-encode a string for embedding in mock AST location.text fields.
+const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64');
+
+// Minimal valid OPA AST for package data.authz with a single non-default rule.
+function makeAst(opts: {
+  pkgName: string;
+  rules: Array<{
+    name: string;
+    row: number;
+    isDefault?: boolean;
+    defaultVal?: unknown;
+    body?: Array<{ row: number; col?: number; text: string }>;
+  }>;
+}): object {
+  return {
+    package: {
+      path: [{ value: 'data' }, { value: opts.pkgName }],
+    },
+    rules: opts.rules.map((r) => ({
+      head: r.isDefault ? { name: r.name, value: { value: r.defaultVal } } : { name: r.name },
+      ...(r.isDefault ? { default: true } : {}),
+      body: (r.body ?? []).map((e) => ({
+        location: { file: '<inline>', row: e.row, col: e.col ?? 3, text: b64(e.text) },
+      })),
+      location: { file: '<inline>', row: r.row, col: 1 },
+    })),
+  };
+}
+
+describe('rego_explain_undefined', () => {
+  it('returns queryResult: defined immediately when OPA produces a value', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({ result: [{ expressions: [{ value: true, text: 'data.authz.allow' }] }] }),
+      ),
+    );
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ queryResult: string; value: unknown; rulesFound: number }>(
+      server,
+      'rego_explain_undefined',
+      { query: 'data.authz.allow', source: 'package authz\nallow := true' },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.queryResult).toBe('defined');
+    expect(env.data?.value).toBe(true);
+    expect(env.data?.rulesFound).toBe(0);
+    // Defined path must short-circuit: only one runBinary call.
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns queryResult: undefined with rulesFound: 0 when no source or paths provided', async () => {
+    // Plain eval -> undefined; explain=full -> empty trace; no parse call.
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: [] })));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ queryResult: string; rulesFound: number; rules: unknown[] }>(
+      server,
+      'rego_explain_undefined',
+      { query: 'data.authz.allow' },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.queryResult).toBe('undefined');
+    expect(env.data?.rulesFound).toBe(0);
+    expect(env.data?.rules).toEqual([]);
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns EVAL_ERROR when the plain eval exits non-zero', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(1, '{"errors": [{"code": "rego_parse_error"}]}'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'broken policy',
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('EVAL_ERROR');
+  });
+
+  it('returns OPA_BINARY_NOT_FOUND when opa is unreachable', async () => {
+    mockRun.mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+  });
+
+  it('returns PATH_NOT_ALLOWED when paths fall outside allowedPaths', async () => {
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      paths: ['/etc/notallowed.rego'],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    // Path validation happens before any subprocess call.
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('uses --explain=full on the second eval call', async () => {
+    const ast = makeAst({ pkgName: 'authz', rules: [{ name: 'allow', row: 2, body: [] }] });
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: [] })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\nallow := true',
+    });
+    // Call index 1 is the trace eval; verify --explain full is in its args.
+    const traceArgs = mockRun.mock.calls[1]![1].args;
+    const explainIdx = traceArgs.indexOf('--explain');
+    expect(explainIdx).toBeGreaterThan(-1);
+    expect(traceArgs[explainIdx + 1]).toBe('full');
+  });
+
+  it('trace-based: identifies blocking condition from Enter + Fail trace events', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        {
+          name: 'allow',
+          row: 3,
+          body: [{ row: 4, text: 'input.role == "admin"' }],
+        },
+      ],
+    });
+    const trace = [
+      {
+        Op: 'Enter',
+        Node: { head: { name: 'allow' }, location: { file: '<inline>', row: 3, col: 1 } },
+        Location: { file: '<inline>', row: 3, col: 1 },
+      },
+      { Op: 'Fail', Location: { file: '<inline>', row: 4, col: 3 } },
+    ];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      queryResult: string;
+      rulesFound: number;
+      rules: Array<{
+        isDefault: boolean;
+        source: string;
+        conditions: Array<{ text: string; result: string; row: number }>;
+        blockingCondition: { text: string; result: string; row: number; index: number } | null;
+      }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\nimport rego.v1\nallow if {\n  input.role == "admin"\n}',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.queryResult).toBe('undefined');
+    expect(env.data?.rulesFound).toBe(1);
+    expect(env.data?.rules).toHaveLength(1);
+    const rule = env.data!.rules[0]!;
+    expect(rule.source).toBe('trace');
+    expect(rule.isDefault).toBe(false);
+    expect(rule.blockingCondition).not.toBeNull();
+    expect(rule.blockingCondition!.text).toBe('input.role == "admin"');
+    expect(rule.blockingCondition!.result).toBe('false');
+    expect(rule.blockingCondition!.row).toBe(4);
+    expect(rule.blockingCondition!.index).toBe(0);
+  });
+
+  it('trace-based: Enter event present but no Fail at a body row -- blockingCondition is null', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        {
+          name: 'allow',
+          row: 2,
+          body: [{ row: 3, text: 'input.x == 1' }],
+        },
+      ],
+    });
+    // Trace has Enter but no Fail at row 3.
+    const trace = [
+      {
+        Op: 'Enter',
+        Node: { head: { name: 'allow' }, location: { file: '<inline>', row: 2, col: 1 } },
+        Location: { file: '<inline>', row: 2, col: 1 },
+      },
+    ];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ rules: Array<{ source: string; blockingCondition: unknown }> }>(
+      server,
+      'rego_explain_undefined',
+      { query: 'data.authz.allow', source: 'package authz\nallow if input.x == 1' },
+    );
+    expect(env.ok).toBe(true);
+    const rule = env.data!.rules[0]!;
+    expect(rule.source).toBe('trace');
+    expect(rule.blockingCondition).toBeNull();
+  });
+
+  it('standalone-eval: evaluates each condition when rule is not in trace (indexed out)', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        {
+          name: 'allow',
+          row: 3,
+          body: [
+            { row: 4, text: 'input.role == "admin"' },
+            { row: 5, text: 'input.action == "read"' },
+          ],
+        },
+      ],
+    });
+    // Trace has Index event only -- rule was indexed out; no Enter for 'allow'.
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    // call 0: plain eval -> undefined
+    // call 1: explain=full -> no enter for allow
+    // call 2: parse -> AST
+    // call 3: standalone eval cond 0 -> true
+    // call 4: standalone eval cond 1 -> false (undefined result)
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(
+        spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: true }] }] })),
+      )
+      .mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rules: Array<{
+        source: string;
+        conditions: Array<{ text: string; result: string; index: number }>;
+        blockingCondition: { text: string; result: string; index: number } | null;
+      }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source:
+        'package authz\nimport rego.v1\nallow if {\n  input.role == "admin"\n  input.action == "read"\n}',
+    });
+    expect(env.ok).toBe(true);
+    const rule = env.data!.rules[0]!;
+    expect(rule.source).toBe('standalone-eval');
+    expect(rule.conditions[0]?.result).toBe('true');
+    expect(rule.conditions[0]?.text).toBe('input.role == "admin"');
+    expect(rule.conditions[1]?.result).toBe('false');
+    expect(rule.conditions[1]?.text).toBe('input.action == "read"');
+    expect(rule.blockingCondition).not.toBeNull();
+    expect(rule.blockingCondition!.text).toBe('input.action == "read"');
+    expect(rule.blockingCondition!.index).toBe(1);
+  });
+
+  it('standalone-eval: marks condition as unevaluable when standalone eval exits non-zero', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        {
+          name: 'allow',
+          row: 2,
+          body: [{ row: 3, text: 'x == 1' }], // x is unsafe standalone
+        },
+      ],
+    });
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnFailure(1, 'var x is unsafe')); // standalone eval fails
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rules: Array<{ conditions: Array<{ result: string; note?: string }> }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz',
+    });
+    expect(env.ok).toBe(true);
+    const cond = env.data!.rules[0]!.conditions[0]!;
+    expect(cond.result).toBe('unevaluable');
+    expect(cond.note).toMatch(/Standalone eval failed/);
+  });
+
+  it('extracts defaultValue from a default rule', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        { name: 'allow', row: 2, isDefault: true, defaultVal: false, body: [] },
+        {
+          name: 'allow',
+          row: 4,
+          body: [{ row: 5, text: 'input.role == "admin"' }],
+        },
+      ],
+    });
+    const trace = [
+      {
+        Op: 'Enter',
+        Node: { head: { name: 'allow' }, location: { file: '<inline>', row: 4, col: 1 } },
+        Location: { file: '<inline>', row: 4, col: 1 },
+      },
+      { Op: 'Fail', Location: { file: '<inline>', row: 5, col: 3 } },
+    ];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      queryResult: string;
+      rulesFound: number;
+      defaultValue: unknown;
+      rules: Array<{ isDefault: boolean }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source:
+        'package authz\nimport rego.v1\ndefault allow := false\nallow if input.role == "admin"',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.queryResult).toBe('undefined');
+    // The default rule provides a value but doesn't prevent queryResult from being 'undefined'
+    // (the query evaluates to the default, meaning the non-default rules all failed).
+    expect(env.data?.defaultValue).toBe(false);
+    expect(env.data?.rulesFound).toBe(1); // only non-default rules counted
+    // Default rule entry is in the rules array but marked isDefault: true.
+    expect(env.data?.rules.some((r) => r.isDefault)).toBe(true);
+  });
+
+  it('analyses multiple rule definitions and populates each independently', async () => {
+    // Two incremental definitions of allow.
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        {
+          name: 'allow',
+          row: 2,
+          body: [{ row: 3, text: 'input.role == "admin"' }],
+        },
+        {
+          name: 'allow',
+          row: 5,
+          body: [{ row: 6, text: 'input.role == "superuser"' }],
+        },
+      ],
+    });
+    // Both rules indexed out.
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    // Calls: plain eval, explain=full, parse, standalone rule0 cond0, standalone rule1 cond0
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess('{}')) // rule0 cond0: false
+      .mockResolvedValueOnce(spawnSuccess('{}')); // rule1 cond0: false
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rulesFound: number;
+      rules: Array<{
+        ruleIndex: number;
+        source: string;
+        blockingCondition: { text: string } | null;
+      }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\nallow if input.role == "admin"\nallow if input.role == "superuser"',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.rulesFound).toBe(2);
+    expect(env.data?.rules).toHaveLength(2);
+    expect(env.data?.rules[0]?.ruleIndex).toBe(0);
+    expect(env.data?.rules[1]?.ruleIndex).toBe(1);
+    expect(env.data?.rules[0]?.blockingCondition?.text).toBe('input.role == "admin"');
+    expect(env.data?.rules[1]?.blockingCondition?.text).toBe('input.role == "superuser"');
+  });
+
+  it('skips conditions with no location text (marks unevaluable with a note)', async () => {
+    // AST body expression has no 'text' field in its location.
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [
+        {
+          head: { name: 'allow' },
+          body: [{ location: { file: '<inline>', row: 3, col: 3 } }], // no 'text' field
+          location: { file: '<inline>', row: 2, col: 1 },
+        },
+      ],
+    };
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    // No standalone eval call -- condition has no text so it is skipped.
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rules: Array<{ conditions: Array<{ result: string; text: string; note?: string }> }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz',
+    });
+    expect(env.ok).toBe(true);
+    const cond = env.data!.rules[0]!.conditions[0]!;
+    expect(cond.text).toBe('<expression>');
+    expect(cond.result).toBe('unevaluable');
+    expect(cond.note).toMatch(/No location text/);
+    // No standalone eval was invoked.
+    expect(mockRun).toHaveBeenCalledTimes(3);
+  });
+
+  it('summary string mentions the query and number of rules', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [{ name: 'allow', row: 2, body: [] }],
+    });
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ summary: string }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\nallow := true',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.summary).toContain('data.authz.allow');
+    expect(env.data?.summary).toContain('undefined');
+  });
+
+  it('summary includes defined value when queryResult is defined', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: false }] }] })),
+    );
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ summary: string; value: unknown }>(
+      server,
+      'rego_explain_undefined',
+      { query: 'data.authz.allow', source: 'package authz\ndefault allow := false' },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.summary).toContain('defined');
+    expect(env.data?.value).toBe(false);
+  });
+
+  it('sanitizes temp-file paths in rule locations', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [{ name: 'allow', row: 2, body: [] }],
+    });
+    // Override the location file to simulate a real OPA temp-file path.
+    const astWithTempPath = JSON.parse(JSON.stringify(ast)) as {
+      rules: Array<{ location: { file: string } }>;
+    };
+    astWithTempPath.rules[0]!.location.file =
+      '/tmp/orygn-opa-mcp-12345678-1234-1234-1234-123456789abc.rego';
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(astWithTempPath)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rules: Array<{ location: { file: string } }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\nallow := true',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.rules[0]?.location.file).toBe('<inline>');
   });
 });

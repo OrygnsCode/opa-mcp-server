@@ -177,6 +177,33 @@ describe('OpaCli', () => {
       expect(opts.args).toContain('--format=json');
       expect(opts.args[opts.args.length - 1]).toMatch(/\.rego$/);
     });
+
+    it('omits --json-include when includeLocations is not set', async () => {
+      await opa.parse({ source: 'package z' });
+      expect(mockRun.mock.calls[0]![1].args).not.toContain('--json-include');
+    });
+
+    it('adds --json-include locations,-comments when includeLocations: true', async () => {
+      await opa.parse({ source: 'package z', includeLocations: true });
+      const args = mockRun.mock.calls[0]![1].args;
+      const idx = args.indexOf('--json-include');
+      expect(idx).toBeGreaterThan(-1);
+      expect(args[idx + 1]).toBe('locations,-comments');
+    });
+
+    it('omits --json-include when includeLocations: false', async () => {
+      await opa.parse({ source: 'package z', includeLocations: false });
+      expect(mockRun.mock.calls[0]![1].args).not.toContain('--json-include');
+    });
+
+    it('places --json-include before the temp file path', async () => {
+      await opa.parse({ source: 'package z', includeLocations: true });
+      const args = mockRun.mock.calls[0]![1].args;
+      const jsonIncludeIdx = args.indexOf('--json-include');
+      const tempFileIdx = args.length - 1;
+      expect(jsonIncludeIdx).toBeGreaterThan(-1);
+      expect(jsonIncludeIdx).toBeLessThan(tempFileIdx);
+    });
   });
 
   describe('inspect()', () => {
