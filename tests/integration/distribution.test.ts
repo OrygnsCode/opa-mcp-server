@@ -158,9 +158,9 @@ describe('dist/server.js boots and serves the MCP protocol', () => {
     }
   });
 
-  it('responds to tools/list with all 50 registered tools', async () => {
+  it('responds to tools/list with all 51 registered tools', async () => {
     const result = await client!.listTools();
-    expect(result.tools).toHaveLength(50);
+    expect(result.tools).toHaveLength(51);
     const names = result.tools.map((t) => t.name);
     expect(names).toContain('rego_format');
     expect(names).toContain('opa_health');

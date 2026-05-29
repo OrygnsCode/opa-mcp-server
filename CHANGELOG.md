@@ -17,6 +17,26 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-05-29
+
+### Added
+
+- **`rego_test_multiroot`** -- new Category B tool (tool 51) that runs `opa test`
+  once per root and aggregates pass/fail/skip counts, per-test records, coverage,
+  and errors. Solves the package-conflict problem (OPA issue #4724) that occurs
+  when `opa test .` is run on a monorepo with multiple independent package namespaces.
+  Two modes: `explicit` (caller supplies a root list with optional per-root `include`
+  paths for shared libraries) and `scan` (auto-discovers leaf test roots using the
+  leaf rule: a directory is a root only if it directly contains `*_test.rego` files
+  and none of its eligible subdirectories do). Scan mode supports `sharedPaths`
+  (added to every root's invocation, excluded from discovery), `maxDepth`,
+  `maxRoots`, and `ignorePatterns`. Systemic failures (binary not found, timeout)
+  abort the entire run; per-root OPA errors (package conflicts, import failures,
+  parse errors) are recorded in the root's `error` field so the run continues.
+  `overallCoveragePct` is the arithmetic mean of per-root coverage percentages.
+  Ancestor directories that have test files alongside descendant test directories
+  are skipped and reported in `ancestorSkipped` with a warning.
+
 ## [0.1.14] - 2026-05-28
 
 ### Added
