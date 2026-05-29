@@ -7,6 +7,7 @@
 [![OPA Ecosystem](https://img.shields.io/badge/OPA-ecosystem-blue.svg)](https://www.openpolicyagent.org/ecosystem/entry/opa-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/node/v/@orygn/opa-mcp.svg)](./package.json)
+[![opa-mcp-server MCP server](https://glama.ai/mcp/servers/OrygnsCode/opa-mcp-server/badges/score.svg)](https://glama.ai/mcp/servers/OrygnsCode/opa-mcp-server)
 
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server
 that turns any MCP-compatible client (Claude Desktop, Claude Code, Cursor,
