@@ -1,0 +1,26 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": ["OrygnsCode"],
+  "name": "OPA MCP",
+  "description": "Model Context Protocol server for authoring, testing, and debugging Rego policies. Wraps the OPA CLI (opa fmt, opa check, opa eval, opa test, opa build, opa sign), the OPA REST API, and the Regal linter into 50 schema-validated tools with stable error codes. Includes Z3 SMT-based formal verification, explain traces, coverage, profiling, and higher-level helpers (rego_explain_decision, rego_explain_undefined, rego_verify, rego_infer_input_schema) designed for AI agent workflows. Works with Claude, Cursor, VS Code, Zed, and Windsurf.",
+  "keywords": [
+    "opa",
+    "rego",
+    "open-policy-agent",
+    "policy-as-code",
+    "policy",
+    "authorization",
+    "kubernetes",
+    "regal",
+    "security",
+    "compliance",
+    "formal-verification",
+    "linting",
+    "debugging",
+    "rbac",
+    "abac",
+    "mcp",
+    "devops",
+    "infrastructure-as-code"
+  ]
+}
