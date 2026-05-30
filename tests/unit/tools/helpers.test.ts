@@ -223,8 +223,8 @@ describe('rego_generate_test_skeleton', () => {
       { source: 'package rbac\nallow if true' },
     );
     expect(env.ok).toBe(true);
-    // Shape is always present; empty when no input.* refs are detected.
-    expect(env.data?.inferredInputShape).toBeDefined();
+    // AST has no body expressions -- no input.* refs, so shape must be exactly {}.
+    expect(env.data?.inferredInputShape).toEqual({});
   });
 
   it('reports INVALID_INPUT when no rules are found', async () => {

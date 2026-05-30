@@ -180,6 +180,10 @@ export function registerRegoTest(server: McpServer, config: Config): void {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
 
+        if (count !== undefined && count < 1) {
+          return err('INVALID_INPUT', '`count` must be at least 1.');
+        }
+
         // When coverage or threshold is set, OPA changes its output format:
         // stdout becomes a coverage JSON object instead of a test-record array.
         const coverageMode = coverage === true || threshold !== undefined;

@@ -562,6 +562,23 @@ describe('rego_test', () => {
     expect(args[args.indexOf('--count') + 1]).toBe('5');
   });
 
+  it('does not emit --count when count is omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--count');
+  });
+
+  it('rejects count: 0 with INVALID_INPUT before invoking opa', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_test', { paths: [validRegoPath()], count: 0 });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
   it('passes --timeout when timeout is set', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
     const server = makeServer();
