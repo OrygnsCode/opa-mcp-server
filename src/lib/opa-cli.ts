@@ -155,6 +155,29 @@ export interface TestInput {
    * `every tc in cases { ... }` loop caused the failure.
    */
   varValues?: boolean;
+  /**
+   * Glob patterns for files to exclude from the test run (`--ignore <pattern>`).
+   * Pass one pattern per array element; OPA evaluates each independently.
+   * Useful for excluding generated files or fixture directories with no tests.
+   */
+  ignorePatterns?: string[];
+  /**
+   * Treat paths as bundle roots (`--bundle`). Required when testing policies
+   * structured as OPA bundles (with `manifest.json` / `data.json` at the root).
+   * Mutually exclusive with plain directory mode.
+   */
+  bundle?: boolean;
+  /**
+   * Number of times to repeat each test (`--count N`). Default is 1. Increase
+   * to measure test repeatability or spot flaky tests.
+   */
+  count?: number;
+  /**
+   * Per-test timeout as a Go duration string, e.g. `"30s"`, `"1m"`.
+   * OPA's built-in default is 5s; increase for tests that load large policy
+   * sets or call slow built-ins (`--timeout <duration>`).
+   */
+  timeout?: string;
 }
 
 /** Input for `opa bench`. */
@@ -452,9 +475,13 @@ export class OpaCli {
     if (input.verbose) args.push('--verbose');
     if (input.coverage) args.push('--coverage');
     if (input.bench) args.push('--bench');
+    if (input.bundle) args.push('--bundle');
     if (input.runPattern) args.push('--run', input.runPattern);
     if (input.varValues) args.push('--var-values');
     if (input.threshold !== undefined) args.push('--threshold', String(input.threshold));
+    for (const pat of input.ignorePatterns ?? []) args.push('--ignore', pat);
+    if (input.count !== undefined) args.push('--count', String(input.count));
+    if (input.timeout) args.push('--timeout', input.timeout);
     args.push(...input.paths);
     return this.run(args, undefined, signal);
   }

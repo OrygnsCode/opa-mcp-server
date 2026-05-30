@@ -510,6 +510,167 @@ describe('rego_test', () => {
     expect(thresholdIdx).toBeGreaterThan(-1);
     expect(varValuesIdx).toBeLessThan(thresholdIdx);
   });
+
+  // ─── new params: ignorePatterns, bundle, count, timeout ───────────────
+
+  it('passes --ignore for each pattern in ignorePatterns', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      ignorePatterns: ['*_generated.rego', 'fixtures/**'],
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    const ignoreIdxs = args.map((a, i) => (a === '--ignore' ? i : -1)).filter((i) => i !== -1);
+    expect(ignoreIdxs).toHaveLength(2);
+    expect(args[ignoreIdxs[0]! + 1]).toBe('*_generated.rego');
+    expect(args[ignoreIdxs[1]! + 1]).toBe('fixtures/**');
+  });
+
+  it('does not emit --ignore when ignorePatterns is empty', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], ignorePatterns: [] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--ignore');
+  });
+
+  it('passes --bundle when bundle: true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], bundle: true });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--bundle');
+  });
+
+  it('does not emit --bundle when bundle is false or omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], bundle: false });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--bundle');
+  });
+
+  it('passes --count N when count is set', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], count: 5 });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--count');
+    expect(args[args.indexOf('--count') + 1]).toBe('5');
+  });
+
+  it('passes --timeout when timeout is set', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], timeout: '30s' });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--timeout');
+    expect(args[args.indexOf('--timeout') + 1]).toBe('30s');
+  });
+
+  it('does not emit --timeout when timeout is omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--timeout');
+  });
+
+  // ─── NO_TESTS_FOUND hint improvement ──────────────────────────────────
+
+  it('includes runPattern in NO_TESTS_FOUND hint when no tests match', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      runPattern: '^test_admin',
+    });
+    expect(env.error?.code).toBe('NO_TESTS_FOUND');
+    expect(env.error?.hint).toContain('^test_admin');
+    expect(env.error?.hint).toContain('pattern');
+  });
+
+  it('returns plain NO_TESTS_FOUND hint when runPattern is absent', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(env.error?.code).toBe('NO_TESTS_FOUND');
+    // Hint should not reference a pattern when none was given.
+    expect(env.error?.hint).not.toContain('matched');
+  });
+
+  // ─── parameterizedGroups ──────────────────────────────────────────────
+
+  it('populates parameterizedGroups for test_X[...] style records', async () => {
+    const records = [
+      { name: 'test_allow[{"role":"admin"}]', duration: 1 },
+      { name: 'test_allow[{"role":"viewer"}]', fail: true, duration: 2 },
+      { name: 'test_deny[{"action":"write"}]', duration: 1 },
+      { name: 'test_plain', duration: 1 }, // non-parametrized, should not appear in groups
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      parameterizedGroups: Record<string, Array<{ name?: string; fail?: boolean }>>;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+
+    expect(env.ok).toBe(true);
+    const groups = env.data?.parameterizedGroups;
+    expect(groups).toBeDefined();
+    expect(Object.keys(groups!)).toContain('test_allow');
+    expect(Object.keys(groups!)).toContain('test_deny');
+    expect(Object.keys(groups!)).not.toContain('test_plain');
+    // test_allow has 2 cases
+    expect(groups!['test_allow']).toHaveLength(2);
+    // The failing case is present in the group
+    const allowCases = groups!['test_allow']!;
+    expect(allowCases.some((r) => r.fail === true)).toBe(true);
+    // test_deny has 1 case
+    expect(groups!['test_deny']).toHaveLength(1);
+  });
+
+  it('omits parameterizedGroups when no test_X[...] records are present', async () => {
+    const records = [
+      { name: 'test_a', duration: 1 },
+      { name: 'test_b', fail: true, duration: 2 },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ parameterizedGroups?: unknown }>(server, 'rego_test', {
+      paths: [validRegoPath()],
+    });
+    expect(env.ok).toBe(true);
+    // No parametrized groups -- field should be absent.
+    expect(env.data?.parameterizedGroups).toBeUndefined();
+  });
+
+  it('counts parametrized cases correctly in pass/fail totals', async () => {
+    // 2 parametrized cases for test_allow: 1 pass, 1 fail
+    const records = [
+      { name: 'test_allow[{"role":"admin"}]', duration: 1 },
+      { name: 'test_allow[{"role":"viewer"}]', fail: true, duration: 2 },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ passed: number; failed: number; total: number }>(
+      server,
+      'rego_test',
+      { paths: [validRegoPath()] },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.total).toBe(2);
+    expect(env.data?.passed).toBe(1);
+    expect(env.data?.failed).toBe(1);
+  });
 });
 
 // ─── rego_bench ───────────────────────────────────────────────────────────

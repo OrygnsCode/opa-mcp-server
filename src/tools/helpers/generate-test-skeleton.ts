@@ -39,6 +39,13 @@ interface ParsedAst {
 export interface RegoGenerateTestSkeletonOutput {
   testFile: string;
   ruleNames: string[];
+  /** Inferred input shape derived from field accesses in the policy body. */
+  inferredInputShape: Record<string, unknown>;
+}
+
+/** Nested template type for inferred input fields. */
+interface InputShape {
+  [key: string]: InputShape | null;
 }
 
 function packageNameFromAst(ast: ParsedAst): string {
@@ -63,7 +70,79 @@ function ruleNameFromAst(rule: AstRule): string | undefined {
   return undefined;
 }
 
-function makeTableSkeleton(packageName: string, ruleNames: string[]): string {
+/**
+ * Recursively walk any JSON value and record every `input.<field>...` path
+ * found in OPA AST ref nodes. Builds a nested shape object where leaves are
+ * `null` (placeholder to be filled in by the developer). Deeper paths take
+ * precedence: a parent leaf is upgraded to an object if a deeper access is
+ * found for the same key.
+ */
+function walkForInputRefs(value: unknown, shape: InputShape): void {
+  if (value === null || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (const item of value) walkForInputRefs(item, shape);
+    return;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  // Detect an OPA AST ref node starting with `input`.
+  // Shape: { type: "ref", value: [{type:"var", value:"input"}, {type:"string", value:"field"}, ...] }
+  if (
+    obj['type'] === 'ref' &&
+    Array.isArray(obj['value']) &&
+    (obj['value'] as unknown[]).length >= 2
+  ) {
+    const parts = obj['value'] as Array<{ type?: string; value?: unknown }>;
+    const head = parts[0];
+    if (head?.type === 'var' && head?.value === 'input') {
+      let current: InputShape = shape;
+      for (let i = 1; i < parts.length; i++) {
+        const part = parts[i]!;
+        // Only follow string-keyed accesses; var/number keys are dynamic.
+        if (part.type !== 'string' || typeof part.value !== 'string') break;
+        const key = part.value;
+        const isLast = i === parts.length - 1;
+        if (isLast) {
+          // Don't downgrade an existing object to null (deeper access wins).
+          if (!(key in current)) current[key] = null;
+        } else {
+          // Upgrade an existing null leaf to an object so we can go deeper.
+          if (!(key in current) || current[key] === null) current[key] = {};
+          const next = current[key];
+          if (typeof next !== 'object' || next === null) break;
+          current = next;
+        }
+      }
+    }
+  }
+
+  for (const v of Object.values(obj)) {
+    walkForInputRefs(v, shape);
+  }
+}
+
+function inferInputShape(ast: ParsedAst): InputShape {
+  const shape: InputShape = {};
+  walkForInputRefs(ast, shape);
+  return shape;
+}
+
+/** Serialize an InputShape to an inline Rego object literal. */
+function shapeToRegoLiteral(shape: InputShape): string {
+  const entries = Object.entries(shape);
+  if (entries.length === 0) return '{}';
+  const inner = entries
+    .map(([k, v]) => `"${k}": ${v === null ? 'null' : shapeToRegoLiteral(v)}`)
+    .join(', ');
+  return `{${inner}}`;
+}
+
+function makeTableSkeleton(
+  packageName: string,
+  ruleNames: string[],
+  inputShape: InputShape,
+): string {
   const lines: string[] = [];
   const testPackage = packageName ? `${packageName}_test` : 'main_test';
   lines.push(`package ${testPackage}`);
@@ -73,6 +152,7 @@ function makeTableSkeleton(packageName: string, ruleNames: string[]): string {
     lines.push(`import data.${packageName}`);
   }
   lines.push('');
+  const inputLiteral = shapeToRegoLiteral(inputShape);
   for (const name of ruleNames) {
     const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
     const testName = `test_${safeName}`;
@@ -82,7 +162,7 @@ function makeTableSkeleton(packageName: string, ruleNames: string[]): string {
     lines.push(`${casesVar} := [`);
     lines.push(`\t{`);
     lines.push(`\t\t"description": "TODO: describe what this case tests",`);
-    lines.push(`\t\t"input": {},`);
+    lines.push(`\t\t"input": ${inputLiteral},`);
     lines.push(`\t\t"expected": true,`);
     lines.push(`\t},`);
     lines.push(`]`);
@@ -98,7 +178,7 @@ function makeTableSkeleton(packageName: string, ruleNames: string[]): string {
   return lines.join('\n');
 }
 
-function makeSkeleton(packageName: string, ruleNames: string[]): string {
+function makeSkeleton(packageName: string, ruleNames: string[], inputShape: InputShape): string {
   const lines: string[] = [];
   const testPackage = packageName ? `${packageName}_test` : 'main_test';
   lines.push(`package ${testPackage}`);
@@ -108,16 +188,13 @@ function makeSkeleton(packageName: string, ruleNames: string[]): string {
     lines.push(`import data.${packageName}`);
   }
   lines.push('');
+  const inputLiteral = shapeToRegoLiteral(inputShape);
   for (const name of ruleNames) {
     const testName = `test_${name.replace(/[^a-zA-Z0-9_]/g, '_')}`;
     const ruleRef = packageName ? `${packageName}.${name}` : name;
     lines.push(`# TODO: replace placeholder input with a realistic case.`);
     lines.push(`${testName} if {`);
-    lines.push(`\t# Arrange`);
-    lines.push(`\tinput := {}`);
-    lines.push('');
-    lines.push(`\t# Act / Assert`);
-    lines.push(`\tdata.${ruleRef} with input as input`);
+    lines.push(`\tdata.${ruleRef} with input as ${inputLiteral}`);
     lines.push(`}`);
     lines.push('');
   }
@@ -132,7 +209,7 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
     {
       title: 'Generate Rego test skeleton',
       description:
-        'Generate a `*_test.rego` skeleton from a policy. Parses the AST, finds each rule, and emits one stub test per rule. The agent fills in realistic inputs and assertions. With `tableStyle: true`, each stub uses an `every tc in cases { ... }` loop so you can add multiple input/expected pairs without duplicating assertion code.',
+        'Generate a `*_test.rego` skeleton from a policy. Parses the AST, finds each non-test rule, and emits one stub test per rule. Existing `test_*` and `todo_test_*` rules are skipped automatically -- only testable production rules get stubs. The AST is walked to infer which `input.*` fields the policy accesses; the inferred shape is used as the placeholder `with input as {...}` in each stub, so the developer only needs to fill in realistic values rather than guess the structure. With `tableStyle: true`, each stub uses an `every tc in cases { ... }` loop so you can add multiple input/expected pairs without duplicating assertion code. The `inferredInputShape` field in the response shows the detected shape for reference.',
       inputSchema: RegoGenerateTestSkeletonInput,
       annotations: {
         readOnlyHint: true,
@@ -158,22 +235,38 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
         }
 
         const packageName = packageNameFromAst(ast);
+
+        // Skip existing test rules -- they should not get test stubs generated for them.
         const ruleNames = Array.from(
           new Set(
             (ast.rules ?? [])
               .map(ruleNameFromAst)
-              .filter((n): n is string => typeof n === 'string' && n.length > 0),
+              .filter(
+                (n): n is string =>
+                  typeof n === 'string' &&
+                  n.length > 0 &&
+                  !n.startsWith('test_') &&
+                  !n.startsWith('todo_test_'),
+              ),
           ),
         );
 
         if (ruleNames.length === 0) {
-          return err('INVALID_INPUT', 'No rules found in the source -- nothing to test.');
+          return err('INVALID_INPUT', 'No testable rules found in the source -- nothing to test.');
         }
 
+        // Infer input shape from AST ref accesses.
+        const inputShape = inferInputShape(ast);
+
         const testFile = tableStyle
-          ? makeTableSkeleton(packageName, ruleNames)
-          : makeSkeleton(packageName, ruleNames);
-        return ok<RegoGenerateTestSkeletonOutput>({ testFile, ruleNames });
+          ? makeTableSkeleton(packageName, ruleNames, inputShape)
+          : makeSkeleton(packageName, ruleNames, inputShape);
+
+        return ok<RegoGenerateTestSkeletonOutput>({
+          testFile,
+          ruleNames,
+          inferredInputShape: inputShape,
+        });
       });
     },
   );

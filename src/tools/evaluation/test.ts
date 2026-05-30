@@ -52,6 +52,32 @@ const RegoTestInput = {
     .describe(
       'Include local variable bindings in trace output (`--var-values`). When a table-driven test using `every tc in cases { ... }` fails, the trace shows which `tc` triggered the failure. Has no effect unless `verbose: true` is also set (OPA only emits trace entries in verbose mode).',
     ),
+  ignorePatterns: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Glob patterns for files to exclude from the test run (`--ignore <pattern>`). Pass one pattern per array element. Useful for excluding generated or fixture files that contain no tests (e.g. `["*_generated.rego", "fixtures/**"]`).',
+    ),
+  bundle: z
+    .boolean()
+    .optional()
+    .describe(
+      'Load paths as OPA bundle roots (`--bundle`). Required when testing policies structured as bundles with a `manifest.json` at the root. Not needed for plain policy directories.',
+    ),
+  count: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'Number of times to repeat each test (`--count N`). Default is 1. Useful for measuring repeatability or catching flaky tests under load.',
+    ),
+  timeout: z
+    .string()
+    .optional()
+    .describe(
+      'Per-test timeout as a Go duration string, e.g. `"30s"` or `"2m"` (`--timeout`). OPA\'s default is 5s. Increase for tests that load large policy sets or call slow built-ins.',
+    ),
 };
 
 export interface TestRecord {
@@ -107,6 +133,15 @@ export interface RegoTestOutput {
   coveragePct?: number;
   /** Present when `threshold` is set and the threshold was met. */
   thresholdMet?: boolean;
+  /**
+   * Groups of parameterized test cases. When OPA runs `test_X[case]`-style
+   * parametrized rules, each case appears as a separate record like
+   * `test_X[{"role":"admin"}]`. This field maps the base test name (e.g.
+   * `test_X`) to all of its case records, making it easy to see which specific
+   * inputs triggered a failure. Only present when at least one parametrized
+   * group is detected.
+   */
+  parameterizedGroups?: Record<string, TestRecord[]>;
 }
 
 export function registerRegoTest(server: McpServer, config: Config): void {
@@ -117,7 +152,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
     {
       title: 'Run Rego tests',
       description:
-        'Run Rego unit tests with `opa test`. Returns aggregate pass/fail counts plus per-test records. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up. Use `runPattern` to filter by name regex. Use `threshold` to gate on a minimum coverage percentage (returns COVERAGE_BELOW_THRESHOLD on failure). Use `varValues: true` with `verbose: true` to include local variable bindings in the trace -- essential for debugging table-driven tests written with `every tc in cases { ... }` to identify which case caused a failure. Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.',
+        "Run Rego unit tests with `opa test`. Returns aggregate pass/fail counts plus per-test records. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up automatically. Use `runPattern` to filter by name regex; when no tests match, the error hint includes the pattern you supplied. Use `threshold` to gate on minimum coverage (returns COVERAGE_BELOW_THRESHOLD on failure). Use `varValues: true` with `verbose: true` to include local variable bindings in the trace -- essential for debugging table-driven tests written with `every tc in cases { ... }` to identify which case caused a failure. When tests use the `test_X[case]` parametrized form, the output includes `parameterizedGroups` mapping each base test name to its case records. Use `ignorePatterns` to exclude generated or fixture files. Use `bundle: true` when testing bundle-structured policy directories. Use `timeout` to raise the per-test limit beyond OPA's default 5s. Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.",
       inputSchema: RegoTestInput,
       annotations: {
         readOnlyHint: true,
@@ -126,7 +161,21 @@ export function registerRegoTest(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ paths, verbose, coverage, runPattern, threshold, varValues }, { signal }) => {
+    async (
+      {
+        paths,
+        verbose,
+        coverage,
+        runPattern,
+        threshold,
+        varValues,
+        ignorePatterns,
+        bundle,
+        count,
+        timeout,
+      },
+      { signal },
+    ) => {
       return withToolEnvelope<RegoTestOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
@@ -143,6 +192,10 @@ export function registerRegoTest(server: McpServer, config: Config): void {
             runPattern,
             varValues,
             threshold,
+            ignorePatterns,
+            bundle,
+            count,
+            timeout,
           },
           signal,
         );
@@ -154,7 +207,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
           return handleCoverageMode(result.stdout, result.stderr, result.exitCode, threshold);
         }
 
-        return handleTestRecordsMode(result.stdout, result.exitCode);
+        return handleTestRecordsMode(result.stdout, result.exitCode, runPattern);
       });
     },
   );
@@ -227,6 +280,7 @@ function handleCoverageMode(
 function handleTestRecordsMode(
   stdout: string,
   exitCode: number | null,
+  runPattern?: string,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
   let records: TestRecord[] = [];
 
@@ -244,11 +298,14 @@ function handleTestRecordsMode(
   }
 
   if (records.length === 0 && exitCode === 0) {
+    const hint = runPattern
+      ? `No tests matched the pattern "${runPattern}". Verify the regex against your test rule names. Tests live in *_test.rego files with rules named test_*.`
+      : 'Tests live in *_test.rego files with rules named test_*.';
     return err(
       'NO_TESTS_FOUND',
       'opa test did not discover any test rules in the provided paths.',
       {
-        hint: 'Tests live in *_test.rego files with rules named test_*.',
+        hint,
       },
     );
   }
@@ -259,11 +316,26 @@ function handleTestRecordsMode(
   const skipped = records.filter((r) => r.skip).length;
   const passed = records.length - failed - skipped;
 
+  // Group parametrized test cases. OPA names them like `test_X[{"key":"val"}]`;
+  // extract the base name and bucket records for at-a-glance failure analysis.
+  const parameterizedGroups: Record<string, TestRecord[]> = {};
+  for (const record of records) {
+    if (record.name) {
+      const match = /^(test_[a-zA-Z0-9_]+)\[/.exec(record.name);
+      if (match) {
+        const baseName = match[1]!;
+        (parameterizedGroups[baseName] ??= []).push(record);
+      }
+    }
+  }
+  const hasGroups = Object.keys(parameterizedGroups).length > 0;
+
   return ok<RegoTestOutput>({
     passed,
     failed,
     skipped,
     total: records.length,
     results: records,
+    ...(hasGroups ? { parameterizedGroups } : {}),
   });
 }

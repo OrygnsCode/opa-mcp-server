@@ -17,6 +17,44 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-05-30
+
+### Added
+
+- **`rego_test` -- four new parameters:**
+  - `ignorePatterns: string[]` -- passes `--ignore <pattern>` (once per entry) to
+    exclude generated or fixture files from the test run.
+  - `bundle: boolean` -- passes `--bundle` to load paths as OPA bundle roots.
+    Required for policies structured with `manifest.json` at the root.
+  - `count: number` -- passes `--count N` to repeat each test N times. Useful for
+    measuring repeatability or catching flaky tests.
+  - `timeout: string` -- passes `--timeout <duration>` (e.g. `"30s"`, `"2m"`) to
+    raise the per-test limit beyond OPA's default 5s.
+- **`rego_test` -- `parameterizedGroups` output field:** when OPA runs
+  `test_X[case]`-style parametrized rules, the output now includes a
+  `parameterizedGroups` map from the base test name (e.g. `test_X`) to all of
+  its case records. Makes it easy to identify which specific table-driven input
+  triggered a failure without manually scanning the flat `results` array.
+- **`rego_test` -- improved `NO_TESTS_FOUND` hint:** when `runPattern` is supplied
+  but matches no tests, the error hint now quotes the pattern you used so the
+  developer can immediately see if the regex was wrong.
+- **`rego_generate_test_skeleton` -- input shape inference:** the tool now walks the
+  OPA AST to find every `input.<field>...` access in the policy body and builds a
+  nested template object (`inferredInputShape`) that reflects exactly which input
+  fields the rules actually read. The inferred shape is used as the placeholder
+  `with input as {...}` in every generated stub, so developers fill in realistic
+  values rather than guess the structure. The shape is also returned in the
+  `inferredInputShape` field of the response.
+- **`rego_generate_test_skeleton` -- removes `input := {}` anti-pattern:** the
+  classic single-case skeleton no longer assigns `input := {}` (which shadows
+  the built-in `input` keyword). Stubs now use `data.<pkg>.<rule> with input as
+  <inferredShape>` directly, which is the idiomatic Rego v1 form.
+- **`rego_generate_test_skeleton` -- skips existing test rules:** rules named
+  `test_*` or `todo_test_*` are now filtered out before stub generation. A policy
+  that already has tests will not produce double-prefixed `test_test_*` stubs, and
+  a file containing only test rules now returns `INVALID_INPUT` with a clear message
+  instead of silently generating nothing useful.
+
 ## [0.1.15] - 2026-05-29
 
 ### Added
