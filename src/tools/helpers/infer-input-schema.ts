@@ -179,7 +179,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
       return withToolEnvelope<RegoInferInputSchemaOutput>(config, async () => {
         if (source === undefined && (!paths || paths.length === 0)) {
           return err(
-            'UNKNOWN_ERROR',
+            'INVALID_INPUT',
             'rego_infer_input_schema requires either source or at least one path.',
           );
         }

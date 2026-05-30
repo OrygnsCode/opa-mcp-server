@@ -164,6 +164,24 @@ describe('loadConfig — validation failures', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('--help'));
   });
 
+  it('exits with code 2 when OPA_URL uses a non-http scheme (file://)', () => {
+    process.env['OPA_URL'] = 'file:///etc/passwd';
+    vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      throw new Error('process.exit called');
+    }) as never);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => loadConfig()).toThrow('process.exit called');
+  });
+
+  it('exits with code 2 when OPA_URL uses a non-http scheme (javascript:)', () => {
+    process.env['OPA_URL'] = 'javascript:alert(1)';
+    vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      throw new Error('process.exit called');
+    }) as never);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => loadConfig()).toThrow('process.exit called');
+  });
+
   it('exits with code 2 when OPA_MCP_TIMEOUT_MS is negative', () => {
     process.env['OPA_MCP_TIMEOUT_MS'] = '-100';
     vi.spyOn(process, 'exit').mockImplementation(((_c?: number) => {
