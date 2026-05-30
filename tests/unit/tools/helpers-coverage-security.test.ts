@@ -55,7 +55,10 @@ function coverageStdout(
   return JSON.stringify(testRecords) + '\n' + JSON.stringify(coverage);
 }
 
-const passingTestRecord = { pass: true, package: 'data.rbac_test', name: 'test_allow' };
+// OPA never emits `pass: true` on passing records. A passing record carries
+// only its package and name (and a `duration` in real output). Status fields
+// (`fail`, `skip`) appear only when the test explicitly fails or is skipped.
+const passingTestRecord = { package: 'data.rbac_test', name: 'test_allow' };
 const failingTestRecord = { fail: true, package: 'data.rbac_test', name: 'test_deny' };
 
 const singleFileCoverage = (coveragePercent: number, hasGap = true) => ({
@@ -194,6 +197,30 @@ describe('rego_coverage_gaps', () => {
     expect(env.data?.testsPassed).toBe(1);
     expect(env.data?.testsFailed).toBe(1);
     expect(env.data?.testsSkipped).toBe(1);
+  });
+
+  it('counts testsPassed as total minus failed and skipped (OPA never emits pass:true)', async () => {
+    // Real OPA passing records have no status field at all. This test uses
+    // two bare records (no fail/skip) alongside one failing record to confirm
+    // that testsPassed is derived from subtraction, not from a pass field.
+    const realPassing1 = { package: 'data.x_test', name: 'test_one', duration: 123 };
+    const realPassing2 = { package: 'data.x_test', name: 'test_two', duration: 456 };
+    const realFailing = { fail: true, package: 'data.x_test', name: 'test_three' };
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        coverageStdout([realPassing1, realPassing2, realFailing], singleFileCoverage(67)),
+      ),
+    );
+    const server = makeServer();
+    registerRegoCoverageGaps(server, baseConfig);
+    const env = await callTool<RegoCoverageGapsOutput>(server, 'rego_coverage_gaps', {
+      paths: [fixturePath('policies', 'valid')],
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.testsPassed).toBe(2); // total(3) - failed(1) - skipped(0)
+    expect(env.data?.testsFailed).toBe(1);
+    expect(env.data?.testsSkipped).toBe(0);
   });
 
   it('returns NO_TESTS_FOUND when stdout has no coverage report and exit is 0', async () => {
