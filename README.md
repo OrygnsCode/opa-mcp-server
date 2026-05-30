@@ -249,6 +249,7 @@ variable is optional; defaults are sensible for a local OPA on
 | `OPA_MCP_MAX_RESPONSE_BYTES` | `100000`                     | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker.                                                      |
 | `OPA_MCP_TIMEOUT_MS`         | `30000`                      | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`.                                        |
 | `OPA_MCP_HTTP_TIMEOUT_MS`    | `15000`                      | Timeout for HTTP requests to the OPA REST API.                                                                                                            |
+| `OPA_MCP_NO_TELEMETRY`       | _(unset)_                    | Set to `1` to disable the anonymous startup ping. The ping sends only the server version and OS platform. No policy content or file paths are ever sent.  |
 
 Paths in `OPA_MCP_ALLOWED_PATHS` and the `*_BINARY` variables must be
 absolute. Relative paths and missing binaries are rejected with structured

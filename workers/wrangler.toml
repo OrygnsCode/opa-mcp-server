@@ -1,0 +1,7 @@
+name = "opa-mcp-telemetry"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "TELEMETRY"
+id = "f244ae5b067e4e9d884b5f06917ba0cd"
