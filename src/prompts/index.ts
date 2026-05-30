@@ -44,10 +44,16 @@ Workflow:
 };
 
 const policyReviewChecklistPrompt = (args: { source?: string }): string => {
+  // Collapse any run of 3+ backticks to 2 so user-supplied source cannot
+  // close the enclosing ```rego fence and inject arbitrary prompt content.
+  const safeSource = (args.source ?? '<paste the policy via the next user message>').replace(
+    /`{3,}/g,
+    '``',
+  );
   return `You are reviewing the following Rego policy:
 
 \`\`\`rego
-${args.source ?? '<paste the policy via the next user message>'}
+${safeSource}
 \`\`\`
 
 Apply this checklist, calling tools as needed:

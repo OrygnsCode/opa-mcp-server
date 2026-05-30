@@ -12,7 +12,13 @@ import { z } from 'zod';
 
 const ConfigSchema = z.object({
   /** Base URL of a running OPA server (used by `opa_*` runtime tools). */
-  opaUrl: z.string().url().default('http://localhost:8181'),
+  opaUrl: z
+    .string()
+    .url()
+    .refine((u) => u.startsWith('http://') || u.startsWith('https://'), {
+      message: 'OPA_URL must use the http or https scheme.',
+    })
+    .default('http://localhost:8181'),
 
   /** Optional bearer token for OPA running with `--authentication=token`. */
   opaToken: z.string().optional(),

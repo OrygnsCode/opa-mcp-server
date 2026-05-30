@@ -182,11 +182,13 @@ describe('rego_infer_input_schema', () => {
     expect((env as { error: { code: string } }).error.code).toBe('OPA_BINARY_NOT_FOUND');
   });
 
-  it('returns error when neither source nor paths are provided', async () => {
+  it('returns INVALID_INPUT when neither source nor paths are provided', async () => {
     const server = makeServer();
     registerRegoInferInputSchema(server, baseConfig);
     const env = await callTool(server, 'rego_infer_input_schema', {});
     expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it('accepts a file path and parses it directly', async () => {
