@@ -184,6 +184,9 @@ describe('rego_generate_test_skeleton', () => {
     expect(env.data?.testFile).toContain('test_deny_reasons if {');
     // Single allow rule shouldn't appear twice in the skeleton.
     expect(env.data?.testFile.match(/test_allow if/g)).toHaveLength(1);
+    // New: uses `with input as` idiom, NOT the `input := {}` anti-pattern.
+    expect(env.data?.testFile).toContain('with input as');
+    expect(env.data?.testFile).not.toContain('input := {}');
   });
 
   it('handles a top-level package (no nested path)', async () => {
@@ -199,6 +202,29 @@ describe('rego_generate_test_skeleton', () => {
     });
     // With no nested package, fallback to main_test.
     expect(env.data?.testFile).toContain('package main_test');
+  });
+
+  it('includes inferredInputShape in the response', async () => {
+    const ast = {
+      package: {
+        path: [
+          { value: 'data', type: 'var' },
+          { value: 'rbac', type: 'string' },
+        ],
+      },
+      rules: [{ head: { name: 'allow' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ inferredInputShape: unknown }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package rbac\nallow if true' },
+    );
+    expect(env.ok).toBe(true);
+    // AST has no body expressions -- no input.* refs, so shape must be exactly {}.
+    expect(env.data?.inferredInputShape).toEqual({});
   });
 
   it('reports INVALID_INPUT when no rules are found', async () => {
@@ -284,6 +310,217 @@ describe('rego_generate_test_skeleton', () => {
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
   });
 
+  // ─── skip test_* / todo_test_* rules ─────────────────────────────────
+
+  it('skips existing test_* rules -- they should not get stubs', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [
+        { head: { name: 'allow' } },
+        { head: { name: 'test_allow' } }, // should be filtered out
+        { head: { name: 'deny' } },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ ruleNames: string[]; testFile: string }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package authz' },
+    );
+    expect(env.ok).toBe(true);
+    // test_allow must be absent from ruleNames -- it was an existing test rule.
+    expect(env.data?.ruleNames).not.toContain('test_allow');
+    expect(env.data?.ruleNames).toEqual(expect.arrayContaining(['allow', 'deny']));
+    // The skeleton must not generate a test_test_allow double-prefixed stub.
+    expect(env.data?.testFile).not.toContain('test_test_allow');
+  });
+
+  it('skips todo_test_* rules from generation', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [
+        { head: { name: 'allow' } },
+        { head: { name: 'todo_test_allow' } }, // should be filtered out
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ ruleNames: string[] }>(server, 'rego_generate_test_skeleton', {
+      source: 'package authz',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.ruleNames).toEqual(['allow']);
+    expect(env.data?.ruleNames).not.toContain('todo_test_allow');
+  });
+
+  it('returns INVALID_INPUT when all rules are test_* or todo_test_* (nothing testable)', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [{ head: { name: 'test_allow' } }, { head: { name: 'todo_test_deny' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_generate_test_skeleton', {
+      source: 'package authz',
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+
+  // ─── input shape inference ────────────────────────────────────────────
+
+  it('infers input shape from body expressions and uses it in the skeleton', async () => {
+    // Simulate an AST where the rule body accesses input.role and input.action.
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [
+        {
+          head: { name: 'allow' },
+          body: [
+            {
+              terms: [
+                { type: 'ref', value: [{ type: 'var', value: 'equal' }] },
+                {
+                  type: 'ref',
+                  value: [
+                    { type: 'var', value: 'input' },
+                    { type: 'string', value: 'role' },
+                  ],
+                },
+                { type: 'string', value: 'admin' },
+              ],
+            },
+            {
+              terms: [
+                { type: 'ref', value: [{ type: 'var', value: 'equal' }] },
+                {
+                  type: 'ref',
+                  value: [
+                    { type: 'var', value: 'input' },
+                    { type: 'string', value: 'action' },
+                  ],
+                },
+                { type: 'string', value: 'read' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string; inferredInputShape: Record<string, unknown> }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package authz\nallow if {\n  input.role == "admin"\n  input.action == "read"\n}' },
+    );
+    expect(env.ok).toBe(true);
+    // Inferred shape has both detected fields.
+    expect(env.data?.inferredInputShape).toMatchObject({ role: null, action: null });
+    // Skeleton uses the inferred shape in the `with input as` clause.
+    expect(env.data?.testFile).toContain('"role": null');
+    expect(env.data?.testFile).toContain('"action": null');
+    expect(env.data?.testFile).toContain('with input as');
+  });
+
+  it('infers nested input shape (e.g. input.user.role)', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [
+        {
+          head: { name: 'allow' },
+          body: [
+            {
+              terms: [
+                { type: 'ref', value: [{ type: 'var', value: 'equal' }] },
+                {
+                  type: 'ref',
+                  value: [
+                    { type: 'var', value: 'input' },
+                    { type: 'string', value: 'user' },
+                    { type: 'string', value: 'role' },
+                  ],
+                },
+                { type: 'string', value: 'admin' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ inferredInputShape: Record<string, unknown> }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package authz' },
+    );
+    expect(env.ok).toBe(true);
+    // Nested: { user: { role: null } }
+    expect(env.data?.inferredInputShape).toMatchObject({ user: { role: null } });
+  });
+
+  it('falls back to empty shape ({}) when no input.* refs are detected', async () => {
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [{ head: { name: 'always_allow' } }],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string; inferredInputShape: Record<string, unknown> }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package authz\nalways_allow := true' },
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.inferredInputShape).toEqual({});
+    // Skeleton uses `with input as {}` when shape is empty.
+    expect(env.data?.testFile).toContain('with input as {}');
+  });
+
+  it('does not infer dynamic input refs (var-keyed or number-keyed)', async () => {
+    // input[x] (var key) and input[0] (number key) should not be added to the shape.
+    const ast = {
+      package: { path: [{ value: 'data' }, { value: 'authz' }] },
+      rules: [
+        {
+          head: { name: 'allow' },
+          body: [
+            {
+              terms: [
+                {
+                  // input[x] -- dynamic key, should be ignored
+                  type: 'ref',
+                  value: [
+                    { type: 'var', value: 'input' },
+                    { type: 'var', value: 'x' }, // var key, not string
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ inferredInputShape: Record<string, unknown> }>(
+      server,
+      'rego_generate_test_skeleton',
+      { source: 'package authz' },
+    );
+    expect(env.ok).toBe(true);
+    // Dynamic access adds nothing to the shape.
+    expect(env.data?.inferredInputShape).toEqual({});
+  });
+
   // ─── tableStyle ──────────────────────────────────────────────────────
 
   it('emits every-loop stubs when tableStyle: true', async () => {
@@ -323,6 +560,8 @@ describe('rego_generate_test_skeleton', () => {
     // Body evaluates the rule under test with tc.input and compares to tc.expected.
     expect(file).toContain('data.authz.allow with input as tc.input');
     expect(file).toContain('actual == tc.expected');
+    // No input := {} anti-pattern anywhere.
+    expect(file).not.toContain('input := {}');
   });
 
   it('tableStyle: false falls back to the classic single-case skeleton', async () => {
@@ -341,9 +580,10 @@ describe('rego_generate_test_skeleton', () => {
     // Classic style: no `every` loop, no cases array.
     expect(env.data?.testFile).not.toContain('every tc in');
     expect(env.data?.testFile).not.toContain('_cases := [');
-    // Classic stub form.
+    // Classic stub form uses `with input as` -- no `input := {}` anti-pattern.
     expect(env.data?.testFile).toContain('test_allow if {');
-    expect(env.data?.testFile).toContain('# Arrange');
+    expect(env.data?.testFile).toContain('with input as');
+    expect(env.data?.testFile).not.toContain('input := {}');
   });
 
   it('tableStyle omitted produces classic skeleton (backward-compatible default)', async () => {
@@ -359,7 +599,8 @@ describe('rego_generate_test_skeleton', () => {
     });
     expect(env.ok).toBe(true);
     expect(env.data?.testFile).not.toContain('every tc in');
-    expect(env.data?.testFile).toContain('# Arrange');
+    expect(env.data?.testFile).toContain('with input as');
+    expect(env.data?.testFile).not.toContain('input := {}');
   });
 
   it('tableStyle: true generates one cases array and test per rule', async () => {
