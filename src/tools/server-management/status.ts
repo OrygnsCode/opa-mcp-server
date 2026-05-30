@@ -62,7 +62,10 @@ export function registerStatusTools(server: McpServer, config: Config): void {
     {
       title: 'OPA status',
       description:
-        'Return OPA bundle and decision-log status from the running server. Combines `/v1/config` and the operational status the server exposes through it.',
+        'Return the live plugin status from the running OPA server via `GET /v1/status`. ' +
+        'Shows which bundles have been downloaded and activated, the last successful download ' +
+        'timestamp, and the state of the decision-log drain. Distinct from `opa_config`, which ' +
+        'returns the static configuration OPA was started with.',
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -74,12 +77,12 @@ export function registerStatusTools(server: McpServer, config: Config): void {
     async (_input, { signal }) => {
       return withToolEnvelope<{ status: unknown }>(config, async () => {
         try {
-          // OPA's status comes back through /v1/config -- the same call as
-          // opa_config, but presented with a simpler envelope here so an
-          // agent can ask "what's running" without needing to know the
-          // underlying shape of the response.
-          const status = await opa.request({ method: 'GET', path: '/v1/config', signal });
-          return ok({ status });
+          const data = await opa.request<{ result?: unknown }>({
+            method: 'GET',
+            path: '/v1/status',
+            signal,
+          });
+          return ok({ status: data.result ?? data });
         } catch (e) {
           return mapOpaClientError(e);
         }
