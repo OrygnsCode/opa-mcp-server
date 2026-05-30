@@ -199,6 +199,26 @@ function walkExpression(
     }
   }
 
+  // String interpolation ($"..." / $`...` syntax) compiles to
+  // internal.template_string() calls in the OPA AST. Z3 cannot encode
+  // string construction semantics, so this is a named unsupported type
+  // rather than the generic unknown_builtin, giving callers a specific
+  // actionable message.
+  if (opName === 'internal.template_string') {
+    addUnsupported(
+      result,
+      'string_interpolation',
+      `Rule '${ruleName}' uses string interpolation ($"..." syntax), which compiles to internal.template_string() in the OPA AST and cannot be encoded in Z3.`,
+    );
+    return [
+      {
+        kind: 'unsupported',
+        constructType: 'string_interpolation',
+        reason: 'string interpolation ($"..." syntax)',
+      },
+    ];
+  }
+
   if (!SUPPORTED_BINARY_OPS.has(opName)) {
     addUnsupported(
       result,

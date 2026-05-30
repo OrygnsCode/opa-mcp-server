@@ -26,6 +26,9 @@ export type ToolErrorCode =
   | 'CANCELLED'
   | 'VERIFY_INCONCLUSIVE'
   | 'Z3_INIT_ERROR'
+  | 'OPA_VERSION_UNSUPPORTED'
+  | 'GITHUB_TOKEN_MISSING'
+  | 'GIST_CREATE_FAILED'
   | 'UNKNOWN_ERROR';
 
 /** Structured error payload. */

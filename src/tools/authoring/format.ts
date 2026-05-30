@@ -22,6 +22,43 @@ export interface RegoFormatOutput {
   changed: boolean;
 }
 
+// ─── String interpolation version guard ─────────────────────────────────────
+
+/** Returns true if the source uses OPA v1.12.0+ string interpolation syntax. */
+function hasStringInterpolation(source: string): boolean {
+  return source.includes('$"') || source.includes('$`');
+}
+
+/** Returns true if the source contains a literal \\{ that would be corrupted by the formatter bug. */
+function hasEscapedBrace(source: string): boolean {
+  return source.includes('\\{');
+}
+
+/**
+ * Parse a semver string to its numeric components.
+ * Pre-release suffixes (e.g. "1.12.0-dev") are ignored -- only the
+ * M.N.P digits are examined. Returns null when the string does not
+ * begin with three dot-separated integers.
+ */
+function parseVersion(v: string): { major: number; minor: number; patch: number } | null {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v);
+  if (!m) return null;
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) };
+}
+
+/**
+ * Returns true when the given OPA version string matches a release that
+ * corrupts \\{ escape sequences in string interpolations during `opa fmt`.
+ * Affected: 1.12.0, 1.12.1. Fixed: 1.12.2+.
+ */
+function isFormatterBugAffected(version: string): boolean {
+  const v = parseVersion(version);
+  if (!v) return false;
+  return v.major === 1 && v.minor === 12 && (v.patch === 0 || v.patch === 1);
+}
+
+// ─── Tool registration ────────────────────────────────────────────────────────
+
 export function registerRegoFormat(server: McpServer, config: Config): void {
   const opa = new OpaCli(config);
 
@@ -30,7 +67,8 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
     {
       title: 'Format Rego',
       description:
-        'Format Rego source code using `opa fmt`. Returns the formatted source and a `changed` flag indicating whether the input was already canonical.',
+        'Format Rego source code using `opa fmt`. Returns the formatted source and a `changed` flag indicating whether the input was already canonical. ' +
+        'When the source uses string interpolation ($"..." or $`...` syntax) and OPA v1.12.0 or v1.12.1 is detected, the tool warns about or blocks formatting due to a known OPA bug that corrupts \\{ escape sequences (fixed in OPA v1.12.2).',
       inputSchema: RegoFormatInput,
       annotations: {
         readOnlyHint: true,
@@ -41,6 +79,33 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
     },
     async ({ source }, { signal }) => {
       return withToolEnvelope(config, async () => {
+        const warnings: string[] = [];
+
+        // OPA v1.12.0 and v1.12.1 have a known `opa fmt` bug: \\{ escape
+        // sequences inside string interpolations ($"..." syntax) are
+        // silently stripped to {, producing invalid Rego output. The bug
+        // was fixed in OPA v1.12.2. Check before formatting whenever the
+        // source contains interpolation syntax, so we can block the
+        // data-corrupting case or warn about the latent risk.
+        if (hasStringInterpolation(source)) {
+          const opaVersion = await opa.version(signal);
+          if (opaVersion !== null && isFormatterBugAffected(opaVersion)) {
+            if (hasEscapedBrace(source)) {
+              return err(
+                'OPA_VERSION_UNSUPPORTED',
+                `opa fmt v${opaVersion} has a known bug that silently corrupts \\{ escape sequences inside string interpolations ($"..." syntax). Formatting would produce invalid Rego.`,
+                {
+                  hint: 'Upgrade OPA to v1.12.2 or later. The \\{ corruption bug was fixed in OPA v1.12.2.',
+                  details: { opaVersion, affectedVersions: ['1.12.0', '1.12.1'] },
+                },
+              );
+            }
+            warnings.push(
+              `OPA v${opaVersion} has a known formatter bug (fixed in v1.12.2): \\{ escape sequences inside string interpolations ($"..." syntax) are silently corrupted to { during formatting. Your source does not currently contain \\{ inside $"...", but upgrade OPA to v1.12.2 or later to prevent future issues.`,
+            );
+          }
+        }
+
         const result = await opa.fmt({ source }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
@@ -64,10 +129,10 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
         }
 
         const formatted = result.stdout;
-        return ok<RegoFormatOutput>({
-          formatted,
-          changed: formatted !== source,
-        });
+        return ok<RegoFormatOutput>(
+          { formatted, changed: formatted !== source },
+          warnings.length > 0 ? warnings : undefined,
+        );
       });
     },
   );

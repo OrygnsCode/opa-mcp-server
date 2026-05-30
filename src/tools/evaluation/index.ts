@@ -13,10 +13,12 @@ import { registerRegoCompileQuery } from './compile.js';
 import { registerOpaExec } from './exec.js';
 import { registerRegoEval } from './eval.js';
 import { registerRegoTest } from './test.js';
+import { registerRegoTestMultiroot } from './test-multiroot.js';
 
 export function registerEvaluationTools(server: McpServer, config: Config): void {
   registerRegoEval(server, config); // registers rego_eval + 3 variants
   registerRegoTest(server, config);
+  registerRegoTestMultiroot(server, config);
   registerRegoBench(server, config);
   registerRegoCompileQuery(server, config);
   registerOpaExec(server, config);

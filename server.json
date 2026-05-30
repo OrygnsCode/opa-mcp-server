@@ -8,13 +8,13 @@
     "url": "https://github.com/OrygnsCode/opa-mcp-server",
     "source": "github"
   },
-  "version": "0.1.14",
+  "version": "0.1.15",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@orygn/opa-mcp",
-      "version": "0.1.14",
+      "version": "0.1.15",
       "runtimeHint": "npx",
       "transport": { "type": "stdio" },
       "environmentVariables": [
@@ -52,12 +52,18 @@
           "name": "OPA_MCP_ALLOWED_PATHS",
           "description": "Comma-separated list of root directories tools may read/write. When unset, file-based tools refuse to access the disk.",
           "isRequired": false
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "description": "GitHub personal access token with the \"gist\" scope. Required only for rego_playground_share.",
+          "isRequired": false,
+          "isSecret": true
         }
       ]
     },
     {
       "registryType": "oci",
-      "identifier": "docker.io/orygn/opa-mcp:0.1.14",
+      "identifier": "docker.io/orygn/opa-mcp:0.1.15",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
@@ -71,6 +77,12 @@
           "description": "Bearer token for OPA authentication.",
           "isRequired": false,
           "isSecret": true
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "description": "GitHub personal access token with the \"gist\" scope. Required only for rego_playground_share.",
+          "isRequired": false,
+          "isSecret": true
         }
       ]
     }
@@ -78,7 +90,7 @@
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
       "tool": "manual",
-      "version": "0.1.14"
+      "version": "0.1.15"
     }
   }
 }

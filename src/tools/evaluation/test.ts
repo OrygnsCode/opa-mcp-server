@@ -54,7 +54,7 @@ const RegoTestInput = {
     ),
 };
 
-interface TestRecord {
+export interface TestRecord {
   location?: { file?: string; row?: number; col?: number };
   package?: string;
   name?: string;

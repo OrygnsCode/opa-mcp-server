@@ -5,7 +5,7 @@
  * here in order; ordering doesn't affect behavior but keeps the
  * declaration site tidy.
  *
- * Tools (50 total):
+ * Tools (52 total):
  *   Category A -- Authoring:        rego_format, rego_check,
  *                                   rego_check_schema, rego_lint,
  *                                   rego_parse_ast, rego_inspect,
@@ -14,7 +14,8 @@
  *   Category B -- Evaluation:       rego_eval, rego_eval_with_explain,
  *                                   rego_eval_with_profile,
  *                                   rego_eval_with_coverage, rego_test,
- *                                   rego_bench, rego_compile_query
+ *                                   rego_test_multiroot, rego_bench,
+ *                                   rego_compile_query
  *   Category C -- Bundles:          opa_bundle_build, opa_bundle_sign,
  *                                   opa_bundle_verify, opa_exec
  *   Category D -- Server mgmt:      opa_list_policies, opa_get_policy,
@@ -32,7 +33,8 @@
  *                                   rego_security_audit,
  *                                   rego_infer_input_schema,
  *                                   rego_fix, rego_format_write,
- *                                   rego_policy_diff, rego_verify
+ *                                   rego_policy_diff, rego_verify,
+ *                                   rego_playground_share
  *   Category F -- Conftest:         conftest_test, conftest_verify,
  *                                   conftest_pull, conftest_push
  *   Category G -- Meta:             mcp_server_info
