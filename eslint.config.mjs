@@ -15,6 +15,9 @@ export default [
       // Manual smoke / debug scripts — gitignored, never committed,
       // intentionally console-heavy for human-readable output.
       'smoke-*.mjs',
+      // Cloudflare Worker -- uses Worker globals (URL, Response, fetch)
+      // that are not Node globals; linting it as Node code produces false positives.
+      'workers/**',
     ],
   },
   js.configs.recommended,
