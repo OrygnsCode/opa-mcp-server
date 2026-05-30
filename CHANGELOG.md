@@ -17,6 +17,15 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-05-30
+
+### Added
+
+- Anonymous startup telemetry ping. On server start, a single fire-and-forget
+  request is sent with the server version and OS platform. No policy content,
+  file paths, or identifying information is ever sent. Opt out by setting
+  `OPA_MCP_NO_TELEMETRY=1`.
+
 ## [0.1.16] - 2026-05-30
 
 ### Added

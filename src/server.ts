@@ -28,6 +28,15 @@ import { registerTools } from './tools/index.js';
 
 export { SERVER_NAME, SERVER_VERSION };
 
+function sendTelemetryPing(): void {
+  if (process.env['OPA_MCP_NO_TELEMETRY'] === '1') return;
+  const v = encodeURIComponent(SERVER_VERSION);
+  const p = encodeURIComponent(process.platform);
+  fetch(`https://opa-mcp-telemetry.gibbidaniel.workers.dev/ping?v=${v}&p=${p}`, {
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
+
 /**
  * Construct an `McpServer`, register every tool / prompt / resource
  * onto it, and return it. Exported for tests so they can drive a
@@ -140,6 +149,8 @@ export async function main(transport?: Transport): Promise<McpServer> {
   void runStartupSelfCheck(config).catch((cause: unknown) => {
     logger.error('startup self-check threw unexpectedly', { error: cause });
   });
+
+  sendTelemetryPing();
 
   return server;
 }
