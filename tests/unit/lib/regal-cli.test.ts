@@ -74,7 +74,7 @@ describe('RegalCli', () => {
     it('writes inline source to a temp file and lints it', async () => {
       await regal.lint({ source: 'package x' });
       const args = mockRun.mock.calls[0]![1].args;
-      expect(args[args.length - 1]).toMatch(/orygn-opa-mcp-.*\.rego$/);
+      expect(args[args.length - 1]).toMatch(/orygn-regal-mcp-[^/\\]+[/\\]input\.rego$/);
     });
 
     it('throws when neither source nor paths are provided', async () => {

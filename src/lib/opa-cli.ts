@@ -15,8 +15,7 @@
  * would force conversions both ways. Stdout is JSON whenever
  * `--format=json` is set, and tools call `JSON.parse` on it themselves.
  */
-import { randomUUID } from 'node:crypto';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -589,18 +588,19 @@ export class OpaCli {
   // ─── Internal: temp file management ──────────────────────────────────
 
   /**
-   * Write `source` to a uniquely named `.rego` file in the OS tmp dir,
-   * pass its path to `fn`, and remove it on completion (success or
-   * failure). The path is unique per call so concurrent invocations do
-   * not collide.
+   * Write `source` to a private temp directory (mode 0700) created with
+   * mkdtemp. The directory and its contents are removed on completion.
+   * mkdtemp is safe: the directory is created atomically (O_CREAT|O_EXCL)
+   * so no other process can predict or race for the path.
    */
   private async withTempSource<T>(source: string, fn: (path: string) => Promise<T>): Promise<T> {
-    const path = join(tmpdir(), `orygn-opa-mcp-${randomUUID()}.rego`);
-    await writeFile(path, source, 'utf8');
+    const tmpDir = await mkdtemp(join(tmpdir(), 'orygn-opa-mcp-'));
+    const filePath = join(tmpDir, 'input.rego');
+    await writeFile(filePath, source, 'utf8');
     try {
-      return await fn(path);
+      return await fn(filePath);
     } finally {
-      await rm(path, { force: true });
+      await rm(tmpDir, { recursive: true, force: true });
     }
   }
 }

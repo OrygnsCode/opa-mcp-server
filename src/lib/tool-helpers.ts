@@ -8,11 +8,12 @@
  */
 
 /**
- * Matches the temp-file basenames written by OpaCli.withTempSource and
- * RegalCli when handling inline source. Used to scrub implementation-
- * internal paths from tool output before it reaches the caller.
+ * Matches the temp-file paths written by OpaCli.withTempSource and
+ * RegalCli.withTempSource when handling inline source. Both now use
+ * mkdtemp which produces a private directory; the file inside is always
+ * named input.rego. Matches both Unix (/) and Windows (\) separators.
  */
-export const INLINE_TEMP_PATH_PATTERN = /orygn-opa-mcp-[0-9a-f-]+\.rego$/i;
+export const INLINE_TEMP_PATH_PATTERN = /orygn-(?:opa|regal)-mcp-[^/\\]+[/\\]input\.rego$/i;
 
 /**
  * Replace a file path that refers to one of our temp files with the
