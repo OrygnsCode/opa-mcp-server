@@ -55,8 +55,9 @@ interface OpaCoverageReport {
   coverage?: number;
 }
 
+// OPA never emits `pass: true` on passing records -- they simply have no
+// status field. Only failing and skipped records carry an explicit marker.
 interface OpaTestRecord {
-  pass?: boolean;
   fail?: boolean;
   skip?: boolean;
 }
@@ -170,9 +171,12 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
           );
         }
 
-        const testsPassed = testRecords.filter((r) => r.pass).length;
         const testsFailed = testRecords.filter((r) => r.fail).length;
         const testsSkipped = testRecords.filter((r) => r.skip).length;
+        // Passed = total minus explicit failures and skips. OPA never marks
+        // passing records with any status field, so filtering for pass: true
+        // always produces zero. Subtraction is the correct approach.
+        const testsPassed = testRecords.length - testsFailed - testsSkipped;
         const overallCoverage = coverageReport.coverage ?? 0;
 
         const filesWithGaps: FileCoverageGap[] = [];
