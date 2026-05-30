@@ -89,10 +89,9 @@ OPA already has a perfectly good CLI and REST API. So why an MCP wrapper?
   admission, IaC gates, API authz, and rate limiting, so the agent has
   authoritative context without needing to scrape it.
 - **Safety boundaries the agent can rely on.** Path allow-list,
-  subprocess timeouts, response-size caps, and an explicit
-  `HTTP_SEND_BLOCKED` error for the dangerous OPA built-ins. Defaults are
-  conservative; running the server doesn't quietly grant the agent more
-  reach than the operator intended.
+  subprocess timeouts, and response-size caps. Defaults are conservative;
+  running the server doesn't quietly grant the agent more reach than the
+  operator intended.
 
 If you've ever watched an agent fight `opa eval`'s argument order, you'll
 recognize the gap this fills.
@@ -266,10 +265,12 @@ Every tool returns a JSON envelope:
 
 Stable error codes: `INVALID_INPUT`, `INVALID_REGO`, `INVALID_BUNDLE`,
 `EVAL_ERROR`, `OPA_BINARY_NOT_FOUND`, `REGAL_NOT_FOUND`,
-`REGAL_VERSION_TOO_OLD`, `OPA_UNREACHABLE`, `OPA_AUTH_FAILED`,
-`POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`, `PATH_NOT_FOUND`,
-`DEPENDENCY_CONFLICT`, `NO_TESTS_FOUND`, `HTTP_SEND_BLOCKED`, `TIMEOUT`,
-`UNKNOWN_ERROR`.
+`REGAL_VERSION_TOO_OLD`, `CONFTEST_NOT_FOUND`, `OPA_UNREACHABLE`,
+`OPA_AUTH_FAILED`, `POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`,
+`PATH_NOT_FOUND`, `DEPENDENCY_CONFLICT`, `NO_TESTS_FOUND`,
+`COVERAGE_BELOW_THRESHOLD`, `OPA_VERSION_UNSUPPORTED`, `VERIFY_INCONCLUSIVE`,
+`Z3_INIT_ERROR`, `GITHUB_TOKEN_MISSING`, `GIST_CREATE_FAILED`, `TIMEOUT`,
+`CANCELLED`, `UNKNOWN_ERROR`.
 
 ### Category A: Authoring & static analysis
 
@@ -287,6 +288,7 @@ Operate on Rego source code without needing a running OPA server. Wrap
 | `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                                                                      |
 | `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                          |
 | `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`. |
+| `rego_check_schema` | Check Rego against a JSON Schema. Validates that every `input.*` field the policy reads exists in the schema using `opa check --schema`. Accepts inline schema or a path to a JSON Schema file on disk. |
 
 #### Featured: `rego_format`
 
@@ -346,6 +348,7 @@ Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 | `rego_bench`              | Run `opa bench` and return statistical timing data.                                                                    |
 | `rego_compile_query`      | Partially evaluate a query against a policy.                                                                           |
 | `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`. |
+| `rego_test_multiroot`     | Run Rego tests across multiple roots. Solves OPA's package-conflict problem for repos with multiple independent namespaces. Supports `explicit` root lists and `scan` mode (auto-discovers leaf test roots). |
 
 #### Featured: `rego_eval`
 
@@ -415,6 +418,7 @@ the tasks agents are actually asked to do.
 | `rego_format_write`           | Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to list which files would change without modifying them. Validates all files parse successfully before writing any. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags. Only requires `opa`.                                                                                                                                                                                                            |
 | `rego_policy_diff`            | Evaluate the same query against two policies in parallel and compare the results. Returns `equal: true/false`, the raw value from each side (`resultA`/`resultB`), and `changedPaths` -- dot/bracket JSON paths that differ. Each side takes inline source or a file/directory path. Useful for verifying refactor equivalence or mapping divergence between two policy versions.                                                                                                                                               |
 | `rego_verify`                 | Formally verify a property about a Rego rule using SMT solving (Microsoft Z3 via WASM). Unlike testing, this checks ALL possible inputs mathematically and either proves the property holds or returns a concrete counterexample. Supports `always_true`, `never_true`, and `satisfiable` property kinds. Handles equality, comparison, string built-ins (`startswith`, `endswith`, `contains`, `regex.match`), multi-clause rules, and cross-rule inlining. Reports `INCONCLUSIVE` for negation-as-failure and comprehensions. |
+| `rego_explain_undefined`      | Explain why a Rego query is undefined. Combines a plain eval, a full-trace eval, and per-condition AST analysis to identify the exact body expression blocking each rule. Returns a structured breakdown of which conditions blocked each rule plus a human-readable summary. |
 
 ### Category F: Conftest (configuration policy testing)
 
