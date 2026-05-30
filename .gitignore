@@ -48,6 +48,7 @@ tmp/
 
 # Personal operator notes — never committed
 LAUNCH-PLAYBOOK.md
+AUDIT.md
 
 # Manual smoke / debug scripts (one-off local-only)
 smoke-real.mjs
