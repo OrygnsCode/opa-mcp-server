@@ -21,6 +21,30 @@ not part of the public surface and may change in minor releases.
 
 ### Added
 
+- **`rego_playground_share`** -- new Category E tool (tool 52) that publishes a
+  Rego policy as a public GitHub Gist and returns a shareable URL. The Gist renders
+  the policy with syntax highlighting on github.com and its raw URL is directly
+  loadable by OPA or Conftest. Optionally includes a `metadata.json` file with a
+  default query, input document, and data document when those fields are supplied.
+  Requires `GITHUB_TOKEN` in the environment (GitHub personal access token with the
+  `gist` scope). Returns `{ gistUrl, rawPolicyUrl, id }` on success, or a
+  `GITHUB_TOKEN_MISSING` error with setup instructions when the token is absent.
+  `GITHUB_TOKEN` has been added to the declared `environmentVariables` in
+  `server.json` (marked optional and secret).
+- **String interpolation awareness** -- `rego_format` now detects OPA v1.12.0+
+  `$"..."` / `` $`...` `` syntax and guards against a known `opa fmt` bug
+  (present in OPA v1.12.0 and v1.12.1, fixed in v1.12.2) that silently corrupts
+  `\{` escape sequences inside string interpolations during formatting. If the
+  source contains both interpolation syntax and `\{`, formatting is blocked with
+  an `OPA_VERSION_UNSUPPORTED` error and an upgrade hint. If the source has
+  interpolation syntax but no `\{`, formatting proceeds with a warning. Sources
+  without interpolation syntax are unaffected (no extra subprocess call).
+- **`rego_verify` string interpolation construct type** -- the SMT encoder now
+  classifies `internal.template_string()` calls (the compiled form of `$"..."`
+  in the OPA AST) as a named `string_interpolation` unsupported construct type
+  rather than the generic `unknown_builtin`, producing a clearer INCONCLUSIVE
+  message that names the feature and its AST representation.
+
 - **`rego_test_multiroot`** -- new Category B tool (tool 51) that runs `opa test`
   once per root and aggregates pass/fail/skip counts, per-test records, coverage,
   and errors. Solves the package-conflict problem (OPA issue #4724) that occurs

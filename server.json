@@ -52,6 +52,12 @@
           "name": "OPA_MCP_ALLOWED_PATHS",
           "description": "Comma-separated list of root directories tools may read/write. When unset, file-based tools refuse to access the disk.",
           "isRequired": false
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "description": "GitHub personal access token with the \"gist\" scope. Required only for rego_playground_share.",
+          "isRequired": false,
+          "isSecret": true
         }
       ]
     },
@@ -69,6 +75,12 @@
         {
           "name": "OPA_TOKEN",
           "description": "Bearer token for OPA authentication.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "description": "GitHub personal access token with the \"gist\" scope. Required only for rego_playground_share.",
           "isRequired": false,
           "isSecret": true
         }
