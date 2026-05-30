@@ -535,3 +535,81 @@ describe('walkModule - multiple expressions in one clause (AND)', () => {
     expect(clause.expressions).toHaveLength(3);
   });
 });
+
+describe('walkModule - string interpolation (internal.template_string)', () => {
+  // OPA v1.12.0+ compiles $"Hello {expr}!" to internal.template_string()
+  // calls in the AST. These must be classified as string_interpolation (not
+  // the generic unknown_builtin) so callers can give a specific message.
+  it('classifies internal.template_string as string_interpolation construct type', () => {
+    const mod = makeModule([
+      boolRule('allow', [
+        asExpr({
+          index: 0,
+          terms: [
+            // internal.template_string ref -- a compound ref like regex.match
+            {
+              type: 'ref',
+              value: [
+                { type: 'var', value: 'internal' },
+                { type: 'string', value: 'template_string' },
+              ],
+            },
+            strLit('Hello '),
+            inputRef('name'),
+            strLit('!'),
+          ],
+        }),
+      ]),
+    ]);
+    const result = walkModule(mod);
+
+    // Expression in the rule body must be 'unsupported' with constructType 'string_interpolation'
+    const clause = result.rules.get('allow')![0]!;
+    expect(clause.expressions).toHaveLength(1);
+    const expr = clause.expressions[0]!;
+    expect(expr.kind).toBe('unsupported');
+    expect((expr as { kind: 'unsupported'; constructType: string }).constructType).toBe(
+      'string_interpolation',
+    );
+
+    // The global unsupported list must record it as string_interpolation, NOT unknown_builtin
+    const si = result.unsupported.find((u) => u.constructType === 'string_interpolation');
+    expect(si).toBeDefined();
+    expect(si!.description).toMatch(/string interpolation/i);
+    expect(si!.description).toMatch(/internal\.template_string/);
+
+    const generic = result.unsupported.find((u) => u.constructType === 'unknown_builtin');
+    expect(generic).toBeUndefined();
+  });
+
+  it('does not confuse internal.template_string with other internal.* calls', () => {
+    // A hypothetical other internal.* call should still be unknown_builtin
+    const mod = makeModule([
+      boolRule('allow', [
+        asExpr({
+          index: 0,
+          terms: [
+            {
+              type: 'ref',
+              value: [
+                { type: 'var', value: 'internal' },
+                { type: 'string', value: 'some_other_fn' },
+              ],
+            },
+            strLit('arg'),
+          ],
+        }),
+      ]),
+    ]);
+    const result = walkModule(mod);
+    const clause = result.rules.get('allow')![0]!;
+    const expr = clause.expressions[0]!;
+    expect(expr.kind).toBe('unsupported');
+    expect((expr as { kind: 'unsupported'; constructType: string }).constructType).toBe(
+      'unknown_builtin',
+    );
+    expect(
+      result.unsupported.find((u) => u.constructType === 'string_interpolation'),
+    ).toBeUndefined();
+  });
+});

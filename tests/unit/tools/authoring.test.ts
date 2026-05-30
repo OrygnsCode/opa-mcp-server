@@ -85,6 +85,104 @@ describe('rego_format', () => {
   });
 });
 
+describe('rego_format -- string interpolation version guard', () => {
+  const versionOutput = (v: string) =>
+    spawnSuccess(
+      `Version: ${v}\nBuild Commit: abc123\nGo Version: go1.22\nPlatform: linux/amd64\n`,
+    );
+
+  // Source with $"..." interpolation but no \{ -- warning-only case
+  const interpNoEscape = 'package x\n\ngreeting := $"Hello {input.name}!"\n';
+  // Source with $"..." interpolation AND \{ -- blocking case
+  const interpWithEscape = 'package x\n\ngreeting := $"A literal \\{brace} here"\n';
+
+  it('does not call opa version when source has no string interpolation', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('package x\n\nallow := true\n'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    await callTool(server, 'rego_format', { source: 'package x\nallow{true}' });
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls opa version before fmt when source contains $"..." interpolation', async () => {
+    mockRun.mockResolvedValueOnce(versionOutput('1.12.2'));
+    mockRun.mockResolvedValueOnce(spawnSuccess(interpNoEscape));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    await callTool(server, 'rego_format', { source: interpNoEscape });
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns OPA_VERSION_UNSUPPORTED for OPA 1.12.0 with \\{ in interpolation', async () => {
+    mockRun.mockResolvedValueOnce(versionOutput('1.12.0'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_format', { source: interpWithEscape });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OPA_VERSION_UNSUPPORTED');
+    expect(env.error?.message).toMatch(/1\.12\.0/);
+    expect(env.error?.hint).toMatch(/1\.12\.2/);
+    // fmt must not be called -- blocked before reaching it
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns OPA_VERSION_UNSUPPORTED for OPA 1.12.1 with \\{ in interpolation', async () => {
+    mockRun.mockResolvedValueOnce(versionOutput('1.12.1'));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_format', { source: interpWithEscape });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OPA_VERSION_UNSUPPORTED');
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds warning but still formats when OPA 1.12.0 is used without \\{ in interpolation', async () => {
+    mockRun.mockResolvedValueOnce(versionOutput('1.12.0'));
+    mockRun.mockResolvedValueOnce(spawnSuccess(interpNoEscape));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ formatted: string; changed: boolean }>(server, 'rego_format', {
+      source: interpNoEscape,
+    });
+    expect(env.ok).toBe(true);
+    expect(env.warnings).toBeDefined();
+    expect(env.warnings!.length).toBeGreaterThan(0);
+    expect(env.warnings![0]).toMatch(/1\.12\.0/);
+    expect(env.warnings![0]).toMatch(/1\.12\.2/);
+  });
+
+  it('formats without warning on OPA 1.12.2 (bug fixed)', async () => {
+    mockRun.mockResolvedValueOnce(versionOutput('1.12.2'));
+    mockRun.mockResolvedValueOnce(spawnSuccess(interpNoEscape));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_format', { source: interpNoEscape });
+    expect(env.ok).toBe(true);
+    expect(env.warnings).toBeUndefined();
+  });
+
+  it('formats without warning on OPA 2.0.0 (not in affected range)', async () => {
+    mockRun.mockResolvedValueOnce(versionOutput('2.0.0'));
+    mockRun.mockResolvedValueOnce(spawnSuccess(interpNoEscape));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_format', { source: interpNoEscape });
+    expect(env.ok).toBe(true);
+    expect(env.warnings).toBeUndefined();
+  });
+
+  it('formats without warning when OPA version string cannot be parsed', async () => {
+    // Version returns 0 exit but unrecognized output -- version() returns null
+    mockRun.mockResolvedValueOnce(spawnSuccess('no version info here\n'));
+    mockRun.mockResolvedValueOnce(spawnSuccess(interpNoEscape));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_format', { source: interpNoEscape });
+    expect(env.ok).toBe(true);
+    expect(env.warnings).toBeUndefined();
+  });
+});
+
 describe('rego_check', () => {
   it('reports valid: true with empty errors on success', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
