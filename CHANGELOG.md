@@ -17,6 +17,34 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-05-30
+
+### Added
+
+- On first run, a random install ID is generated and saved to `~/.orygn/opa-mcp/install-id`.
+  The file includes a plain-English comment explaining what it is and how to opt out.
+  The ID is sent with the anonymous startup ping so unique installs can be counted.
+  Set `OPA_MCP_NO_TELEMETRY=1` to disable all telemetry.
+- `mcp_server_info` now reports the conftest binary version alongside opa and regal.
+
+### Fixed
+
+- `opa_status` now correctly calls `/v1/config`. The `/v1/status` endpoint is only
+  registered when the OPA status plugin is active; calling it on a plain
+  `opa run --server` returned 404.
+
+### Security
+
+- Inline policy tools now write temp files into a private directory (`mkdtemp`, mode 0700)
+  instead of a world-readable file in `/tmp`. Applies to both opa and regal sources.
+- `conftest_pull` description now includes a clear warning that pulled policies execute
+  as trusted code.
+
+### Changed
+
+- Removed `HTTP_SEND_BLOCKED` error code - it was declared in types and documented in
+  the README but never emitted by any tool.
+
 ## [0.1.17] - 2026-05-30
 
 ### Added
