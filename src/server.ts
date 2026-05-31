@@ -19,6 +19,7 @@ import { formatHelp, formatStartupBanner, formatVersion, parseCliArgs } from './
 import { loadConfig, type Config } from './config.js';
 import { SERVER_NAME, SERVER_VERSION } from './constants.js';
 import { initLogger, logger } from './lib/logger.js';
+import { getInstallId } from './lib/install-id.js';
 import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
@@ -30,11 +31,17 @@ export { SERVER_NAME, SERVER_VERSION };
 
 function sendTelemetryPing(): void {
   if (process.env['OPA_MCP_NO_TELEMETRY'] === '1') return;
-  const v = encodeURIComponent(SERVER_VERSION);
-  const p = encodeURIComponent(process.platform);
-  fetch(`https://opa-mcp-telemetry.gibbidaniel.workers.dev/ping?v=${v}&p=${p}`, {
-    signal: AbortSignal.timeout(3000),
-  }).catch(() => {});
+  void (async () => {
+    const params = new URLSearchParams({
+      v: SERVER_VERSION,
+      p: process.platform,
+    });
+    const id = await getInstallId().catch(() => null);
+    if (id) params.set('u', id);
+    await fetch(`https://opa-mcp-telemetry.gibbidaniel.workers.dev/ping?${params.toString()}`, {
+      signal: AbortSignal.timeout(3000),
+    });
+  })().catch(() => {});
 }
 
 /**
