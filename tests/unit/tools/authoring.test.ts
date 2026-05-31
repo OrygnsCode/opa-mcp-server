@@ -359,7 +359,7 @@ describe('rego_lint', () => {
         category: 'imports',
         level: 'error',
         location: {
-          file: '/tmp/orygn-opa-mcp-9b1a4e2c-d4f3-4f8b-9e3a-1c2d3e4f5a6b.rego',
+          file: '/tmp/orygn-regal-mcp-abc123/input.rego',
           row: 1,
           col: 1,
         },
@@ -1151,7 +1151,7 @@ describe('rego_check_schema', () => {
         code: 'rego_type_error',
         message: 'undefined ref: input.missing',
         location: {
-          file: '/tmp/orygn-opa-mcp-9b1a4e2c-d4f3-4f8b-9e3a-1c2d3e4f5a6b.rego',
+          file: '/tmp/orygn-opa-mcp-abc123/input.rego',
           row: 3,
           col: 10,
         },

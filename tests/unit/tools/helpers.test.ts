@@ -1458,7 +1458,7 @@ describe('rego_explain_undefined', () => {
       rules: Array<{ location: { file: string } }>;
     };
     astWithTempPath.rules[0]!.location.file =
-      '/tmp/orygn-opa-mcp-12345678-1234-1234-1234-123456789abc.rego';
+      '/tmp/orygn-opa-mcp-abc123/input.rego';
     const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))

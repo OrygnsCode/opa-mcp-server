@@ -5,8 +5,7 @@
  * tools work without Regal installed. If absent, `rego_lint` returns a
  * structured `REGAL_NOT_FOUND` error with an install hint.
  */
-import { randomUUID } from 'node:crypto';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -187,13 +186,16 @@ export class RegalCli {
 
   // ─── Internal: temp file management ──────────────────────────────────
 
+  // mkdtemp creates the directory atomically (O_CREAT|O_EXCL) with mode
+  // 0700 -- no other process can read or predict the temp file path.
   private async withTempSource<T>(source: string, fn: (path: string) => Promise<T>): Promise<T> {
-    const path = join(tmpdir(), `orygn-opa-mcp-${randomUUID()}.rego`);
-    await writeFile(path, source, 'utf8');
+    const tmpDir = await mkdtemp(join(tmpdir(), 'orygn-regal-mcp-'));
+    const filePath = join(tmpDir, 'input.rego');
+    await writeFile(filePath, source, 'utf8');
     try {
-      return await fn(path);
+      return await fn(filePath);
     } finally {
-      await rm(path, { force: true });
+      await rm(tmpDir, { recursive: true, force: true });
     }
   }
 }

@@ -70,7 +70,7 @@ describe('OpaCli', () => {
       const [binary, opts] = mockRun.mock.calls[0]!;
       expect(binary).toBe('opa');
       expect(opts.args[0]).toBe('fmt');
-      expect(opts.args[1]).toMatch(/orygn-opa-mcp-.*\.rego$/);
+      expect(opts.args[1]).toMatch(/orygn-opa-mcp-[^/\\]+[/\\]input\.rego$/);
       expect(opts.stdin).toBeUndefined();
     });
   });

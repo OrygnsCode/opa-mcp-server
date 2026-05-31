@@ -70,7 +70,7 @@ describe('rego_eval', () => {
     const args = mockRun.mock.calls[0]![1].args;
     const dataIdx = args.indexOf('--data');
     expect(dataIdx).toBeGreaterThan(-1);
-    expect(args[dataIdx + 1]).toMatch(/orygn-opa-mcp-.*\.rego$/);
+    expect(args[dataIdx + 1]).toMatch(/orygn-opa-mcp-[^/\\]+[/\\]input\.rego$/);
   });
 
   it('pipes inline input via --stdin-input', async () => {
