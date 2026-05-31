@@ -30,9 +30,7 @@ async function load() {
 describe('getInstallId()', () => {
   it('returns a UUID from an existing file', async () => {
     const existingId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
-    mockFs.readFile.mockResolvedValueOnce(
-      `# opa-mcp install ID\n#\n# comment\n\n${existingId}\n` as never,
-    );
+    mockFs.readFile.mockResolvedValueOnce(`# opa-mcp install ID\n#\n# comment\n\n${existingId}\n`);
     const getInstallId = await load();
     const result = await getInstallId();
     expect(result).toBe(existingId);
@@ -42,8 +40,8 @@ describe('getInstallId()', () => {
   it('creates the file with a UUID and header comment on first run', async () => {
     // First readFile throws (file not found).
     mockFs.readFile.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockFs.mkdir.mockResolvedValueOnce(undefined as never);
-    mockFs.writeFile.mockResolvedValueOnce(undefined as never);
+    mockFs.mkdir.mockResolvedValueOnce(undefined);
+    mockFs.writeFile.mockResolvedValueOnce(undefined);
 
     const getInstallId = await load();
     const result = await getInstallId();
@@ -64,11 +62,11 @@ describe('getInstallId()', () => {
     const racedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
     // First read fails (file not found).
     mockFs.readFile.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockFs.mkdir.mockResolvedValueOnce(undefined as never);
+    mockFs.mkdir.mockResolvedValueOnce(undefined);
     // wx write fails (other process created the file first).
     mockFs.writeFile.mockRejectedValueOnce(Object.assign(new Error('EEXIST'), { code: 'EEXIST' }));
     // Second read succeeds with the other process's UUID.
-    mockFs.readFile.mockResolvedValueOnce(`# comment\n\n${racedId}\n` as never);
+    mockFs.readFile.mockResolvedValueOnce(`# comment\n\n${racedId}\n`);
 
     const getInstallId = await load();
     const result = await getInstallId();
@@ -78,7 +76,7 @@ describe('getInstallId()', () => {
 
   it('returns null when the file cannot be created and the fallback read also fails', async () => {
     mockFs.readFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockFs.mkdir.mockResolvedValueOnce(undefined as never);
+    mockFs.mkdir.mockResolvedValueOnce(undefined);
     mockFs.writeFile.mockRejectedValueOnce(new Error('EROFS'));
 
     const getInstallId = await load();
@@ -88,10 +86,10 @@ describe('getInstallId()', () => {
   });
 
   it('ignores lines that are not valid UUIDs and returns null for a corrupt file', async () => {
-    mockFs.readFile.mockResolvedValueOnce('# comment\nnot-a-uuid\n' as never);
+    mockFs.readFile.mockResolvedValueOnce('# comment\nnot-a-uuid\n');
     // writeFile will succeed for the re-creation attempt
-    mockFs.mkdir.mockResolvedValueOnce(undefined as never);
-    mockFs.writeFile.mockResolvedValueOnce(undefined as never);
+    mockFs.mkdir.mockResolvedValueOnce(undefined);
+    mockFs.writeFile.mockResolvedValueOnce(undefined);
 
     const getInstallId = await load();
     const result = await getInstallId();
