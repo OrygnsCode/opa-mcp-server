@@ -278,16 +278,16 @@ Operate on Rego source code without needing a running OPA server. Wrap
 `opa fmt`, `opa parse`, `opa check`, `opa inspect`, `opa capabilities`,
 `opa deps`, and `regal`.
 
-| Tool                | What it does                                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                                                         |
-| `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                                                         |
-| `rego_lint`         | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                        |
-| `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                                                               |
-| `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                                                        |
-| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                                                                      |
-| `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                          |
-| `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`. |
+| Tool                | What it does                                                                                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                                                                                        |
+| `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                                                                                        |
+| `rego_lint`         | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                                                       |
+| `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                                                                                              |
+| `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                                                                                       |
+| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                                                                                                     |
+| `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                                                         |
+| `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`.                                |
 | `rego_check_schema` | Check Rego against a JSON Schema. Validates that every `input.*` field the policy reads exists in the schema using `opa check --schema`. Accepts inline schema or a path to a JSON Schema file on disk. |
 
 #### Featured: `rego_format`
@@ -338,16 +338,16 @@ Operate on Rego source code without needing a running OPA server. Wrap
 Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 `opa bench`.
 
-| Tool                      | What it does                                                                                                           |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.                                                |
-| `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                                                          |
-| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.                                            |
-| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                                                               |
-| `rego_test`               | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage.                                   |
-| `rego_bench`              | Run `opa bench` and return statistical timing data.                                                                    |
-| `rego_compile_query`      | Partially evaluate a query against a policy.                                                                           |
-| `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`. |
+| Tool                      | What it does                                                                                                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.                                                                                                                                      |
+| `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                                                                                                                                                |
+| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.                                                                                                                                  |
+| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                                                                                                                                                     |
+| `rego_test`               | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage.                                                                                                                         |
+| `rego_bench`              | Run `opa bench` and return statistical timing data.                                                                                                                                                          |
+| `rego_compile_query`      | Partially evaluate a query against a policy.                                                                                                                                                                 |
+| `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`.                                                                                       |
 | `rego_test_multiroot`     | Run Rego tests across multiple roots. Solves OPA's package-conflict problem for repos with multiple independent namespaces. Supports `explicit` root lists and `scan` mode (auto-discovers leaf test roots). |
 
 #### Featured: `rego_eval`
@@ -418,7 +418,7 @@ the tasks agents are actually asked to do.
 | `rego_format_write`           | Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to list which files would change without modifying them. Validates all files parse successfully before writing any. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags. Only requires `opa`.                                                                                                                                                                                                            |
 | `rego_policy_diff`            | Evaluate the same query against two policies in parallel and compare the results. Returns `equal: true/false`, the raw value from each side (`resultA`/`resultB`), and `changedPaths` -- dot/bracket JSON paths that differ. Each side takes inline source or a file/directory path. Useful for verifying refactor equivalence or mapping divergence between two policy versions.                                                                                                                                               |
 | `rego_verify`                 | Formally verify a property about a Rego rule using SMT solving (Microsoft Z3 via WASM). Unlike testing, this checks ALL possible inputs mathematically and either proves the property holds or returns a concrete counterexample. Supports `always_true`, `never_true`, and `satisfiable` property kinds. Handles equality, comparison, string built-ins (`startswith`, `endswith`, `contains`, `regex.match`), multi-clause rules, and cross-rule inlining. Reports `INCONCLUSIVE` for negation-as-failure and comprehensions. |
-| `rego_explain_undefined`      | Explain why a Rego query is undefined. Combines a plain eval, a full-trace eval, and per-condition AST analysis to identify the exact body expression blocking each rule. Returns a structured breakdown of which conditions blocked each rule plus a human-readable summary. |
+| `rego_explain_undefined`      | Explain why a Rego query is undefined. Combines a plain eval, a full-trace eval, and per-condition AST analysis to identify the exact body expression blocking each rule. Returns a structured breakdown of which conditions blocked each rule plus a human-readable summary.                                                                                                                                                                                                                                                   |
 
 ### Category F: Conftest (configuration policy testing)
 
