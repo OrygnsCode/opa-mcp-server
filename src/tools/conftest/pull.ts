@@ -65,7 +65,11 @@ export function registerConftestPull(server: McpServer, config: Config): void {
         'Download Rego policies from an OCI registry or Git repository into a local directory ' +
         'using `conftest pull`. Use this to hydrate a local `policy/` directory before running ' +
         '`conftest_test`. Requires `conftest` on PATH or `CONFTEST_BINARY` set. ' +
-        'The `policy` directory must be inside OPA_MCP_ALLOWED_PATHS.',
+        'The `policy` directory must be inside OPA_MCP_ALLOWED_PATHS. ' +
+        'SECURITY: pulled policies are arbitrary Rego source that will be executed by ' +
+        '`conftest_test`. Only pull from registries or repositories you own or explicitly ' +
+        'trust -- malicious policy code can use OPA built-ins (http.send, opa.runtime) to ' +
+        'exfiltrate data or make outbound network requests when the tests run.',
       inputSchema: ConftestPullInput,
       annotations: {
         readOnlyHint: false,
