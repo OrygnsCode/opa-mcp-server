@@ -581,34 +581,28 @@ describe('opa_health', () => {
 });
 
 describe('opa_status and opa_config', () => {
-  it('opa_status fetches /v1/status (not /v1/config) and unwraps the result', async () => {
-    const pluginStatus = {
-      plugins: {
-        bundle: { bundles: { authz: { active_revision: 'v1', code: 'OK' } } },
-        decision_logs: { code: 'ready' },
-      },
+  it('opa_status fetches /v1/config and returns the result under the status key', async () => {
+    const configBody = {
+      default_decision: '/system/main',
+      plugins: { bundle: {} },
     };
-    fetchMock.mockResolvedValueOnce(okResponse({ result: pluginStatus }));
+    fetchMock.mockResolvedValueOnce(okResponse({ result: configBody }));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
-    const env = await callTool<{ status: typeof pluginStatus }>(server, 'opa_status', {});
+    const env = await callTool<{ status: typeof configBody }>(server, 'opa_status', {});
     expect(env.ok).toBe(true);
-    // Must call /v1/status, not /v1/config.
-    expect(lastFetchCall().url).toBe('http://localhost:8181/v1/status');
-    // Must unwrap the result envelope, just as opa_config does.
-    expect(env.data?.status).toEqual(pluginStatus);
+    expect(lastFetchCall().url).toBe('http://localhost:8181/v1/config');
+    expect(env.data?.status).toEqual(configBody);
   });
 
   it('opa_status falls back to the raw response when there is no result wrapper', async () => {
-    // Some OPA versions / plugin configurations may return the status object
-    // directly without a result wrapper.
-    const rawStatus = { plugins: { bundle: { code: 'OK' } } };
-    fetchMock.mockResolvedValueOnce(okResponse(rawStatus));
+    const rawConfig = { default_decision: '/system/main' };
+    fetchMock.mockResolvedValueOnce(okResponse(rawConfig));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
-    const env = await callTool<{ status: typeof rawStatus }>(server, 'opa_status', {});
+    const env = await callTool<{ status: typeof rawConfig }>(server, 'opa_status', {});
     expect(env.ok).toBe(true);
-    expect(env.data?.status).toEqual(rawStatus);
+    expect(env.data?.status).toEqual(rawConfig);
   });
 
   it('opa_status surfaces OPA_UNREACHABLE through the catch path', async () => {
