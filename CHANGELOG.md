@@ -17,6 +17,20 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-06-02
+
+### Fixed
+
+- `rego_verify`: complex `regex.match` patterns (character classes, quantifiers,
+  alternation) no longer cause Z3 to hang indefinitely. The 10-second solver
+  timeout only guards `solver.check()`, not the synchronous WASM formula
+  construction; patterns like `[a-z]+` or `\d+` could spin before the clock
+  started. The fix moves the guard to the walker: only the five idioms the
+  encoder handles cheaply (prefix `^lit.*`, suffix `.*lit$`, exact `^lit$`,
+  contains `.*lit.*`, wildcard `.*`) produce a `regex_match` IR node; anything
+  else returns INCONCLUSIVE before Z3 is touched. The unused `compilePcreToZ3Re`
+  function and its ~175 lines of helpers are removed.
+
 ## [0.1.18] - 2026-05-30
 
 ### Added
