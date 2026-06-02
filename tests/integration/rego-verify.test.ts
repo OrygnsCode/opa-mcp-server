@@ -263,14 +263,49 @@ other_rule {
 });
 
 describe('rego_verify - regex.match', () => {
-  it('can verify regex-based rules', async () => {
+  it('can verify regex-based rules (simple prefix pattern)', async () => {
     const result = await verify(regexPolicy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('proven');
-    // Witness should be a string matching the regex
     const ce = result?.counterexample as Record<string, unknown>;
     const user = ce['user'] as Record<string, unknown>;
     expect(typeof user?.['name']).toBe('string');
     expect((user?.['name'] as string).startsWith('admin')).toBe(true);
+  });
+
+  it('returns inconclusive for complex character-class pattern ([a-z]+)', async () => {
+    const policy = `
+package authz
+allow { regex.match("[a-z]+", input.user.name) }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('inconclusive');
+    expect(result?.unsupportedConstructs.some((u) => u.constructType === 'complex_regex')).toBe(
+      true,
+    );
+  });
+
+  it('returns inconclusive for digit-quantifier pattern (\\d+)', async () => {
+    const policy = `
+package authz
+allow { regex.match("\\\\d+", input.code) }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('inconclusive');
+    expect(result?.unsupportedConstructs.some((u) => u.constructType === 'complex_regex')).toBe(
+      true,
+    );
+  });
+
+  it('returns inconclusive for alternation pattern (admin|guest)', async () => {
+    const policy = `
+package authz
+allow { regex.match("admin|guest", input.role) }
+`;
+    const result = await verify(policy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('inconclusive');
+    expect(result?.unsupportedConstructs.some((u) => u.constructType === 'complex_regex')).toBe(
+      true,
+    );
   });
 
   it('always_true: regex.match(".*", input.x) is tautological - proven', async () => {

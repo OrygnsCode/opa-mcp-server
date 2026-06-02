@@ -11,6 +11,7 @@
  */
 import type { OpaExpression, OpaModule, OpaRule, OpaTerm } from './rego-ast-types.js';
 import type { VerifyExpr, VerifyValue, VerifyWalkResult } from './rego-ir.js';
+import { isSimpleRegexPattern } from './rego-smt-encoder.js';
 
 const MAX_INLINE_DEPTH = 5;
 
@@ -529,9 +530,37 @@ function buildBinaryExpr(
       return { kind: 'endswith', str: left, suffix: right };
     case 'contains':
       return { kind: 'contains', str: left, sub: right };
-    case 'regex.match':
+    case 'regex.match': {
       // regex.match(pattern, string) -- pattern is args[0], string is args[1].
-      return { kind: 'regex_match', pattern: left, str: right };
+      // Only simple literal patterns (prefix, suffix, exact, contains, wildcard)
+      // can be encoded in Z3 without risking InRe hangs on WASM.
+      if (left.kind === 'literal_string') {
+        if (!isSimpleRegexPattern(left.value)) {
+          addUnsupported(
+            result,
+            'complex_regex',
+            `Rule '${ruleName}' uses regex.match with pattern '${left.value}' which requires Z3 InRe string theory and may hang. Only simple idioms (prefix, suffix, exact match, contains, wildcard) are supported.`,
+          );
+          return {
+            kind: 'unsupported',
+            constructType: 'complex_regex',
+            reason: `complex regex pattern '${left.value}'`,
+          };
+        }
+        return { kind: 'regex_match', pattern: left, str: right };
+      }
+      // Variable pattern: cannot check simplicity at walk time; InRe is unsound.
+      addUnsupported(
+        result,
+        'variable_regex_pattern',
+        `Rule '${ruleName}' uses regex.match with a non-literal pattern, which cannot be safely encoded in Z3.`,
+      );
+      return {
+        kind: 'unsupported',
+        constructType: 'variable_regex_pattern',
+        reason: 'non-literal pattern in regex.match',
+      };
+    }
     default:
       addUnsupported(
         result,
