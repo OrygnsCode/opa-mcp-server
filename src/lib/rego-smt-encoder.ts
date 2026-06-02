@@ -229,21 +229,19 @@ function encodeExpr(
       type StringExpr = ReturnType<Z3Context['String']['const']>;
 
       if (expr.pattern.kind === 'literal_string') {
-        // Try cheap string predicates first: ^prefix.*, .*suffix$, .*sub.*, ^exact$
-        // These avoid Z3's InRe string theory which is extremely memory-intensive.
+        // Walker guarantees only simple patterns reach here (see isSimpleRegexPattern).
         const simplified = tryRegexAsStringConstraint(Z3, str as StringExpr, expr.pattern.value);
         if (simplified !== null) return simplified;
-
-        const re = compilePcreToZ3Re(Z3, expr.pattern.value);
-        return Z3.InRe(str as StringExpr, re);
+        // Defensive: should not be reached in normal flow.
+        warnings.push(
+          `regex_match pattern '${expr.pattern.value}' bypassed walker guard; constraint skipped.`,
+        );
+        return null;
       }
 
-      // Variable pattern: fall back to literal match (approximate).
-      const pat = resolveValue(expr.pattern, ctx, localVars, localSorts, warnings);
-      if (pat === null) return null;
-      warnings.push('regex_match with variable pattern uses literal string match approximation.');
-      const re = Z3.Re.toRe(pat as StringExpr);
-      return Z3.InRe(str as StringExpr, re);
+      // Variable patterns are marked unsupported by the walker and never reach here.
+      warnings.push('regex_match with variable pattern is not encodable; constraint skipped.');
+      return null;
     }
     case 'bool_check': {
       const ref = resolveValue(expr.ref, ctx, localVars, localSorts, warnings);
@@ -382,20 +380,18 @@ export function varNameToPath(varName: string): string {
 
 // ─── Regex simplifier ────────────────────────────────────────────────────────
 // Detects structurally simple patterns and maps them to cheap Z3 string
-// predicates (prefixOf / suffixOf / contains / Eq) before resorting to InRe.
-// InRe with Z3's string theory is correct but extremely memory-intensive in
-// WASM; the four common OPA regex idioms below can be handled without it.
+// predicates (prefixOf / suffixOf / contains / Eq). These are the only
+// regex.match idioms the verifier can encode -- complex patterns (character
+// classes, quantifiers, alternation, etc.) are caught by the walker before
+// they reach the encoder.
 
 /** True if every char in s is a non-metacharacter (safe as a literal). */
 function isRegexLiteral(s: string): boolean {
   return s.length > 0 && !/[.+*?^${}()|[\]\\]/.test(s);
 }
 
-type StringExpr = ReturnType<Z3Context['String']['const']>;
-
 /**
- * Try to encode a regex pattern as a cheap Z3 string predicate.
- * Returns null if the pattern is too complex and InRe should be used.
+ * Return true if the pattern can be encoded as a cheap Z3 string predicate.
  *
  * Handled idioms:
  *   .*  / ^.*$ / ^.* / .*$   → Bool.val(true)  (matches any string)
@@ -403,6 +399,31 @@ type StringExpr = ReturnType<Z3Context['String']['const']>;
  *   ^lit.*                    → prefixOf(lit, str)
  *   .*lit$                    → suffixOf(lit, str)
  *   .*lit.*                   → contains(str, lit)
+ *
+ * Everything else returns false. The walker uses this to guard which
+ * regex.match expressions reach the encoder, preventing Z3 InRe hangs.
+ */
+export function isSimpleRegexPattern(pattern: string): boolean {
+  const hasStart = pattern.startsWith('^');
+  const hasEnd = pattern.endsWith('$') && !pattern.endsWith('\\$');
+  const core = pattern.slice(hasStart ? 1 : 0, hasEnd ? pattern.length - 1 : undefined);
+
+  if (core === '.*') return true;
+  if (hasStart && hasEnd && isRegexLiteral(core)) return true;
+  if (hasStart && core.endsWith('.*') && isRegexLiteral(core.slice(0, -2))) return true;
+  if (hasEnd && core.startsWith('.*') && isRegexLiteral(core.slice(2))) return true;
+  if (core.startsWith('.*') && core.endsWith('.*') && isRegexLiteral(core.slice(2, -2)))
+    return true;
+
+  return false;
+}
+
+type StringExpr = ReturnType<Z3Context['String']['const']>;
+
+/**
+ * Try to encode a regex pattern as a cheap Z3 string predicate.
+ * Returns null only if the pattern is not one of the five supported idioms.
+ * The walker guarantees only simple patterns reach here, so null is defensive.
  */
 function tryRegexAsStringConstraint(
   Z3: Z3Context,
@@ -448,214 +469,4 @@ function tryRegexAsStringConstraint(
   }
 
   return null;
-}
-
-// ─── PCRE-to-Z3 regex compiler ───────────────────────────────────────────────
-// Handles common OPA RE2 patterns. The Z3 string theory anchors InRe at both
-// ends, so ^ and $ are stripped. Supported: . * + ? | () [cls] \d \w \s.
-
-type Z3Re = ReturnType<Z3Context['Re']['toRe']>;
-type Z3ReSort = ReturnType<Z3Context['Re']['sort']>;
-
-/**
- * Compile a PCRE/RE2 pattern string to a Z3 regex expression.
- * Falls back to exact literal match for unrecognized constructs.
- */
-export function compilePcreToZ3Re(Z3: Z3Context, pattern: string): Z3Re {
-  const reSort = Z3.Re.sort(Z3.String.sort());
-  let p = pattern;
-  if (p.startsWith('^')) p = p.slice(1);
-  if (p.endsWith('$') && !p.endsWith('\\$')) p = p.slice(0, -1);
-  return parseAlternation(Z3, reSort, p, 0, p.length).re;
-}
-
-interface ParseResult {
-  re: Z3Re;
-  end: number;
-  isAllChar?: boolean; // true when the atom is "." (any single char)
-}
-
-function parseAlternation(
-  Z3: Z3Context,
-  reSort: Z3ReSort,
-  s: string,
-  start: number,
-  end: number,
-): ParseResult {
-  const branches: Z3Re[] = [];
-  let i = start;
-  let segStart = i;
-
-  while (i <= end) {
-    if (i === end || (s[i] === '|' && i < end)) {
-      branches.push(parseConcatenation(Z3, reSort, s, segStart, i).re);
-      if (i < end) i++; // skip |
-      segStart = i;
-    } else {
-      i++;
-    }
-  }
-
-  if (branches.length === 1) return { re: branches[0]!, end };
-  return { re: branches.reduce((a, b) => Z3.Union(a, b)), end };
-}
-
-function parseConcatenation(
-  Z3: Z3Context,
-  reSort: Z3ReSort,
-  s: string,
-  start: number,
-  end: number,
-): ParseResult {
-  const atoms: Z3Re[] = [];
-  let i = start;
-
-  while (i < end) {
-    const { re, end: atomEnd } = parseAtomWithQuantifier(Z3, reSort, s, i, end);
-    atoms.push(re);
-    i = atomEnd;
-  }
-
-  if (atoms.length === 0) return { re: Z3.Re.toRe(Z3.String.val('')), end };
-  if (atoms.length === 1) return { re: atoms[0]!, end };
-  return { re: Z3.ReConcat(...atoms), end };
-}
-
-function parseAtomWithQuantifier(
-  Z3: Z3Context,
-  reSort: Z3ReSort,
-  s: string,
-  i: number,
-  limit: number,
-): ParseResult {
-  const { re: base, end: atomEnd, isAllChar } = parseAtom(Z3, reSort, s, i, limit);
-  let re = base;
-  let j = atomEnd;
-
-  if (j < limit) {
-    if (s[j] === '*') {
-      // /.*/  →  Full(reSort): any string. Much more efficient than Star(AllChar).
-      re = isAllChar ? Z3.Full(reSort) : Z3.Star(re);
-      j++;
-    } else if (s[j] === '+') {
-      // /.+/  →  concat(AllChar, Full): at least one char.
-      re = isAllChar ? Z3.ReConcat(Z3.AllChar(reSort), Z3.Full(reSort)) : Z3.Plus(re);
-      j++;
-    } else if (s[j] === '?') {
-      re = Z3.Option(re);
-      j++;
-    } else if (s[j] === '{') {
-      const close = s.indexOf('}', j);
-      if (close !== -1) j = close + 1; // skip {n,m}
-    }
-  }
-  return { re, end: j };
-}
-
-function parseAtom(
-  Z3: Z3Context,
-  reSort: Z3ReSort,
-  s: string,
-  i: number,
-  limit: number,
-): ParseResult {
-  const c = s[i];
-
-  if (c === '\\' && i + 1 < limit) {
-    const esc = s[i + 1];
-    switch (esc) {
-      case 'd':
-        return { re: Z3.Range(Z3.String.val('0'), Z3.String.val('9')), end: i + 2 };
-      case 'D':
-        return { re: Z3.Complement(Z3.Range(Z3.String.val('0'), Z3.String.val('9'))), end: i + 2 };
-      case 'w': {
-        const az = Z3.Range(Z3.String.val('a'), Z3.String.val('z'));
-        const AZ = Z3.Range(Z3.String.val('A'), Z3.String.val('Z'));
-        const d = Z3.Range(Z3.String.val('0'), Z3.String.val('9'));
-        const us = Z3.Re.toRe(Z3.String.val('_'));
-        return { re: Z3.Union(az, AZ, d, us), end: i + 2 };
-      }
-      case 'W': {
-        const az = Z3.Range(Z3.String.val('a'), Z3.String.val('z'));
-        const AZ = Z3.Range(Z3.String.val('A'), Z3.String.val('Z'));
-        const d = Z3.Range(Z3.String.val('0'), Z3.String.val('9'));
-        const us = Z3.Re.toRe(Z3.String.val('_'));
-        return { re: Z3.Complement(Z3.Union(az, AZ, d, us)), end: i + 2 };
-      }
-      case 's': {
-        const ws = Z3.Union(
-          Z3.Re.toRe(Z3.String.val(' ')),
-          Z3.Re.toRe(Z3.String.val('\t')),
-          Z3.Re.toRe(Z3.String.val('\n')),
-          Z3.Re.toRe(Z3.String.val('\r')),
-        );
-        return { re: ws, end: i + 2 };
-      }
-      default:
-        return { re: Z3.Re.toRe(Z3.String.val(esc!)), end: i + 2 };
-    }
-  }
-
-  if (c === '.') {
-    return { re: Z3.AllChar(reSort), end: i + 1, isAllChar: true };
-  }
-
-  if (c === '(') {
-    let depth = 1;
-    let j = i + 1;
-    while (j < limit && depth > 0) {
-      if (s[j] === '\\') {
-        j += 2;
-        continue;
-      }
-      if (s[j] === '(') depth++;
-      if (s[j] === ')') depth--;
-      j++;
-    }
-    const inner = parseAlternation(Z3, reSort, s, i + 1, j - 1);
-    return { re: inner.re, end: j };
-  }
-
-  if (c === '[') {
-    const close = findCharClassClose(s, i + 1, limit);
-    const cls = s.slice(i + 1, close);
-    return { re: parseCharClass(Z3, cls), end: close + 1 };
-  }
-
-  // Literal character
-  return { re: Z3.Re.toRe(Z3.String.val(c!)), end: i + 1 };
-}
-
-function findCharClassClose(s: string, start: number, limit: number): number {
-  let i = start;
-  if (i < limit && s[i] === ']') i++; // ] at start is literal
-  while (i < limit && s[i] !== ']') {
-    if (s[i] === '\\') i++; // skip escaped char
-    i++;
-  }
-  return i;
-}
-
-function parseCharClass(Z3: Z3Context, cls: string): Z3Re {
-  const negated = cls.startsWith('^');
-  const src = negated ? cls.slice(1) : cls;
-  const parts: Z3Re[] = [];
-  let i = 0;
-
-  while (i < src.length) {
-    if (src[i] === '\\' && i + 1 < src.length) {
-      parts.push(Z3.Re.toRe(Z3.String.val(src[i + 1]!)));
-      i += 2;
-    } else if (i + 2 < src.length && src[i + 1] === '-') {
-      parts.push(Z3.Range(Z3.String.val(src[i]!), Z3.String.val(src[i + 2]!)));
-      i += 3;
-    } else {
-      parts.push(Z3.Re.toRe(Z3.String.val(src[i]!)));
-      i++;
-    }
-  }
-
-  if (parts.length === 0) return Z3.Re.toRe(Z3.String.val(''));
-  const base = parts.length === 1 ? parts[0]! : Z3.Union(...parts);
-  return negated ? Z3.Complement(base) : base;
 }

@@ -41,8 +41,10 @@ export function registerRegoVerify(server: McpServer, config: Config): void {
         'Formally verify a property about a Rego rule using SMT solving (Microsoft Z3). ' +
         'Unlike testing, this checks ALL possible inputs and either proves the property holds or ' +
         'returns a concrete counterexample input that falsifies it. ' +
-        'Supports equality, comparison, startswith, endswith, contains, regex.match, and multi-clause rules. ' +
-        'Reports INCONCLUSIVE for negation-as-failure (not), comprehensions, and other unsupported constructs.',
+        'Supports equality, comparison, startswith, endswith, contains, and simple regex.match patterns ' +
+        '(prefix: ^lit.*, suffix: .*lit$, exact: ^lit$, contains: .*lit.*, wildcard: .*). ' +
+        'Complex regex patterns (character classes, quantifiers, alternation) return INCONCLUSIVE. ' +
+        'Also reports INCONCLUSIVE for negation-as-failure (not), comprehensions, and other unsupported constructs.',
       inputSchema: RegoVerifyInput,
       annotations: {
         readOnlyHint: true,

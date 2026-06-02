@@ -212,13 +212,12 @@ describe('walkModule - string built-ins', () => {
     expect(expr.sub).toEqual({ kind: 'literal_string', value: 'secret' });
   });
 
-  it('handles regex.match (compound ref)', () => {
+  it('handles regex.match (compound ref) with a simple prefix pattern', () => {
     const mod = makeModule([
       boolRule('allow', [
         {
           index: 0,
           terms: [
-            // compound ref: regex.match
             {
               type: 'ref',
               value: [
@@ -240,6 +239,62 @@ describe('walkModule - string built-ins', () => {
     expect(expr.kind).toBe('regex_match');
     expect(expr.pattern).toEqual({ kind: 'literal_string', value: '^admin.*' });
     expect(expr.str).toEqual({ kind: 'input_ref', path: 'input.user', segments: ['user'] });
+  });
+
+  it('marks complex literal regex pattern as unsupported (complex_regex)', () => {
+    const mod = makeModule([
+      boolRule('allow', [
+        {
+          index: 0,
+          terms: [
+            {
+              type: 'ref',
+              value: [
+                { type: 'var', value: 'regex' },
+                { type: 'string', value: 'match' },
+              ],
+            },
+            strLit('[a-z]+'),
+            inputRef('username'),
+          ],
+        },
+      ]),
+    ]);
+    const result = walkModule(mod);
+    const expr = result.rules.get('allow')![0]!.expressions[0]!;
+    expect(expr.kind).toBe('unsupported');
+    expect((expr as { kind: 'unsupported'; constructType: string }).constructType).toBe(
+      'complex_regex',
+    );
+    expect(result.unsupported.some((u) => u.constructType === 'complex_regex')).toBe(true);
+  });
+
+  it('marks variable regex pattern as unsupported (variable_regex_pattern)', () => {
+    const mod = makeModule([
+      boolRule('allow', [
+        {
+          index: 0,
+          terms: [
+            {
+              type: 'ref',
+              value: [
+                { type: 'var', value: 'regex' },
+                { type: 'string', value: 'match' },
+              ],
+            },
+            varTerm('pat'),
+            inputRef('username'),
+          ],
+        },
+      ]),
+    ]);
+    const result = walkModule(mod);
+    const expr = result.rules.get('allow')![0]!.expressions[0]!;
+    expect(expr.kind).toBe('unsupported');
+    expect((expr as { kind: 'unsupported'; constructType: string }).constructType).toBe(
+      'variable_regex_pattern',
+    );
+    expect(result.unsupported.some((u) => u.constructType === 'variable_regex_pattern')).toBe(true);
   });
 });
 
