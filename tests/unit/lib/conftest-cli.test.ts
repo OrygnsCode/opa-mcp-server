@@ -152,6 +152,20 @@ describe('ConftestCli.test()', () => {
     expect(mockRun.mock.calls[0]![1].args).toContain('--fail-on-warn');
   });
 
+  it('passes --parser with the given value when set', async () => {
+    const cli = new ConftestCli(baseConfig);
+    await cli.test({ files: ['/config.tfstate'], parser: 'json' });
+    const { args } = mockRun.mock.calls[0]![1];
+    expect(args).toContain('--parser');
+    expect(args[args.indexOf('--parser') + 1]).toBe('json');
+  });
+
+  it('does not pass --parser when omitted', async () => {
+    const cli = new ConftestCli(baseConfig);
+    await cli.test({ files: ['/config.yaml'] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--parser');
+  });
+
   it('forwards the AbortSignal to runBinary', async () => {
     const controller = new AbortController();
     const cli = new ConftestCli(baseConfig);

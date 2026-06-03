@@ -82,6 +82,12 @@ export interface ConftestTestInput {
   combine?: boolean;
   /** Return exit 1 when only warnings are present (no hard failures). */
   failOnWarn?: boolean;
+  /**
+   * Force a specific parser for all inputs via conftest's global `--parser`
+   * flag, overriding extension-based detection. Use it to parse files whose
+   * extension does not match their format (e.g. a `.tfstate` file as `json`).
+   */
+  parser?: string;
 }
 
 /** Input for `conftest verify`. */
@@ -196,6 +202,7 @@ export class ConftestCli {
         // Flags
         if (input.combine) args.push('--combine');
         if (input.failOnWarn) args.push('--fail-on-warn');
+        if (input.parser) args.push('--parser', input.parser);
 
         // Config files (positional args, must come last)
         const effectiveFiles = configPath ? [configPath] : (input.files ?? []);
