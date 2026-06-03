@@ -17,6 +17,36 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-06-03
+
+### Added
+
+- `opa_exec`: CI gate flags `fail`, `failDefined`, and `failNonEmpty` (at most one
+  may be set), plus `timeout` (a Go duration) and `v1Compatible`. When a gate flag
+  is set, a non-zero exit from `opa exec` is the gate firing rather than an error:
+  the per-file results are still returned, with `failed: true` to signal the gate.
+- `rego_test`: `explain` (`fails` | `full` | `notes` | `debug`) adds a
+  query-explanation trace to test records, and `v1Compatible` opts in to OPA v1.0
+  behaviors.
+- `rego_check`: `maxErrors` (`--max-errors`, raise the early-abort error limit) and
+  `bundle` (`--bundle`, load `paths` as bundle roots). `bundle` is rejected with
+  inline `source`.
+- `opa_bundle_build`: `bundle`, `pruneUnused`, `ignore` (name patterns),
+  `v1Compatible`, and `verificationKey` / `verificationKeyId` for re-verifying a
+  signed bundle during the build. `verificationKey` is validated against the
+  allow-list.
+- `conftest_test`: `parser` forwards conftest's global `--parser` flag so files
+  whose extension does not match their format can be parsed explicitly (e.g. parse
+  a `.tfstate` file as `json`).
+
+### Fixed
+
+- `opa_exec` with `dataPaths` no longer fails with `unknown flag: --data`. `opa exec`
+  loads policy and data only through `--bundle`; each `dataPaths` entry is now passed
+  as a `--bundle` root.
+- `conftest_test`: the `inlineConfigParser` valid-values list now documents `edn` and
+  `hocon`, matching the parsers the wrapper already supports.
+
 ## [0.1.19] - 2026-06-02
 
 ### Fixed

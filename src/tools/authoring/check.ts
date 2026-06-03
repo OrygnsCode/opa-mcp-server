@@ -37,6 +37,20 @@ const RegoCheckInput = {
     .optional()
     .describe('Path to a capabilities JSON file restricting allowed builtins.'),
   schemaDir: z.string().optional().describe('Schema directory for input/data validation.'),
+  maxErrors: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'Maximum number of errors to collect before `opa check` aborts compilation (`--max-errors`, OPA default 10). Raise it to surface more diagnostics from a badly broken policy in a single pass.',
+    ),
+  bundle: z
+    .boolean()
+    .optional()
+    .describe(
+      'Load `paths` as bundle files or root directories (`--bundle`). Only valid with `paths`, not inline `source`.',
+    ),
 };
 
 interface CheckErrorRecord {
@@ -67,7 +81,7 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source, paths, strict, capabilities, schemaDir }, { signal }) => {
+    async ({ source, paths, strict, capabilities, schemaDir, maxErrors, bundle }, { signal }) => {
       return withToolEnvelope<RegoCheckOutput>(config, async () => {
         if (!source && !paths?.length) {
           return err(
@@ -80,6 +94,9 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
             'INVALID_INPUT',
             'rego_check does not accept both `source` and `paths` -- pass one or the other.',
           );
+        }
+        if (bundle && source) {
+          return err('INVALID_INPUT', '`bundle` applies to `paths`, not inline `source`.');
         }
 
         let resolvedPaths: string[] | undefined;
@@ -110,6 +127,8 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
             strict,
             capabilities: resolvedCapabilities,
             schemaDir: resolvedSchemaDir,
+            maxErrors,
+            bundle,
           },
           signal,
         );

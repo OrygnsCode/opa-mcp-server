@@ -597,6 +597,40 @@ describe('rego_test', () => {
     expect(mockRun.mock.calls[0]![1].args).not.toContain('--timeout');
   });
 
+  it('passes --explain <mode> when explain is set', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], explain: 'full' });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--explain');
+    expect(args[args.indexOf('--explain') + 1]).toBe('full');
+  });
+
+  it('does not emit --explain when omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--explain');
+  });
+
+  it('passes --v1-compatible when v1Compatible is true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], v1Compatible: true });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--v1-compatible');
+  });
+
+  it('does not emit --v1-compatible when omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--v1-compatible');
+  });
+
   // ─── NO_TESTS_FOUND hint improvement ──────────────────────────────────
 
   it('includes runPattern in NO_TESTS_FOUND hint when no tests match', async () => {
@@ -873,7 +907,7 @@ describe('opa_exec', () => {
     expect(args).not.toContain('--data');
   });
 
-  it('passes --data flags for each dataPaths entry', async () => {
+  it('passes --bundle for each dataPaths entry (opa exec has no --data flag)', async () => {
     mockRun.mockResolvedValueOnce(
       spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
     );
@@ -885,11 +919,11 @@ describe('opa_exec', () => {
       dataPaths: [validRegoPath(), fixturePath('policies', 'valid')],
     });
     const args = mockRun.mock.calls[0]![1].args;
-    const dataIdxs = args.map((a, i) => (a === '--data' ? i : -1)).filter((i) => i !== -1);
-    expect(dataIdxs).toHaveLength(2);
-    expect(args[dataIdxs[0]! + 1]).toBe(validRegoPath());
-    expect(args[dataIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
-    expect(args).not.toContain('--bundle');
+    const bundleIdxs = args.map((a, i) => (a === '--bundle' ? i : -1)).filter((i) => i !== -1);
+    expect(bundleIdxs).toHaveLength(2);
+    expect(args[bundleIdxs[0]! + 1]).toBe(validRegoPath());
+    expect(args[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
+    expect(args).not.toContain('--data');
   });
 
   it('rejects providing both bundle and dataPaths', async () => {
@@ -1019,5 +1053,132 @@ describe('opa_exec', () => {
     expect(env.ok).toBe(true);
     expect(env.data?.count).toBe(0);
     expect(env.data?.results).toEqual([]);
+  });
+
+  it('passes the --fail gate flag through to argv', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      fail: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--fail');
+  });
+
+  it('passes the --fail-defined gate flag through to argv', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      failDefined: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--fail-defined');
+  });
+
+  it('passes the --fail-non-empty gate flag through to argv', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      failNonEmpty: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--fail-non-empty');
+  });
+
+  it('passes --timeout and --v1-compatible through to argv', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      timeout: '30s',
+      v1Compatible: true,
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--timeout');
+    expect(args[args.indexOf('--timeout') + 1]).toBe('30s');
+    expect(args).toContain('--v1-compatible');
+  });
+
+  it('rejects more than one gate flag', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      fail: true,
+      failDefined: true,
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('reports failed:false on an ungated success', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ failed: boolean }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.failed).toBe(false);
+  });
+
+  it('reports failed:true with parsed results when a gate fires', async () => {
+    const entries = [
+      { path: validInputPath(), result: true },
+      { path: 'other.json', result: false },
+    ];
+    // A gate flag makes opa exit non-zero, but it still prints the per-file
+    // JSON to stdout -- the tool surfaces the results rather than erroring.
+    mockRun.mockResolvedValueOnce(spawnFailure(1, '', execSuccessStdout(entries)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      failed: boolean;
+      count: number;
+      results: typeof entries;
+    }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      failDefined: true,
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.failed).toBe(true);
+    expect(env.data?.count).toBe(2);
+    expect(env.data?.results).toEqual(entries);
+  });
+
+  it('maps a gate-flag non-zero exit with no JSON to EVAL_ERROR', async () => {
+    // Non-zero exit with unparseable stdout is a real failure (e.g. the
+    // policy did not compile), not a gate decision.
+    mockRun.mockResolvedValueOnce(spawnFailure(1, 'rego_parse_error: unexpected token'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      fail: true,
+    });
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect((env.error?.details as { stderr?: string })?.stderr).toContain('rego_parse_error');
   });
 });

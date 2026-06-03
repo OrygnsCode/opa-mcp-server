@@ -99,6 +99,23 @@ describe('conftest_test', () => {
     expect(env.data?.summary.failed).toBe(0);
   });
 
+  it('forwards parser to conftest as --parser', async () => {
+    const results: ConftestFileResult[] = [makeFileResult({ filename: passingConfig })];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(results)));
+
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [passingConfig],
+      parser: 'json',
+    });
+
+    expect(env.ok).toBe(true);
+    const { args } = mockRun.mock.calls[0]![1];
+    expect(args).toContain('--parser');
+    expect(args[args.indexOf('--parser') + 1]).toBe('json');
+  });
+
   it('returns ok=true, passed=false on exit 1 (policy failures)', async () => {
     const results: ConftestFileResult[] = [
       makeFileResult({

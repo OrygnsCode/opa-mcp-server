@@ -49,8 +49,19 @@ const ConftestTestInput = {
     .optional()
     .describe(
       'Parser to use for `inlineConfig`. Valid values: yaml (default), json, toml, hcl1, hcl2, ' +
-        'ini, xml, dotenv, cue, jsonnet, properties, dockerfile. ' +
-        "Ignored when `files` is used (conftest infers the parser from each file's extension).",
+        'ini, xml, dotenv, cue, jsonnet, properties, edn, hocon, dockerfile. ' +
+        "Ignored when `files` is used (conftest infers the parser from each file's extension, " +
+        'unless `parser` is set).',
+    ),
+  parser: z
+    .string()
+    .optional()
+    .describe(
+      "Force a specific parser for all input `files` via conftest's global `--parser` flag, " +
+        'overriding extension-based detection. Useful for files whose extension does not match ' +
+        'their format (e.g. parse a `.tfstate` file as `json`). Valid values: yaml, json, toml, ' +
+        'hcl1, hcl2, ini, xml, dotenv, cue, jsonnet, properties, edn, hocon, dockerfile. ' +
+        'For `inlineConfig`, prefer `inlineConfigParser`.',
     ),
   policy: z
     .string()
@@ -182,6 +193,7 @@ export function registerConftestTest(server: McpServer, config: Config): void {
             files: input.files,
             inlineConfig: input.inlineConfig,
             inlineConfigParser: input.inlineConfigParser,
+            parser: input.parser,
             policy: input.policy,
             inlinePolicy: input.inlinePolicy,
             namespace: input.namespace,

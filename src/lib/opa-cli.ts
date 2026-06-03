@@ -58,6 +58,10 @@ export interface CheckInput {
   v1Compatible?: boolean;
   /** Opt-in to OPA behaviors prior to the v1.0 release (`opa check --v0-compatible`). */
   v0Compatible?: boolean;
+  /** Max compilation errors before failing early (`--max-errors`, OPA default 10). */
+  maxErrors?: number;
+  /** Load `paths` as bundle files or root directories (`--bundle`). Ignored for inline source. */
+  bundle?: boolean;
 }
 
 /** Input for `opa parse`. */
@@ -177,6 +181,15 @@ export interface TestInput {
    * sets or call slow built-ins (`--timeout <duration>`).
    */
   timeout?: string;
+  /**
+   * Enable query explanations on test records (`--explain <mode>`): `fails`
+   * traces only failing tests, `full` traces everything, `notes` surfaces
+   * `trace()` notes, `debug` is the most verbose. Populates each record's
+   * `trace` field.
+   */
+  explain?: 'fails' | 'full' | 'notes' | 'debug';
+  /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
+  v1Compatible?: boolean;
 }
 
 /** Input for `opa bench`. */
@@ -215,6 +228,18 @@ export interface BuildInput {
   claimsFile?: string;
   /** Path to a capabilities JSON file. */
   capabilities?: string;
+  /** Load `paths` as bundle files or root directories (`--bundle`). Needed to rebuild an existing bundle. */
+  bundle?: boolean;
+  /** Exclude dependents of entrypoints not reachable from them (`--prune-unused`). */
+  pruneUnused?: boolean;
+  /** File/directory name patterns to ignore during loading (`--ignore`, e.g. `.*`). */
+  ignore?: string[];
+  /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
+  v1Compatible?: boolean;
+  /** PEM public key / HMAC secret path to re-verify a signed bundle during build (`--verification-key`). */
+  verificationKey?: string;
+  /** Key ID for verification (`--verification-key-id`, OPA default `default`). */
+  verificationKeyId?: string;
 }
 
 /** Input for `opa sign`. */
@@ -237,8 +262,21 @@ export interface ExecInput {
   decision: string;
   /** Load path as a bundle file or root directory. Mutually exclusive with `dataPaths`. */
   bundle?: string;
-  /** Policy/data file or directory paths to load. Mutually exclusive with `bundle`. */
+  /**
+   * Policy/data file or directory paths, each loaded as a `--bundle` root
+   * (opa exec has no `--data` flag). Mutually exclusive with `bundle`.
+   */
   dataPaths?: string[];
+  /** Exit non-zero when any decision is undefined or errors (`--fail`). */
+  fail?: boolean;
+  /** Exit non-zero when any decision is defined or errors (`--fail-defined`). */
+  failDefined?: boolean;
+  /** Exit non-zero when any decision result is non-empty or errors (`--fail-non-empty`). */
+  failNonEmpty?: boolean;
+  /** Per-exec evaluation timeout as a Go duration (e.g. `30s`, `5m`). Bounded by the subprocess kill timeout. */
+  timeout?: string;
+  /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
+  v1Compatible?: boolean;
 }
 
 /** Input for bundle signature verification via `opa eval --bundle`. */
@@ -356,11 +394,15 @@ export class OpaCli {
     if (input.v0Compatible) args.push('--v0-compatible');
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     if (input.schemaDir) args.push('--schema', input.schemaDir);
+    if (input.maxErrors !== undefined) args.push('--max-errors', String(input.maxErrors));
     if (input.source !== undefined) {
+      // --bundle is meaningless for a single temp source file, so it is only
+      // applied in the paths branch below.
       return this.withTempSource(input.source, (path) =>
         this.run([...args, path], undefined, signal),
       );
     }
+    if (input.bundle) args.push('--bundle');
     args.push(...(input.paths ?? []));
     return this.run(args, undefined, signal);
   }
@@ -481,6 +523,8 @@ export class OpaCli {
     for (const pat of input.ignorePatterns ?? []) args.push('--ignore', pat);
     if (input.count !== undefined) args.push('--count', String(input.count));
     if (input.timeout) args.push('--timeout', input.timeout);
+    if (input.explain) args.push('--explain', input.explain);
+    if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.paths);
     return this.run(args, undefined, signal);
   }
@@ -520,6 +564,12 @@ export class OpaCli {
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.claimsFile) args.push('--claims-file', input.claimsFile);
     if (input.capabilities) args.push('--capabilities', input.capabilities);
+    if (input.bundle) args.push('--bundle');
+    if (input.pruneUnused) args.push('--prune-unused');
+    if (input.v1Compatible) args.push('--v1-compatible');
+    for (const pat of input.ignore ?? []) args.push('--ignore', pat);
+    if (input.verificationKey) args.push('--verification-key', input.verificationKey);
+    if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
     args.push(...input.paths);
     return this.run(args, undefined, signal);
   }
@@ -563,7 +613,15 @@ export class OpaCli {
     }
     const args = ['exec', '--format=json', '--decision', input.decision];
     if (input.bundle) args.push('--bundle', input.bundle);
-    for (const p of input.dataPaths ?? []) args.push('--data', p);
+    // `opa exec` has no --data flag; policy/data is loaded only via --bundle
+    // (repeatable, accepts files or directories). Each dataPaths entry becomes
+    // a --bundle root.
+    for (const p of input.dataPaths ?? []) args.push('--bundle', p);
+    if (input.fail) args.push('--fail');
+    if (input.failDefined) args.push('--fail-defined');
+    if (input.failNonEmpty) args.push('--fail-non-empty');
+    if (input.timeout) args.push('--timeout', input.timeout);
+    if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.inputPaths);
     return this.run(args, undefined, signal);
   }
