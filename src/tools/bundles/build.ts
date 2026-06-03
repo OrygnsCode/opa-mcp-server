@@ -37,6 +37,40 @@ const OpaBundleBuildInput = {
   signingAlg: z.string().optional().describe('Signing algorithm (e.g. RS256).'),
   claimsFile: z.string().optional().describe('Path to a claims file for inline signing.'),
   capabilities: z.string().optional().describe('Path to a capabilities JSON file.'),
+  bundle: z
+    .boolean()
+    .optional()
+    .describe(
+      'Load `paths` as bundle files or root directories (`--bundle`). Required when rebuilding or re-signing an existing bundle.',
+    ),
+  pruneUnused: z
+    .boolean()
+    .optional()
+    .describe(
+      'Exclude dependents of entrypoints that are not reachable from them (`--prune-unused`). Most useful alongside `entrypoints`.',
+    ),
+  ignore: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'File/directory name patterns to ignore during loading (`--ignore`), e.g. `[".*"]` to skip hidden files. These are name patterns, not filesystem paths.',
+    ),
+  v1Compatible: z
+    .boolean()
+    .optional()
+    .describe(
+      "Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). Affects the built bundle's runtime semantics.",
+    ),
+  verificationKey: z
+    .string()
+    .optional()
+    .describe(
+      'Path to a PEM public key (or HMAC secret file) used to re-verify an existing signed bundle during the build (`--verification-key`). Pair with `bundle: true`.',
+    ),
+  verificationKeyId: z
+    .string()
+    .optional()
+    .describe('Key ID for verification (`--verification-key-id`, OPA default `default`).'),
 };
 
 export interface OpaBundleBuildOutput {
@@ -92,6 +126,13 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
           resolvedCapabilities = v.resolved[0];
         }
 
+        let resolvedVerificationKey: string | undefined;
+        if (input.verificationKey) {
+          const v = validatePaths([input.verificationKey], config, { mustExist: true });
+          if (!v.ok) return v.error;
+          resolvedVerificationKey = v.resolved[0];
+        }
+
         const result = await opa.build(
           {
             paths: sourcePaths,
@@ -104,6 +145,12 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
             signingAlg: input.signingAlg,
             claimsFile: resolvedClaimsFile,
             capabilities: resolvedCapabilities,
+            bundle: input.bundle,
+            pruneUnused: input.pruneUnused,
+            ignore: input.ignore,
+            v1Compatible: input.v1Compatible,
+            verificationKey: resolvedVerificationKey,
+            verificationKeyId: input.verificationKeyId,
           },
           signal,
         );

@@ -215,6 +215,18 @@ export interface BuildInput {
   claimsFile?: string;
   /** Path to a capabilities JSON file. */
   capabilities?: string;
+  /** Load `paths` as bundle files or root directories (`--bundle`). Needed to rebuild an existing bundle. */
+  bundle?: boolean;
+  /** Exclude dependents of entrypoints not reachable from them (`--prune-unused`). */
+  pruneUnused?: boolean;
+  /** File/directory name patterns to ignore during loading (`--ignore`, e.g. `.*`). */
+  ignore?: string[];
+  /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
+  v1Compatible?: boolean;
+  /** PEM public key / HMAC secret path to re-verify a signed bundle during build (`--verification-key`). */
+  verificationKey?: string;
+  /** Key ID for verification (`--verification-key-id`, OPA default `default`). */
+  verificationKeyId?: string;
 }
 
 /** Input for `opa sign`. */
@@ -520,6 +532,12 @@ export class OpaCli {
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.claimsFile) args.push('--claims-file', input.claimsFile);
     if (input.capabilities) args.push('--capabilities', input.capabilities);
+    if (input.bundle) args.push('--bundle');
+    if (input.pruneUnused) args.push('--prune-unused');
+    if (input.v1Compatible) args.push('--v1-compatible');
+    for (const pat of input.ignore ?? []) args.push('--ignore', pat);
+    if (input.verificationKey) args.push('--verification-key', input.verificationKey);
+    if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
     args.push(...input.paths);
     return this.run(args, undefined, signal);
   }
