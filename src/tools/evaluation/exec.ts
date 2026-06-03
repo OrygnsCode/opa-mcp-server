@@ -121,7 +121,17 @@ export function registerOpaExec(server: McpServer, config: Config): void {
       },
     },
     async (
-      { inputPaths, decision, bundle, dataPaths, fail, failDefined, failNonEmpty, timeout, v1Compatible },
+      {
+        inputPaths,
+        decision,
+        bundle,
+        dataPaths,
+        fail,
+        failDefined,
+        failNonEmpty,
+        timeout,
+        v1Compatible,
+      },
       { signal },
     ) => {
       return withToolEnvelope<OpaExecOutput>(config, async () => {

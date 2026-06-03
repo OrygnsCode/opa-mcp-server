@@ -96,10 +96,7 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
           );
         }
         if (bundle && source) {
-          return err(
-            'INVALID_INPUT',
-            '`bundle` applies to `paths`, not inline `source`.',
-          );
+          return err('INVALID_INPUT', '`bundle` applies to `paths`, not inline `source`.');
         }
 
         let resolvedPaths: string[] | undefined;

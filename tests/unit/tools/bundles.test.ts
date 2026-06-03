@@ -127,7 +127,11 @@ describe('opa_bundle_build', () => {
 
   it('validates verificationKey and passes --verification-key/-id', async () => {
     const keyPath = join(workDir, 'pub.pem');
-    await writeFile(keyPath, '-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n', 'utf8');
+    await writeFile(
+      keyPath,
+      '-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n',
+      'utf8',
+    );
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
     const server = makeServer();
     registerBundleTools(server, {
