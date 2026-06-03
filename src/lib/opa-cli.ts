@@ -239,6 +239,16 @@ export interface ExecInput {
   bundle?: string;
   /** Policy/data file or directory paths to load. Mutually exclusive with `bundle`. */
   dataPaths?: string[];
+  /** Exit non-zero when any decision is undefined or errors (`--fail`). */
+  fail?: boolean;
+  /** Exit non-zero when any decision is defined or errors (`--fail-defined`). */
+  failDefined?: boolean;
+  /** Exit non-zero when any decision result is non-empty or errors (`--fail-non-empty`). */
+  failNonEmpty?: boolean;
+  /** Per-exec evaluation timeout as a Go duration (e.g. `30s`, `5m`). Bounded by the subprocess kill timeout. */
+  timeout?: string;
+  /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
+  v1Compatible?: boolean;
 }
 
 /** Input for bundle signature verification via `opa eval --bundle`. */
@@ -564,6 +574,11 @@ export class OpaCli {
     const args = ['exec', '--format=json', '--decision', input.decision];
     if (input.bundle) args.push('--bundle', input.bundle);
     for (const p of input.dataPaths ?? []) args.push('--data', p);
+    if (input.fail) args.push('--fail');
+    if (input.failDefined) args.push('--fail-defined');
+    if (input.failNonEmpty) args.push('--fail-non-empty');
+    if (input.timeout) args.push('--timeout', input.timeout);
+    if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.inputPaths);
     return this.run(args, undefined, signal);
   }
