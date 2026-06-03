@@ -257,6 +257,35 @@ describe('rego_check', () => {
     expect(env.ok).toBe(true);
     expect(env.data?.valid).toBe(true);
   });
+
+  it('passes --max-errors when maxErrors is set', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    await callTool(server, 'rego_check', { source: 'package x', maxErrors: 50 });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--max-errors');
+    expect(args[args.indexOf('--max-errors') + 1]).toBe('50');
+  });
+
+  it('passes --bundle when bundle: true with paths', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    await callTool(server, 'rego_check', {
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+      bundle: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--bundle');
+  });
+
+  it('rejects bundle with inline source', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check', { source: 'package x', bundle: true });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
 });
 
 describe('rego_lint', () => {

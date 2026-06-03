@@ -58,6 +58,10 @@ export interface CheckInput {
   v1Compatible?: boolean;
   /** Opt-in to OPA behaviors prior to the v1.0 release (`opa check --v0-compatible`). */
   v0Compatible?: boolean;
+  /** Max compilation errors before failing early (`--max-errors`, OPA default 10). */
+  maxErrors?: number;
+  /** Load `paths` as bundle files or root directories (`--bundle`). Ignored for inline source. */
+  bundle?: boolean;
 }
 
 /** Input for `opa parse`. */
@@ -356,11 +360,15 @@ export class OpaCli {
     if (input.v0Compatible) args.push('--v0-compatible');
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     if (input.schemaDir) args.push('--schema', input.schemaDir);
+    if (input.maxErrors !== undefined) args.push('--max-errors', String(input.maxErrors));
     if (input.source !== undefined) {
+      // --bundle is meaningless for a single temp source file, so it is only
+      // applied in the paths branch below.
       return this.withTempSource(input.source, (path) =>
         this.run([...args, path], undefined, signal),
       );
     }
+    if (input.bundle) args.push('--bundle');
     args.push(...(input.paths ?? []));
     return this.run(args, undefined, signal);
   }
