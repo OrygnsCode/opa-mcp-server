@@ -597,6 +597,40 @@ describe('rego_test', () => {
     expect(mockRun.mock.calls[0]![1].args).not.toContain('--timeout');
   });
 
+  it('passes --explain <mode> when explain is set', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], explain: 'full' });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--explain');
+    expect(args[args.indexOf('--explain') + 1]).toBe('full');
+  });
+
+  it('does not emit --explain when omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--explain');
+  });
+
+  it('passes --v1-compatible when v1Compatible is true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], v1Compatible: true });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--v1-compatible');
+  });
+
+  it('does not emit --v1-compatible when omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--v1-compatible');
+  });
+
   // ─── NO_TESTS_FOUND hint improvement ──────────────────────────────────
 
   it('includes runPattern in NO_TESTS_FOUND hint when no tests match', async () => {

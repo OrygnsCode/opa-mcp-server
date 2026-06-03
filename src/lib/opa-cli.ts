@@ -177,6 +177,15 @@ export interface TestInput {
    * sets or call slow built-ins (`--timeout <duration>`).
    */
   timeout?: string;
+  /**
+   * Enable query explanations on test records (`--explain <mode>`): `fails`
+   * traces only failing tests, `full` traces everything, `notes` surfaces
+   * `trace()` notes, `debug` is the most verbose. Populates each record's
+   * `trace` field.
+   */
+  explain?: 'fails' | 'full' | 'notes' | 'debug';
+  /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
+  v1Compatible?: boolean;
 }
 
 /** Input for `opa bench`. */
@@ -481,6 +490,8 @@ export class OpaCli {
     for (const pat of input.ignorePatterns ?? []) args.push('--ignore', pat);
     if (input.count !== undefined) args.push('--count', String(input.count));
     if (input.timeout) args.push('--timeout', input.timeout);
+    if (input.explain) args.push('--explain', input.explain);
+    if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.paths);
     return this.run(args, undefined, signal);
   }
