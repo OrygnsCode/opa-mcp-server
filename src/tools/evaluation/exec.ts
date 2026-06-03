@@ -45,7 +45,7 @@ const OpaExecInput = {
     .array(z.string())
     .optional()
     .describe(
-      'Policy and/or data file or directory paths to load. Mutually exclusive with `bundle`.',
+      'Policy and/or data file or directory paths, each loaded as an OPA bundle root (opa exec loads policy only via bundles). Mutually exclusive with `bundle`.',
     ),
   fail: z
     .boolean()

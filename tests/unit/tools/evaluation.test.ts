@@ -873,7 +873,7 @@ describe('opa_exec', () => {
     expect(args).not.toContain('--data');
   });
 
-  it('passes --data flags for each dataPaths entry', async () => {
+  it('passes --bundle for each dataPaths entry (opa exec has no --data flag)', async () => {
     mockRun.mockResolvedValueOnce(
       spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
     );
@@ -885,11 +885,11 @@ describe('opa_exec', () => {
       dataPaths: [validRegoPath(), fixturePath('policies', 'valid')],
     });
     const args = mockRun.mock.calls[0]![1].args;
-    const dataIdxs = args.map((a, i) => (a === '--data' ? i : -1)).filter((i) => i !== -1);
-    expect(dataIdxs).toHaveLength(2);
-    expect(args[dataIdxs[0]! + 1]).toBe(validRegoPath());
-    expect(args[dataIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
-    expect(args).not.toContain('--bundle');
+    const bundleIdxs = args.map((a, i) => (a === '--bundle' ? i : -1)).filter((i) => i !== -1);
+    expect(bundleIdxs).toHaveLength(2);
+    expect(args[bundleIdxs[0]! + 1]).toBe(validRegoPath());
+    expect(args[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
+    expect(args).not.toContain('--data');
   });
 
   it('rejects providing both bundle and dataPaths', async () => {

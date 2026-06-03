@@ -701,4 +701,59 @@ describe('OpaCli integration', () => {
       await expect(opa.fmtWrite({ paths: [] })).rejects.toThrow(/at least one path/);
     });
   });
+
+  describe('exec()', () => {
+    it('loads policy from dataPaths via --bundle and evaluates each input', async () => {
+      const policyDir = join(tmpWorkDir, 'exec-policy');
+      await mkdir(policyDir, { recursive: true });
+      await writeFile(
+        join(policyDir, 'authz.rego'),
+        'package authz\nimport rego.v1\n\nallow if input.user == "admin"\n',
+        'utf8',
+      );
+      const inputFile = join(tmpWorkDir, 'exec-input.json');
+      await writeFile(inputFile, JSON.stringify({ user: 'admin' }), 'utf8');
+
+      const result = await opa.exec({
+        inputPaths: [inputFile],
+        decision: 'authz/allow',
+        dataPaths: [policyDir],
+      });
+
+      // Regression guard for the dataPaths fix: opa exec has no --data flag.
+      // The old code pushed --data and always failed with "unknown flag: --data".
+      expect(result.stderr).not.toMatch(/unknown flag/i);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout) as { result?: Array<{ result?: unknown }> };
+      expect(parsed.result?.[0]?.result).toBe(true);
+    });
+
+    it('exits non-zero but still prints results JSON when a --fail-defined gate fires', async () => {
+      const policyDir = join(tmpWorkDir, 'exec-gate-policy');
+      await mkdir(policyDir, { recursive: true });
+      await writeFile(
+        join(policyDir, 'authz.rego'),
+        'package authz\nimport rego.v1\n\nallow if input.user == "admin"\n',
+        'utf8',
+      );
+      const inputFile = join(tmpWorkDir, 'exec-gate-input.json');
+      await writeFile(inputFile, JSON.stringify({ user: 'admin' }), 'utf8');
+
+      const result = await opa.exec({
+        inputPaths: [inputFile],
+        decision: 'authz/allow',
+        dataPaths: [policyDir],
+        failDefined: true,
+      });
+
+      // allow is defined (true), so --fail-defined makes opa exit non-zero.
+      // Crucially, opa still prints the per-file JSON to stdout -- which is the
+      // behavior the opa_exec gate handling relies on to report failed:true
+      // alongside the results rather than erroring.
+      expect(result.exitCode).not.toBe(0);
+      const parsed = JSON.parse(result.stdout) as { result?: unknown[] };
+      expect(Array.isArray(parsed.result)).toBe(true);
+      expect(parsed.result?.length).toBe(1);
+    });
+  });
 });

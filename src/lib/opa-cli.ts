@@ -237,7 +237,10 @@ export interface ExecInput {
   decision: string;
   /** Load path as a bundle file or root directory. Mutually exclusive with `dataPaths`. */
   bundle?: string;
-  /** Policy/data file or directory paths to load. Mutually exclusive with `bundle`. */
+  /**
+   * Policy/data file or directory paths, each loaded as a `--bundle` root
+   * (opa exec has no `--data` flag). Mutually exclusive with `bundle`.
+   */
   dataPaths?: string[];
   /** Exit non-zero when any decision is undefined or errors (`--fail`). */
   fail?: boolean;
@@ -573,7 +576,10 @@ export class OpaCli {
     }
     const args = ['exec', '--format=json', '--decision', input.decision];
     if (input.bundle) args.push('--bundle', input.bundle);
-    for (const p of input.dataPaths ?? []) args.push('--data', p);
+    // `opa exec` has no --data flag; policy/data is loaded only via --bundle
+    // (repeatable, accepts files or directories). Each dataPaths entry becomes
+    // a --bundle root.
+    for (const p of input.dataPaths ?? []) args.push('--bundle', p);
     if (input.fail) args.push('--fail');
     if (input.failDefined) args.push('--fail-defined');
     if (input.failNonEmpty) args.push('--fail-non-empty');
