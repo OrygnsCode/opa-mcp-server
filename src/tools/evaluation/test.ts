@@ -78,6 +78,16 @@ const RegoTestInput = {
     .describe(
       'Per-test timeout as a Go duration string, e.g. `"30s"` or `"2m"` (`--timeout`). OPA\'s default is 5s. Increase for tests that load large policy sets or call slow built-ins.',
     ),
+  explain: z
+    .enum(['fails', 'full', 'notes', 'debug'])
+    .optional()
+    .describe(
+      "Add a query-explanation trace to test records (`--explain`). `fails` traces only failing tests, `full` traces everything, `notes` surfaces `trace()` notes, `debug` is most verbose. Populates each record's `trace` field; pair with `verbose: true` for the human-readable trace output too.",
+    ),
+  v1Compatible: z
+    .boolean()
+    .optional()
+    .describe('Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`).'),
 };
 
 export interface TestRecord {
@@ -173,6 +183,8 @@ export function registerRegoTest(server: McpServer, config: Config): void {
         bundle,
         count,
         timeout,
+        explain,
+        v1Compatible,
       },
       { signal },
     ) => {
@@ -200,6 +212,8 @@ export function registerRegoTest(server: McpServer, config: Config): void {
             bundle,
             count,
             timeout,
+            explain,
+            v1Compatible,
           },
           signal,
         );
