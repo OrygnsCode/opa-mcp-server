@@ -100,6 +100,71 @@ describe('opa_bundle_build', () => {
     expect(args[entryIdxs[0]! + 1]).toBe('rbac/allow');
   });
 
+  it('passes bundle, pruneUnused, v1Compatible, and ignore flags', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+      bundle: true,
+      pruneUnused: true,
+      v1Compatible: true,
+      ignore: ['.*', 'testdata'],
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--bundle');
+    expect(args).toContain('--prune-unused');
+    expect(args).toContain('--v1-compatible');
+    const ignoreIdxs = args.map((a, i) => (a === '--ignore' ? i : -1)).filter((i) => i !== -1);
+    expect(ignoreIdxs).toHaveLength(2);
+    expect(args[ignoreIdxs[0]! + 1]).toBe('.*');
+    expect(args[ignoreIdxs[1]! + 1]).toBe('testdata');
+  });
+
+  it('validates verificationKey and passes --verification-key/-id', async () => {
+    const keyPath = join(workDir, 'pub.pem');
+    await writeFile(keyPath, '-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n', 'utf8');
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+      bundle: true,
+      verificationKey: keyPath,
+      verificationKeyId: 'my-key',
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    const vkIdx = args.indexOf('--verification-key');
+    expect(vkIdx).toBeGreaterThan(-1);
+    expect(args[vkIdx + 1]).toMatch(/pub\.pem$/);
+    expect(args).toContain('--verification-key-id');
+    expect(args[args.indexOf('--verification-key-id') + 1]).toBe('my-key');
+  });
+
+  it('rejects a verificationKey outside allowed roots', async () => {
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    const env = await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+      verificationKey: '/outside/pub.pem',
+    });
+    expect(env.ok).toBe(false);
+    expect(['PATH_NOT_ALLOWED', 'PATH_NOT_FOUND']).toContain(env.error?.code);
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
   it('rejects source paths outside allowed roots', async () => {
     const server = makeServer();
     registerBundleTools(server, {
