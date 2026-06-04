@@ -87,6 +87,6 @@
     "provenance": true
   },
   "overrides": {
-    "hono": ">=4.12.18"
+    "hono": ">=4.12.23"
   }
 }
