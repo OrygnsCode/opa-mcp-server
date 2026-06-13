@@ -30,10 +30,45 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # The bundled-OPA platform packages must publish BEFORE the main package so
+  # the main package's optionalDependencies resolve for the first installer.
+  # These 5 are brand-new packages, so they use a granular @orygn-scoped token
+  # (NPM_TOKEN) rather than OIDC; the main package below keeps OIDC untouched.
+  publish-binaries:
+    name: Publish platform binary packages to npm
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm install -g npm@latest
+      # Defensive: ensure the 5 packages carry the release version even if the
+      # release-prep commit forgot to run `npm run bundle:sync`.
+      - name: Sync platform package versions to the main version
+        run: node scripts/sync-versions.mjs
+      - name: Fetch and checksum-verify all 5 OPA binaries
+        run: node scripts/fetch-opa-binaries.mjs
+      - name: Publish each platform package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for dir in packages/opa-mcp-*/; do
+            name=$(node -p "require('./${dir}package.json').name")
+            ver=$(node -p "require('./${dir}package.json').version")
+            echo "Publishing ${name}@${ver}"
+            npm publish "${dir}" --access public
+          done
+
   publish-npm:
     name: Publish to npm
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [validate, publish-binaries]
     environment:
       name: npm
       url: https://www.npmjs.com/package/@orygn/opa-mcp
