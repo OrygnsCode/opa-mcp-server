@@ -1,0 +1,69 @@
+name: Bundle test
+
+# Proves the bundled-OPA optional-dependency packages work end to end. Runs
+# only when the bundling pieces change. All runners here are free for public
+# repositories (the arm64 Linux runner requires a public repo).
+on:
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'scripts/**'
+      - 'src/lib/resolve-binary.ts'
+      - '.github/workflows/bundle-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'scripts/**'
+      - 'src/lib/resolve-binary.ts'
+      - '.github/workflows/bundle-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Validate the manifest, asset names, download URLs, and sha256 for ALL five
+  # platforms on one cheap runner. Downloading and hashing a binary needs no
+  # matching architecture, so this also covers darwin-x64, whose execution we
+  # cannot run for free (GitHub's Intel macOS runners are paid "large" runners).
+  validate-all:
+    name: Validate all platform binaries (fetch + checksum)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Fetch and checksum-verify all 5 OPA binaries
+        run: node scripts/fetch-opa-binaries.mjs
+
+  # Execute the bundle on every platform we can run for free. Each runner fetches
+  # only its own binary, packs the package, installs it with opa stripped from
+  # PATH, and asserts the resolver returns the bundled binary and it runs the
+  # pinned OPA version.
+  run-bundle:
+    name: Run bundle (${{ matrix.label }})
+    needs: validate-all
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux-x64 }
+          - { os: ubuntu-24.04-arm, label: linux-arm64 }
+          - { os: macos-latest, label: darwin-arm64 }
+          - { os: windows-latest, label: win32-x64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Install dev dependencies (skip the unpublished optional bundles)
+        run: npm install --omit=optional --no-audit --no-fund --loglevel=error
+      - name: Build (produces dist/lib/resolve-binary.js)
+        run: npm run build
+      - name: Fetch this platform's OPA binary
+        run: node scripts/fetch-opa-binaries.mjs --current
+      - name: Pack, install, resolve, and run the bundled OPA
+        run: node scripts/test-bundle.mjs

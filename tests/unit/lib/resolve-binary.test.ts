@@ -94,9 +94,9 @@ describe('binOnPath() — real filesystem scan', () => {
   it('returns false when the binary is absent from every PATH entry', () => {
     const other = mkdtempSync(join(tmpdir(), 'resolve-binary-empty-'));
     try {
-      expect(
-        binOnPath('opa', { platform: 'linux', pathEnv: [dir, other].join(delimiter) }),
-      ).toBe(false);
+      expect(binOnPath('opa', { platform: 'linux', pathEnv: [dir, other].join(delimiter) })).toBe(
+        false,
+      );
     } finally {
       rmSync(other, { recursive: true, force: true });
     }
@@ -117,16 +117,12 @@ describe('binOnPath() — real filesystem scan', () => {
   it('honors PATHEXT on win32, matching by appending an extension', () => {
     writeFileSync(join(dir, 'opa.exe'), '');
     // The bare name must NOT match on win32 (only name+ext is tried).
-    expect(binOnPath('opa', { platform: 'win32', pathEnv: dir, pathExt: '.COM;.EXE' })).toBe(
-      true,
-    );
+    expect(binOnPath('opa', { platform: 'win32', pathEnv: dir, pathExt: '.COM;.EXE' })).toBe(true);
   });
 
   it('does not match a win32 binary when no PATHEXT extension lines up', () => {
     writeFileSync(join(dir, 'opa.exe'), '');
-    expect(binOnPath('opa', { platform: 'win32', pathEnv: dir, pathExt: '.COM;.BAT' })).toBe(
-      false,
-    );
+    expect(binOnPath('opa', { platform: 'win32', pathEnv: dir, pathExt: '.COM;.BAT' })).toBe(false);
   });
 });
 
