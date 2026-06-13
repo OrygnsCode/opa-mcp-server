@@ -12,6 +12,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadConfig } from '../../src/config.js';
 
+// loadConfig() runs the configured binary name through resolve-binary, whose
+// result depends on the environment (opa on PATH, a bundled package installed).
+// These tests cover env-var parsing, so stub the resolver to an identity
+// function; resolve-binary.test.ts exercises the resolution itself.
+vi.mock('../../src/lib/resolve-binary.js', () => ({
+  resolveOpaBinary: (configured: string) => configured,
+}));
+
 const ENV_KEYS = [
   'OPA_URL',
   'OPA_TOKEN',
