@@ -1,0 +1,31 @@
+{
+  "name": "@orygn/opa-mcp-darwin-arm64",
+  "version": "0.2.0",
+  "description": "OPA binary (macOS arm64) bundled for @orygn/opa-mcp. Installed automatically as an optional dependency; do not depend on it directly.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/OrygnsCode/opa-mcp-server",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OrygnsCode/opa-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OrygnsCode/opa-mcp-server/issues"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "opa",
+    "LICENSE"
+  ],
+  "preferUnplugged": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

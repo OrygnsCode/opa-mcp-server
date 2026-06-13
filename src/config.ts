@@ -10,6 +10,8 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import { resolveOpaBinary } from './lib/resolve-binary.js';
+
 const ConfigSchema = z.object({
   /** Base URL of a running OPA server (used by `opa_*` runtime tools). */
   opaUrl: z
@@ -116,5 +118,10 @@ export function loadConfig(): Config {
     process.exit(2);
   }
 
-  return parsed.data;
+  const config = parsed.data;
+  // Turn the configured binary name into a concrete path: an explicit
+  // OPA_BINARY is kept as-is, otherwise we prefer `opa` on PATH and fall
+  // back to the bundled platform binary. See lib/resolve-binary.ts.
+  config.opaBinary = resolveOpaBinary(config.opaBinary);
+  return config;
 }

@@ -73,5 +73,19 @@ export default [
       'no-console': 'off',
     },
   },
+  {
+    // Plain-JS build/release scripts (not TypeScript): fetch the OPA
+    // binaries, sync versions. They run under Node and log progress for
+    // humans, so Node globals are in scope and console is allowed.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      sourceType: 'module',
+      ecmaVersion: 2022,
+      globals: { ...globals.node, fetch: 'readonly' },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
   prettier,
 ];

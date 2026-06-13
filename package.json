@@ -1,6 +1,6 @@
 {
   "name": "@orygn/opa-mcp",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "mcpName": "io.github.OrygnsCode/opa-mcp",
   "description": "Model Context Protocol server for Open Policy Agent (OPA). Author, validate, debug, and explain Rego policies through any MCP-compatible client.",
   "type": "module",
@@ -60,12 +60,21 @@
     "test:coverage": "vitest run --config vitest.coverage.config.ts --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build",
-    "clean": "rimraf dist coverage .vitest-cache"
+    "clean": "rimraf dist coverage .vitest-cache",
+    "bundle:fetch": "node scripts/fetch-opa-binaries.mjs",
+    "bundle:sync": "node scripts/sync-versions.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "z3-solver": "^4.16.0",
     "zod": "^3.23.0"
+  },
+  "optionalDependencies": {
+    "@orygn/opa-mcp-linux-x64": "0.2.0",
+    "@orygn/opa-mcp-linux-arm64": "0.2.0",
+    "@orygn/opa-mcp-darwin-x64": "0.2.0",
+    "@orygn/opa-mcp-darwin-arm64": "0.2.0",
+    "@orygn/opa-mcp-win32-x64": "0.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
