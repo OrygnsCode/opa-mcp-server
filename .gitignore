@@ -41,6 +41,14 @@ logs/
 *.mcpb
 *.tgz
 
+# Bundled OPA binaries — fetched (and checksum-verified) at build/publish
+# time by scripts/fetch-opa-binaries.mjs, never committed. The package.json
+# scaffolds in packages/* ARE tracked; only the binaries and copied LICENSE
+# are ignored.
+packages/*/opa
+packages/*/opa.exe
+packages/*/LICENSE
+
 # Local dev artifacts
 .cache/
 .tmp/
