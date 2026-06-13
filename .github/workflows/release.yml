@@ -212,6 +212,44 @@ jobs:
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
 
+  publish-registry:
+    name: Publish to MCP Registry
+    runs-on: ubuntu-latest
+    # The registry verifies every package in server.json is already published and
+    # that we own the io.github.OrygnsCode namespace, so npm + Docker must land
+    # first. Nothing depends on this job, so a registry hiccup (it is still in
+    # preview) never blocks the rest of the release.
+    needs: [publish-npm, publish-docker]
+    permissions:
+      # GitHub OIDC proves the identity behind the io.github.OrygnsCode/* namespace,
+      # so no token is stored. contents:read is enough to read server.json.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # server.json has no auto-sync (unlike the platform packages), so guard
+      # against a release-prep commit that forgot to bump it. A mismatch would
+      # otherwise publish a stale version or get rejected with a cryptic error.
+      - name: Verify server.json versions match the tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          top=$(jq -r '.version' server.json)
+          npmv=$(jq -r '.packages[] | select(.registryType=="npm") | .version' server.json)
+          oci=$(jq -r '.packages[] | select(.registryType=="oci") | .identifier' server.json)
+          echo "tag=${tag}  server.json: version=${top} npm=${npmv} oci=${oci}"
+          [ "${top}" = "${tag}" ]  || { echo "::error::server.json .version (${top}) != tag (${tag})"; exit 1; }
+          [ "${npmv}" = "${tag}" ] || { echo "::error::server.json npm package version (${npmv}) != tag (${tag})"; exit 1; }
+          case "${oci}" in *":${tag}") ;; *) echo "::error::server.json oci identifier (${oci}) is not pinned to :${tag}"; exit 1 ;; esac
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: Authenticate via GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json to the MCP Registry
+        run: ./mcp-publisher publish
+
   github-release:
     name: GitHub Release
     runs-on: ubuntu-latest
