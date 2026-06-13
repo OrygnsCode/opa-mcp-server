@@ -132,9 +132,11 @@ describe('bundledOpaPath()', () => {
     expect(bundledOpaPath('linux', 'ia32')).toBeUndefined();
   });
 
-  it('returns undefined when the optional dependency is not installed', () => {
-    // The platform packages are not dependencies of this repo, so even on a
-    // supported host require.resolve fails and the resolver degrades cleanly.
-    expect(bundledOpaPath('linux', 'x64')).toBeUndefined();
+  it('returns undefined for a supported platform whose package is not installed', () => {
+    // npm installs only the optional dependency matching the host os/cpu, so a
+    // package for a different OS is guaranteed absent and resolves to undefined.
+    // (Stays correct even after the platform packages are published to npm.)
+    const otherOs = process.platform === 'linux' ? 'darwin' : 'linux';
+    expect(bundledOpaPath(otherOs, 'arm64')).toBeUndefined();
   });
 });

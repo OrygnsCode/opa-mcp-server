@@ -53,7 +53,7 @@ jobs:
         run: node scripts/sync-versions.mjs
       - name: Fetch and checksum-verify all 5 OPA binaries
         run: node scripts/fetch-opa-binaries.mjs
-      - name: Publish each platform package
+      - name: Publish each platform package (skip versions already on npm)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -61,8 +61,12 @@ jobs:
           for dir in packages/opa-mcp-*/; do
             name=$(node -p "require('./${dir}package.json').name")
             ver=$(node -p "require('./${dir}package.json').version")
-            echo "Publishing ${name}@${ver}"
-            npm publish "${dir}" --access public
+            if npm view "${name}@${ver}" version >/dev/null 2>&1; then
+              echo "Skip ${name}@${ver} (already published)"
+            else
+              echo "Publishing ${name}@${ver}"
+              npm publish "${dir}" --access public
+            fi
           done
 
   publish-npm:
