@@ -168,6 +168,13 @@ jobs:
           cp -r dist bundle/server/dist
           cp package.json bundle/server/package.json
           cp -r node_modules bundle/server/node_modules
+          # The OPA binary ships as platform-specific optionalDependencies for the
+          # npm/npx install path. The .mcpb is a single frozen artifact built on one
+          # OS, so a bundled binary would be the wrong platform for most people who
+          # download it and pushes the zip past Smithery's 25 MB limit. Drop the
+          # platform packages here; the bundle resolves `opa` from OPA_BINARY or PATH,
+          # exactly as it did before 0.2.0.
+          rm -rf bundle/server/node_modules/@orygn/opa-mcp-*
           cp manifest.json bundle/manifest.json
           cp README.md bundle/README.md
           cp LICENSE bundle/LICENSE
@@ -208,7 +215,10 @@ jobs:
   github-release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [publish-npm, publish-docker, build-mcpb, publish-smithery]
+    # Smithery is a secondary channel published from the same artifact; a hiccup
+    # there must not block the canonical GitHub release, which does not depend on
+    # the Smithery upload having succeeded.
+    needs: [publish-npm, publish-docker, build-mcpb]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
