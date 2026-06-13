@@ -17,6 +17,22 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-13
+
+### Added
+
+- OPA is now bundled. The OPA binary ships as platform-specific optional
+  dependencies (`@orygn/opa-mcp-<platform>-<arch>`), so `npx @orygn/opa-mcp` runs
+  without installing OPA separately. npm downloads only the binary that matches
+  your operating system and CPU, so the install stays small. Pinned to OPA 0.69.0.
+
+### Changed
+
+- The `opa` binary is now resolved in this order: an explicit `OPA_BINARY` first,
+  then `opa` found on PATH, then the bundled binary. Setups that already have `opa`
+  on PATH keep working exactly as before; the bundled copy is only a fallback, so
+  no existing install changes behavior.
+
 ## [0.1.20] - 2026-06-03
 
 ### Added

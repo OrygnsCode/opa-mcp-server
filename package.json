@@ -1,6 +1,6 @@
 {
   "name": "@orygn/opa-mcp",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "mcpName": "io.github.OrygnsCode/opa-mcp",
   "description": "Model Context Protocol server for Open Policy Agent (OPA). Author, validate, debug, and explain Rego policies through any MCP-compatible client.",
   "type": "module",
@@ -70,11 +70,11 @@
     "zod": "^3.23.0"
   },
   "optionalDependencies": {
-    "@orygn/opa-mcp-linux-x64": "0.1.20",
-    "@orygn/opa-mcp-linux-arm64": "0.1.20",
-    "@orygn/opa-mcp-darwin-x64": "0.1.20",
-    "@orygn/opa-mcp-darwin-arm64": "0.1.20",
-    "@orygn/opa-mcp-win32-x64": "0.1.20"
+    "@orygn/opa-mcp-linux-x64": "0.2.0",
+    "@orygn/opa-mcp-linux-arm64": "0.2.0",
+    "@orygn/opa-mcp-darwin-x64": "0.2.0",
+    "@orygn/opa-mcp-darwin-arm64": "0.2.0",
+    "@orygn/opa-mcp-win32-x64": "0.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
