@@ -31,7 +31,7 @@ jobs:
     name: Validate all platform binaries (fetch + checksum)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -55,7 +55,7 @@ jobs:
           - { os: macos-latest, label: darwin-arm64 }
           - { os: windows-latest, label: win32-x64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
