@@ -8,6 +8,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaClient } from '../../lib/opa-client.js';
 import { ok } from '../../lib/errors.js';
+import { coerceJsonArg } from '../../lib/json-coerce.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
 import { mapOpaClientError, parseOpaDataPath } from './_shared.js';
 
@@ -72,7 +73,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
           await opa.request({
             method: 'PUT',
             path: parsed.apiPath,
-            body: value,
+            body: coerceJsonArg(value),
             signal,
           });
           return ok({ path, written: true });
@@ -117,7 +118,9 @@ export function registerDataTools(server: McpServer, config: Config): void {
           await opa.request({
             method: 'PATCH',
             path: parsed.apiPath,
-            body: operations,
+            body: operations.map((op) =>
+              op.value !== undefined ? { ...op, value: coerceJsonArg(op.value) } : op,
+            ),
             headers: { 'Content-Type': 'application/json-patch+json' },
             signal,
           });
