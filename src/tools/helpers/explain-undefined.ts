@@ -261,8 +261,20 @@ async function evalConditionStandalone(
     return { result: 'unevaluable', note: `Standalone eval failed: ${firstLine}` };
   }
 
-  const parsed = tryParseJson<{ result?: unknown[] }>(result.stdout);
-  return (parsed?.result?.length ?? 0) > 0 ? { result: 'true' } : { result: 'false' };
+  // OPA returns a result row for a body expression even when it evaluates to a
+  // false value -- e.g. `input.user.tier == "premium"` against tier "free"
+  // yields a row whose expression value is `false`, not an empty result. A
+  // condition is satisfied only when it produces a solution whose expressions
+  // are all defined and not `false`, so inspect the expression values rather
+  // than merely the presence of a row (which would mark every comparison true).
+  const parsed = tryParseJson<{
+    result?: Array<{ expressions?: Array<{ value?: unknown }> }>;
+  }>(result.stdout);
+  const satisfied = (parsed?.result ?? []).some((row) => {
+    const exprs = row.expressions ?? [];
+    return exprs.length > 0 && exprs.every((e) => e.value !== undefined && e.value !== false);
+  });
+  return satisfied ? { result: 'true' } : { result: 'false' };
 }
 
 function buildSummary(query: string, rules: RuleAnalysis[], defaultValue: unknown): string {

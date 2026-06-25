@@ -4,6 +4,7 @@
  * envelope contract defines.
  */
 import { err } from '../../lib/errors.js';
+import { logger } from '../../lib/logger.js';
 import {
   OpaAuthError,
   OpaCancelledError,
@@ -71,7 +72,10 @@ export function mapOpaClientError(
     });
   }
   const message = e instanceof Error ? e.message : 'Unknown error';
-  return err('UNKNOWN_ERROR', message, {
-    details: e instanceof Error ? { stack: e.stack } : { value: e },
-  });
+  if (e instanceof Error) {
+    // Log the stack server-side; never return it to the client (path leak).
+    logger.error('Unmapped OPA client error', { message, stack: e.stack });
+    return err('UNKNOWN_ERROR', message);
+  }
+  return err('UNKNOWN_ERROR', message, { details: { value: e } });
 }

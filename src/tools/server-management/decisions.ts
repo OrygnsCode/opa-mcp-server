@@ -9,6 +9,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaClient } from '../../lib/opa-client.js';
 import { ok } from '../../lib/errors.js';
+import { coerceJsonArg } from '../../lib/json-coerce.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
 import { mapOpaClientError, parseOpaDataPath } from './_shared.js';
 
@@ -57,7 +58,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
             }>({
               method: 'POST',
               path: parsed.apiPath,
-              body: input !== undefined ? { input } : {},
+              body: input !== undefined ? { input: coerceJsonArg(input) } : {},
               query,
               signal,
             });
@@ -99,7 +100,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
       return withToolEnvelope<{ result: unknown }>(config, async () => {
         try {
           const body: Record<string, unknown> = { query };
-          if (input !== undefined) body['input'] = input;
+          if (input !== undefined) body['input'] = coerceJsonArg(input);
           body['unknowns'] = unknowns?.length ? unknowns : ['input'];
           const data = await opa.request<{ result: unknown }>({
             method: 'POST',

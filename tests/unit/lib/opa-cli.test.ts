@@ -314,6 +314,15 @@ describe('OpaCli', () => {
       expect(args[u1 + 1]).toBe('input.user');
       expect(args.lastIndexOf('--unknowns')).toBeGreaterThan(u1);
     });
+
+    it('re-hydrates a JSON-string input before piping it as stdin', async () => {
+      // MCP clients serialize structured args (z.unknown()) as JSON strings;
+      // without re-hydration OPA would receive a quoted string, not the object,
+      // and every `input.*` reference would be undefined.
+      await opa.eval({ query: 'input.x', input: '{"x":1}' });
+      const [, opts] = mockRun.mock.calls[0]!;
+      expect(opts.stdin).toBe('{"x":1}');
+    });
   });
 
   describe('test()', () => {
@@ -404,6 +413,12 @@ describe('OpaCli', () => {
       await opa.bench({ query: 'data.x', input: { a: 'b' } });
       const [, opts] = mockRun.mock.calls[0]!;
       expect(opts.args).toContain('--stdin-input');
+      expect(opts.stdin).toBe('{"a":"b"}');
+    });
+
+    it('re-hydrates a JSON-string input before piping it as stdin', async () => {
+      await opa.bench({ query: 'data.x', input: '{"a":"b"}' });
+      const [, opts] = mockRun.mock.calls[0]!;
       expect(opts.stdin).toBe('{"a":"b"}');
     });
   });

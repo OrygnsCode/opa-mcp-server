@@ -17,6 +17,46 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Structured tool arguments that are free-form JSON values (`input`, `value`) are
+  re-parsed when an MCP client sends them as a JSON string. They previously
+  arrived as strings and were used verbatim, so `opa_query_decision` evaluated
+  against an empty input and returned the default decision, `opa_put_data` stored
+  arrays and objects as strings, `rego_policy_diff` compared both policies with no
+  input (reporting different policies as equal), and `opa_compile_query` and
+  `opa_patch_data` were affected the same way.
+- `rego_explain_undefined` reports the correct blocking condition. It judged each
+  body expression by whether `opa eval` returned a result row, but OPA returns a
+  row for a false comparison as well (the row's value is `false`), so satisfied
+  and unsatisfied conditions were indistinguishable. It now inspects the
+  expression's value.
+- `rego_verify` returns an `inconclusive` verdict with a `type_conflict` construct
+  instead of failing with `UNKNOWN_ERROR` when a policy constrains one input field
+  to conflicting types (for example, compared against both a number and a string).
+- `opa_patch_data` maps a 404 from OPA to `DATA_NOT_FOUND` instead of the generic
+  `UNKNOWN_ERROR`, matching `opa_delete_data`.
+- Inline-source evaluation output no longer exposes the temporary file path OPA
+  writes the source to. Trace, coverage, and profile paths from
+  `rego_eval_with_explain`, `rego_eval_with_coverage`, `rego_eval_with_profile`,
+  and `rego_explain_decision` are normalized to `<inline>`, matching `rego_check`.
+
+### Changed
+
+- `rego_describe_policy` reports `clauseCount` for each rule and sets `isDefault`
+  and `hasArgs` to true when any clause for that name qualifies, instead of
+  collapsing multi-clause rules into a single, order-dependent entry.
+- `rego_generate_test_skeleton` stubs bind the rule result and assert a concrete
+  value (`actual := ...` then `actual == true`) rather than referencing the rule
+  bare. A bare reference silently passed for any defined value, including an empty
+  partial-set rule.
+
+### Security
+
+- Tool errors no longer return raw stack traces to the client. An unexpected
+  exception previously surfaced `details.stack` with absolute filesystem paths;
+  the stack is now written to the server log only.
+
 ## [0.2.0] - 2026-06-13
 
 ### Added

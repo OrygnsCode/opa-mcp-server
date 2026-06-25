@@ -600,8 +600,9 @@ do not open a public issue for security problems.**
 
 Common issues, fast fixes.
 
-**`OPA_BINARY_NOT_FOUND` even though `opa` is installed.** _(most common
-first-day issue, read this first)_
+**`OPA_BINARY_NOT_FOUND` (or `REGAL_NOT_FOUND` / `CONFTEST_NOT_FOUND`) even
+though the binary is installed.** _(most common first-day issue, read this
+first)_
 
 MCP clients (notably **Claude Desktop on Windows and macOS**) launch the
 server with a deliberately reduced `PATH` that omits user-local bin
@@ -623,8 +624,13 @@ Get-Command opa | Select-Object -ExpandProperty Source
 ```
 
 Then set `OPA_BINARY` to that absolute path in your client's MCP `env`
-block. Same for `REGAL_BINARY` if you use the `rego_lint` tool. The
-[`examples/`](./examples) configs already include both env vars; just
+block. The same cause and fix apply to the other binaries: if `rego_lint`
+/ `rego_security_audit` / `rego_fix` report `REGAL_NOT_FOUND`, or the
+`conftest_*` tools report `CONFTEST_NOT_FOUND`, set `REGAL_BINARY` /
+`CONFTEST_BINARY` to the absolute path the same way (find it with
+`which regal` / `which conftest`). Having the binary on your shell `PATH`
+is not enough -- the spawned server gets a reduced `PATH`. The
+[`examples/`](./examples) configs already include these env vars; just
 edit the placeholder paths.
 
 This issue does **not** affect the Docker or MCPB install paths. Those

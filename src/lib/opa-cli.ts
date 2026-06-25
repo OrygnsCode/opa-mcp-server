@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Config } from '../config.js';
+import { coerceJsonArg } from './json-coerce.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
 
 /** Input for the formatter. */
@@ -498,7 +499,9 @@ export class OpaCli {
     let stdin: string | undefined;
     if (input.input !== undefined) {
       args.push('--stdin-input');
-      stdin = JSON.stringify(input.input);
+      // A structured input may arrive as a JSON string from the MCP client;
+      // re-hydrate it so OPA receives the object/array, not a quoted string.
+      stdin = JSON.stringify(coerceJsonArg(input.input));
     }
 
     args.push(input.query);
@@ -541,7 +544,9 @@ export class OpaCli {
     let stdin: string | undefined;
     if (input.input !== undefined) {
       args.push('--stdin-input');
-      stdin = JSON.stringify(input.input);
+      // A structured input may arrive as a JSON string from the MCP client;
+      // re-hydrate it so OPA receives the object/array, not a quoted string.
+      stdin = JSON.stringify(coerceJsonArg(input.input));
     }
 
     args.push(input.query);

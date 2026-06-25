@@ -214,6 +214,16 @@ describe('opa_put_data', () => {
     expect(init.method).toBe('PUT');
     expect(JSON.parse(init.body as string)).toEqual({ roles: ['admin'] });
   });
+
+  it('re-hydrates a JSON-string array value before PUT (MCP client stringification)', async () => {
+    // ["alice"] arrives as the string '["alice"]'; without re-hydration OPA
+    // would store the literal string, corrupting the data document.
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_put_data', { path: 'config.admins', value: '["alice"]' });
+    expect(JSON.parse(lastFetchCall().init.body as string)).toEqual(['alice']);
+  });
 });
 
 describe('opa_delete_data', () => {
@@ -469,6 +479,19 @@ describe('opa_patch_data', () => {
       { op: 'add', path: '/alice', value: { roles: ['admin'] } },
     ]);
   });
+
+  it('re-hydrates a JSON-string op value before PATCH', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_patch_data', {
+      path: 'users',
+      operations: [{ op: 'add', path: '/alice', value: '{"roles":["admin"]}' }],
+    });
+    expect(JSON.parse(lastFetchCall().init.body as string)).toEqual([
+      { op: 'add', path: '/alice', value: { roles: ['admin'] } },
+    ]);
+  });
 });
 
 // ─── Decisions ────────────────────────────────────────────────────────────
@@ -499,6 +522,22 @@ describe('opa_query_decision', () => {
     expect(url).toContain('explain=full');
     expect(url).toContain('metrics=true');
     expect(JSON.parse(init.body as string)).toEqual({ input: { user: 'alice' } });
+  });
+
+  it('re-hydrates a JSON-string input before POSTing (MCP client stringification)', async () => {
+    // The MCP client serializes a z.unknown() input arg into a JSON string.
+    // Without re-hydration the body would carry input as a quoted string and
+    // the server would evaluate against an undefined input (wrong decision).
+    fetchMock.mockResolvedValueOnce(okResponse({ result: true }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    await callTool(server, 'opa_query_decision', {
+      path: 'rbac.allow',
+      input: '{"user":"alice"}',
+    });
+    expect(JSON.parse(lastFetchCall().init.body as string)).toEqual({
+      input: { user: 'alice' },
+    });
   });
 });
 
