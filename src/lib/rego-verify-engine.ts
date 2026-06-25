@@ -103,125 +103,154 @@ export async function runVerify(
     );
   }
 
-  // Type inference + Z3 setup
-  const typeResult = inferTypes([...walked.rules.values()], walked.inputPaths);
-  for (const conflict of typeResult.conflicts) {
-    warnings.push(conflict.reason);
-  }
+  // Type inference, encoding, and solving. A Z3 "Sorts X and Y are
+  // incompatible" error -- raised when a single input field is constrained to
+  // conflicting sorts within a clause (e.g. compared to both a number and a
+  // string) -- or any other encoder/solver failure is reported as inconclusive
+  // rather than thrown. A verification tool must never crash on a valid policy,
+  // and a raw stack trace (which leaks absolute filesystem paths) must never
+  // reach the caller.
+  try {
+    const typeResult = inferTypes([...walked.rules.values()], walked.inputPaths);
+    for (const conflict of typeResult.conflicts) {
+      warnings.push(conflict.reason);
+    }
 
-  signal?.throwIfAborted();
+    signal?.throwIfAborted();
 
-  const Z3 = await getZ3();
+    const Z3 = await getZ3();
 
-  signal?.throwIfAborted();
+    signal?.throwIfAborted();
 
-  const callId = `v${_verifyCallCounter++}`;
-  const inputVars = createInputVars(Z3, walked.inputPaths, typeResult.sorts, callId);
-  const ctx = { Z3, inputVars, sorts: typeResult.sorts, callId };
-  const encoded = encodeRule(targetClauses, ctx);
-  warnings.push(...encoded.warnings);
+    const callId = `v${_verifyCallCounter++}`;
+    const inputVars = createInputVars(Z3, walked.inputPaths, typeResult.sorts, callId);
+    const ctx = { Z3, inputVars, sorts: typeResult.sorts, callId };
+    const encoded = encodeRule(targetClauses, ctx);
+    warnings.push(...encoded.warnings);
 
-  // Z3's high-level Solver and Model objects use FinalizationRegistry internally
-  // (solver_dec_ref / model_dec_ref) so they are cleaned up when GC'd.
-  // We avoid holding a reference to the Model beyond extractCounterexample so
-  // it becomes eligible for GC as soon as the call returns, reducing WASM heap
-  // pressure under high call volume.
-  const solver = new Z3.Solver();
+    // Z3's high-level Solver and Model objects use FinalizationRegistry internally
+    // (solver_dec_ref / model_dec_ref) so they are cleaned up when GC'd.
+    // We avoid holding a reference to the Model beyond extractCounterexample so
+    // it becomes eligible for GC as soon as the call returns, reducing WASM heap
+    // pressure under high call volume.
+    const solver = new Z3.Solver();
 
-  // Set timeout to prevent hanging on complex policies
-  solver.set('timeout', SOLVER_TIMEOUT_MS);
+    // Set timeout to prevent hanging on complex policies
+    solver.set('timeout', SOLVER_TIMEOUT_MS);
 
-  switch (property.kind) {
-    case 'always_true':
-      // Prove rule is always true: check if NOT(rule) is satisfiable.
-      // SAT → counterexample (input where rule is false)
-      // UNSAT → proven always true
-      solver.add(Z3.Not(encoded.formula));
-      break;
-    case 'never_true':
-      // Prove rule is never true: check if rule IS satisfiable.
-      // SAT → counterexample (input where rule fires, violating "never")
-      // UNSAT → proven never true
-      solver.add(encoded.formula);
-      break;
-    case 'satisfiable':
-      // Check if any input satisfies the rule.
-      // SAT → witness found (not a bug, just a satisfying input)
-      // UNSAT → rule is vacuously false / dead code
-      solver.add(encoded.formula);
-      break;
-  }
+    switch (property.kind) {
+      case 'always_true':
+        // Prove rule is always true: check if NOT(rule) is satisfiable.
+        // SAT → counterexample (input where rule is false)
+        // UNSAT → proven always true
+        solver.add(Z3.Not(encoded.formula));
+        break;
+      case 'never_true':
+        // Prove rule is never true: check if rule IS satisfiable.
+        // SAT → counterexample (input where rule fires, violating "never")
+        // UNSAT → proven never true
+        solver.add(encoded.formula);
+        break;
+      case 'satisfiable':
+        // Check if any input satisfies the rule.
+        // SAT → witness found (not a bug, just a satisfying input)
+        // UNSAT → rule is vacuously false / dead code
+        solver.add(encoded.formula);
+        break;
+    }
 
-  signal?.throwIfAborted();
+    signal?.throwIfAborted();
 
-  const solverResult = await solver.check();
+    const solverResult = await solver.check();
 
-  if (solverResult === 'unknown') {
-    return inconclusive(
-      property,
-      `Z3 solver returned "unknown" (timeout or resource limit reached after ${SOLVER_TIMEOUT_MS}ms). The policy may be too complex for automated verification.`,
-      unsupportedInRule,
-      warnings,
-    );
-  }
+    if (solverResult === 'unknown') {
+      return inconclusive(
+        property,
+        `Z3 solver returned "unknown" (timeout or resource limit reached after ${SOLVER_TIMEOUT_MS}ms). The policy may be too complex for automated verification.`,
+        unsupportedInRule,
+        warnings,
+      );
+    }
 
-  if (solverResult === 'unsat') {
-    if (property.kind === 'satisfiable') {
-      // No satisfying input exists -- rule is dead code or has contradictory conditions.
+    if (solverResult === 'unsat') {
+      if (property.kind === 'satisfiable') {
+        // No satisfying input exists -- rule is dead code or has contradictory conditions.
+        return {
+          verdict: 'unsatisfiable',
+          property: describeProperty(property),
+          rule: property.ruleName,
+          unsupportedConstructs: unsupportedInRule,
+          warnings,
+          message: `UNSATISFIABLE: No input can make "${property.ruleName}" true. The rule may be dead code or have contradictory conditions.`,
+        };
+      }
+      // For always_true / never_true: UNSAT on the negation = property proven
       return {
-        verdict: 'unsatisfiable',
+        verdict: 'proven',
         property: describeProperty(property),
         rule: property.ruleName,
         unsupportedConstructs: unsupportedInRule,
         warnings,
-        message: `UNSATISFIABLE: No input can make "${property.ruleName}" true. The rule may be dead code or have contradictory conditions.`,
+        message: `PROVEN: ${describeProperty(property)}.`,
       };
     }
-    // For always_true / never_true: UNSAT on the negation = property proven
-    return {
-      verdict: 'proven',
-      property: describeProperty(property),
-      rule: property.ruleName,
-      unsupportedConstructs: unsupportedInRule,
-      warnings,
-      message: `PROVEN: ${describeProperty(property)}.`,
-    };
-  }
 
-  // SAT: pass solver.model() inline so the Model object is not kept alive
-  // beyond extractCounterexample -- it becomes GC-eligible immediately after.
-  const ce = extractCounterexample(solver.model(), inputVars, typeResult.sorts);
-  const ceFormatted = formatCounterexample(ce);
+    // SAT: pass solver.model() inline so the Model object is not kept alive
+    // beyond extractCounterexample -- it becomes GC-eligible immediately after.
+    const ce = extractCounterexample(solver.model(), inputVars, typeResult.sorts);
+    const ceFormatted = formatCounterexample(ce);
 
-  if (property.kind === 'satisfiable') {
+    if (property.kind === 'satisfiable') {
+      return {
+        verdict: 'proven',
+        property: describeProperty(property),
+        rule: property.ruleName,
+        counterexample: ce,
+        counterexampleFormatted: ceFormatted,
+        unsupportedConstructs: unsupportedInRule,
+        warnings,
+        message: `SATISFIABLE: Found an input that makes "${property.ruleName}" true.\n\nWitness input:\n${ceFormatted}`,
+      };
+    }
+
+    // always_true / never_true: SAT means we found a violation
+    const ceLabel =
+      property.kind === 'always_true'
+        ? 'input where rule is FALSE'
+        : 'input where rule is TRUE (violates "never")';
+
     return {
-      verdict: 'proven',
+      verdict: 'counterexample',
       property: describeProperty(property),
       rule: property.ruleName,
       counterexample: ce,
       counterexampleFormatted: ceFormatted,
       unsupportedConstructs: unsupportedInRule,
       warnings,
-      message: `SATISFIABLE: Found an input that makes "${property.ruleName}" true.\n\nWitness input:\n${ceFormatted}`,
+      message: `COUNTEREXAMPLE: Property does NOT hold. Found ${ceLabel}:\n\n${ceFormatted}`,
     };
+  } catch (e) {
+    // A cancellation must propagate as a cancellation, not be masked as a
+    // verdict; everything else (most notably a Z3 sort conflict) becomes a
+    // sound "inconclusive" instead of crashing the tool.
+    if (signal?.aborted) throw e;
+    const detail = e instanceof Error ? e.message : String(e);
+    const isSortConflict = /sort/i.test(detail) && /incompat/i.test(detail);
+    return inconclusive(
+      property,
+      isSortConflict
+        ? 'The rule constrains an input field to conflicting types (for example, compared against both a number and a string), which cannot be encoded for SMT solving.'
+        : 'Verification could not be completed due to an internal encoding or solver error.',
+      [
+        ...unsupportedInRule,
+        {
+          constructType: isSortConflict ? 'type_conflict' : 'encoding_error',
+          description: detail,
+        },
+      ],
+      warnings,
+    );
   }
-
-  // always_true / never_true: SAT means we found a violation
-  const ceLabel =
-    property.kind === 'always_true'
-      ? 'input where rule is FALSE'
-      : 'input where rule is TRUE (violates "never")';
-
-  return {
-    verdict: 'counterexample',
-    property: describeProperty(property),
-    rule: property.ruleName,
-    counterexample: ce,
-    counterexampleFormatted: ceFormatted,
-    unsupportedConstructs: unsupportedInRule,
-    warnings,
-    message: `COUNTEREXAMPLE: Property does NOT hold. Found ${ceLabel}:\n\n${ceFormatted}`,
-  };
 }
 
 function inconclusive(

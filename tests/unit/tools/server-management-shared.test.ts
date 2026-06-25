@@ -115,12 +115,13 @@ describe('mapOpaClientError', () => {
     expect((unproc.error?.details as { status?: number }).status).toBe(422);
   });
 
-  it('wraps a plain Error (not an OpaClient subclass) with its message and stack', () => {
+  it('wraps a plain Error with its message but does not leak a stack trace to the client', () => {
     const env = mapOpaClientError(new TypeError('something went wrong'));
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
     expect(env.error?.message).toBe('something went wrong');
-    const details = env.error?.details as { stack?: string };
-    expect(typeof details.stack).toBe('string');
+    // The stack is logged server-side, never returned to the client (it would
+    // leak absolute filesystem paths).
+    expect(env.error?.details).toBeUndefined();
   });
 
   it('wraps a string throw with the value preserved in details', () => {

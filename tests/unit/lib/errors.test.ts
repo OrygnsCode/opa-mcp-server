@@ -54,13 +54,15 @@ describe('err()', () => {
 });
 
 describe('fromException()', () => {
-  it('wraps an Error with its message and stack', () => {
+  it('wraps an Error with its message but does not leak a stack trace', () => {
     const e = new Error('boom');
     const envelope = fromException(e);
     expect(envelope.ok).toBe(false);
     expect(envelope.error?.code).toBe('UNKNOWN_ERROR');
     expect(envelope.error?.message).toBe('boom');
-    expect(envelope.error?.details).toMatchObject({ stack: expect.any(String) });
+    // A raw stack trace leaks absolute filesystem paths, so it must not appear
+    // in client-facing details.
+    expect('details' in (envelope.error ?? {})).toBe(false);
   });
 
   it('wraps a non-Error throw with a generic message', () => {

@@ -28,8 +28,10 @@ export function ok<T>(data: T, warnings?: string[]): ToolEnvelope<T> {
  * outermost catch in tool handlers.
  */
 export function fromException(e: unknown): ToolEnvelope<never> {
+  // Never place a raw stack trace in client-facing details: it leaks absolute
+  // filesystem paths. Callers that need the stack should log it server-side.
   if (e instanceof Error) {
-    return err('UNKNOWN_ERROR', e.message, { details: { stack: e.stack } });
+    return err('UNKNOWN_ERROR', e.message);
   }
   return err('UNKNOWN_ERROR', 'An unknown error occurred', { details: e });
 }

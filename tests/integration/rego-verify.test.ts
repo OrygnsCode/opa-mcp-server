@@ -728,3 +728,37 @@ allow { input.flag == "yes" }
     expect(r3?.verdict).toBe('proven');
   });
 });
+
+describe('rego_verify - intra-clause sort conflict (no crash, no leak)', () => {
+  // input.a is constrained to a number (>= 5) and also equated to input.b,
+  // which is a string ("x"). Encoding Eq(int, string) is a hard Z3 error
+  // ("Sorts Int and String are incompatible"). The engine must report a sound
+  // inconclusive verdict rather than throw -- a valid policy must never crash
+  // the tool, and the previous behaviour leaked an absolute-path stack trace.
+  const conflictPolicy = `
+package authz
+allow {
+  input.a == input.b
+  input.a >= 5
+  input.b == "x"
+}
+`;
+
+  it('returns inconclusive with a type_conflict construct instead of crashing', async () => {
+    const result = await verify(conflictPolicy, 'allow', 'satisfiable');
+    expect(result?.verdict).toBe('inconclusive');
+    expect(result?.unsupportedConstructs.some((u) => u.constructType === 'type_conflict')).toBe(
+      true,
+    );
+  });
+
+  it('does not leak a stack trace or filesystem path in the response', async () => {
+    // The old behaviour returned UNKNOWN_ERROR with details.stack exposing paths
+    // like ...\\.mcp-servers\\...\\node_modules. The inconclusive result must
+    // contain neither stack frames nor such paths.
+    const result = await verify(conflictPolicy, 'allow', 'satisfiable');
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toMatch(/node_modules|\.mcp-servers/);
+    expect(serialized).not.toMatch(/\n\s+at \w/);
+  });
+});

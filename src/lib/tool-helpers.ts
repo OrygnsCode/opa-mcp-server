@@ -26,6 +26,7 @@ export function sanitizeInlinePath(file: string): string {
 }
 import type { Config } from '../config.js';
 import { err } from './errors.js';
+import { logger } from './logger.js';
 import { formatEnvelope, type McpToolResult } from './output.js';
 import { validatePath } from './security.js';
 import type { SpawnResult } from './subprocess.js';
@@ -122,7 +123,14 @@ export async function withToolEnvelope<T>(
     return formatEnvelope(envelope, config.maxResponseBytes);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'An unknown error occurred';
-    const details = e instanceof Error ? { stack: e.stack } : { value: e };
+    // Log the full error (with stack) server-side, but never return a raw stack
+    // trace to the client: it leaks absolute filesystem paths and is not
+    // actionable. Non-Error throws keep their thrown value in details.
+    logger.error('Unhandled tool error', {
+      message,
+      stack: e instanceof Error ? e.stack : undefined,
+    });
+    const details = e instanceof Error ? undefined : { value: e };
     return formatEnvelope(err('UNKNOWN_ERROR', message, { details }), config.maxResponseBytes);
   }
 }
