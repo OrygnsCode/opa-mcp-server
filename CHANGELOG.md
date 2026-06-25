@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-25
+
 ### Fixed
 
 - Structured tool arguments that are free-form JSON values (`input`, `value`) are
