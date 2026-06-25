@@ -1251,6 +1251,111 @@ describe('rego_explain_undefined', () => {
     expect(rule.blockingCondition!.index).toBe(1);
   });
 
+  it('standalone-eval: marks a present-but-false comparison as false and names it the blocker', async () => {
+    // Regression guard. OPA returns a result ROW for `input.user.tier ==
+    // "premium"` even when tier is "free" -- the row's expression value is
+    // `false`, not an empty result. A row-count check marks it satisfied and
+    // misses the real blocker; the value must be inspected. This mirrors the
+    // exact ABAC shape a user hits when a later guard is the one that fails.
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        {
+          name: 'allow',
+          row: 3,
+          body: [
+            { row: 4, text: 'input.method == "GET"' },
+            { row: 5, text: 'input.path == "/public"' },
+            { row: 6, text: 'input.user.tier == "premium"' },
+          ],
+        },
+      ],
+    });
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    // Realistic OPA stdout: a false comparison yields a row whose expression
+    // value is false (the unrealistic `{}` mock is what hid this bug before).
+    const row = (value: unknown): string =>
+      JSON.stringify({ result: [{ expressions: [{ value }] }] });
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}')) // plain eval -> undefined
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace }))) // indexed out
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast))) // parse
+      .mockResolvedValueOnce(spawnSuccess(row(true))) // cond 0: method == GET -> true
+      .mockResolvedValueOnce(spawnSuccess(row(true))) // cond 1: path == /public -> true
+      .mockResolvedValueOnce(spawnSuccess(row(false))); // cond 2: tier == premium -> false
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rules: Array<{
+        source: string;
+        conditions: Array<{ text: string; result: string; index: number }>;
+        blockingCondition: { text: string; result: string; index: number } | null;
+      }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source:
+        'package authz\nimport rego.v1\nallow if {\n  input.method == "GET"\n  input.path == "/public"\n  input.user.tier == "premium"\n}',
+    });
+    expect(env.ok).toBe(true);
+    const rule = env.data!.rules[0]!;
+    expect(rule.source).toBe('standalone-eval');
+    expect(rule.conditions[0]?.result).toBe('true');
+    expect(rule.conditions[1]?.result).toBe('true');
+    expect(rule.conditions[2]?.result).toBe('false');
+    expect(rule.blockingCondition).not.toBeNull();
+    expect(rule.blockingCondition!.text).toBe('input.user.tier == "premium"');
+    expect(rule.blockingCondition!.index).toBe(2);
+  });
+
+  it('standalone-eval: a truthy non-boolean condition value counts as satisfied', async () => {
+    // A body condition need not be a boolean comparison -- e.g. a bare
+    // reference `input.tags` resolves to an array. The check must be "defined
+    // and not false", not "=== true", or legitimate non-boolean guards would
+    // be wrongly reported as the blocker.
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        {
+          name: 'allow',
+          row: 3,
+          body: [
+            { row: 4, text: 'input.tags' },
+            { row: 5, text: 'input.role == "admin"' },
+          ],
+        },
+      ],
+    });
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      // cond 0: input.tags resolves to a non-empty array -> truthy, satisfied
+      .mockResolvedValueOnce(
+        spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: ['urgent'] }] }] })),
+      )
+      // cond 1: role == admin -> false value
+      .mockResolvedValueOnce(
+        spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: false }] }] })),
+      );
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rules: Array<{
+        conditions: Array<{ result: string; index: number }>;
+        blockingCondition: { index: number } | null;
+      }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz',
+    });
+    expect(env.ok).toBe(true);
+    const rule = env.data!.rules[0]!;
+    expect(rule.conditions[0]?.result).toBe('true');
+    expect(rule.conditions[1]?.result).toBe('false');
+    expect(rule.blockingCondition?.index).toBe(1);
+  });
+
   it('standalone-eval: marks condition as unevaluable when standalone eval exits non-zero', async () => {
     const ast = makeAst({
       pkgName: 'authz',
