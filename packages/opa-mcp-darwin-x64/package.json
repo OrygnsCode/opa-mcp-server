@@ -1,6 +1,6 @@
 {
   "name": "@orygn/opa-mcp-darwin-x64",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OPA binary (macOS x64) bundled for @orygn/opa-mcp. Installed automatically as an optional dependency; do not depend on it directly.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/OrygnsCode/opa-mcp-server",
