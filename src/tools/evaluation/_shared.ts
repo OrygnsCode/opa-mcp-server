@@ -12,7 +12,12 @@ import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { err, ok } from '../../lib/errors.js';
 import type { OpaCli, EvalInput } from '../../lib/opa-cli.js';
-import { mapSubprocessFailure, tryParseJson, validatePaths } from '../../lib/tool-helpers.js';
+import {
+  mapSubprocessFailure,
+  sanitizeInlinePathsDeep,
+  tryParseJson,
+  validatePaths,
+} from '../../lib/tool-helpers.js';
 import type { ToolEnvelope } from '../../types.js';
 
 /** Common input fields shared across rego_eval and its variants. */
@@ -145,5 +150,19 @@ export async function runEval(
       details: { stdout: result.stdout.trim() },
     });
   }
+
+  // OPA references the temp file it wrote inline source to in trace, coverage,
+  // and profile output. Normalize those paths to <inline> for consistency with
+  // rego_check and to avoid exposing the temp directory layout.
+  if (parsed.explanation) {
+    parsed.explanation = sanitizeInlinePathsDeep(parsed.explanation) as unknown[];
+  }
+  if (parsed.coverage !== undefined) {
+    parsed.coverage = sanitizeInlinePathsDeep(parsed.coverage);
+  }
+  if (parsed.profile) {
+    parsed.profile = sanitizeInlinePathsDeep(parsed.profile) as unknown[];
+  }
+
   return ok<RegoEvalOutput>(parsed);
 }

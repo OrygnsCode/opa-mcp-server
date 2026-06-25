@@ -24,6 +24,27 @@ export const INLINE_TEMP_PATH_PATTERN = /orygn-(?:opa|regal)-mcp-[^/\\]+[/\\]inp
 export function sanitizeInlinePath(file: string): string {
   return INLINE_TEMP_PATH_PATTERN.test(file) ? '<inline>' : file;
 }
+
+/**
+ * Recursively rewrite every temp-file path -- in both string values and object
+ * keys -- to the `<inline>` sentinel. OPA writes inline source to a temp file,
+ * so trace (`explanation`), coverage, and profile output reference that path;
+ * this normalizes the whole structure so callers never see an absolute temp
+ * path. Only our own temp paths match the pattern, so real user file paths pass
+ * through untouched.
+ */
+export function sanitizeInlinePathsDeep(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeInlinePath(value);
+  if (Array.isArray(value)) return value.map(sanitizeInlinePathsDeep);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      out[sanitizeInlinePath(key)] = sanitizeInlinePathsDeep(val);
+    }
+    return out;
+  }
+  return value;
+}
 import type { Config } from '../config.js';
 import { err } from './errors.js';
 import { logger } from './logger.js';

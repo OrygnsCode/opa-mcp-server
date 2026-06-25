@@ -192,9 +192,13 @@ function makeSkeleton(packageName: string, ruleNames: string[], inputShape: Inpu
   for (const name of ruleNames) {
     const testName = `test_${name.replace(/[^a-zA-Z0-9_]/g, '_')}`;
     const ruleRef = packageName ? `${packageName}.${name}` : name;
-    lines.push(`# TODO: replace placeholder input with a realistic case.`);
+    lines.push(`# TODO: replace the placeholder input and expected value with a realistic case.`);
+    lines.push(
+      `# Boolean rules: assert == true/false. Set/partial rules: assert membership or count(actual).`,
+    );
     lines.push(`${testName} if {`);
-    lines.push(`\tdata.${ruleRef} with input as ${inputLiteral}`);
+    lines.push(`\tactual := data.${ruleRef} with input as ${inputLiteral}`);
+    lines.push(`\tactual == true`);
     lines.push(`}`);
     lines.push('');
   }

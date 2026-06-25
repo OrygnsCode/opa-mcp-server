@@ -187,6 +187,11 @@ describe('rego_generate_test_skeleton', () => {
     // New: uses `with input as` idiom, NOT the `input := {}` anti-pattern.
     expect(env.data?.testFile).toContain('with input as');
     expect(env.data?.testFile).not.toContain('input := {}');
+    // Binds the rule result and asserts a concrete expected value, so a stub
+    // never silently passes (e.g. for an empty partial-set rule, which is
+    // always "defined" and would satisfy a bare reference).
+    expect(env.data?.testFile).toContain('actual := data.rbac.allow with input as');
+    expect(env.data?.testFile).toContain('actual == true');
   });
 
   it('handles a top-level package (no nested path)', async () => {
@@ -756,6 +761,7 @@ describe('rego_describe_policy', () => {
       rules: Array<{
         name: string;
         isDefault: boolean;
+        clauseCount: number;
         bodyLength: number;
         annotations?: { title?: string };
       }>;
@@ -769,6 +775,7 @@ describe('rego_describe_policy', () => {
     const deny = env.data?.rules.find((r) => r.name === 'deny');
     expect(allow?.isDefault).toBe(true);
     expect(deny?.bodyLength).toBe(3); // 2 from first + 1 from second
+    expect(deny?.clauseCount).toBe(2); // deny has two clauses -- no longer collapsed silently
     expect(deny?.annotations?.title).toBe('Deny rule');
   });
 

@@ -126,7 +126,7 @@ export function registerDataTools(server: McpServer, config: Config): void {
           });
           return ok({ path, patched: true });
         } catch (e) {
-          return mapOpaClientError(e);
+          return mapOpaClientError(e, 'DATA_NOT_FOUND');
         }
       });
     },

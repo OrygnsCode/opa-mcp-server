@@ -49,8 +49,12 @@ interface ParsedAst {
 
 interface DescribedRule {
   name: string;
+  /** True when any clause sharing this name is a `default` rule. */
   isDefault: boolean;
+  /** Number of rule definitions (clauses) that share this name. */
+  clauseCount: number;
   hasArgs: boolean;
+  /** Total body expressions summed across every clause with this name. */
   bodyLength: number;
   annotations?: AstAnnotations;
 }
@@ -79,7 +83,7 @@ export function registerRegoDescribePolicy(server: McpServer, config: Config): v
     {
       title: 'Describe Rego policy',
       description:
-        'Parse a Rego policy and return a structured summary: package, imports, rules (with default/args/body-length flags), and inline annotations. Useful as the first step in any "what does this policy do" workflow.',
+        'Parse a Rego policy and return a structured summary: package, imports, and rules. Each rule reports clauseCount (how many definitions share the name), isDefault (true if any clause is a default), hasArgs, bodyLength (total body expressions across all clauses), and inline annotations. Useful as the first step in any "what does this policy do" workflow.',
       inputSchema: RegoDescribePolicyInput,
       annotations: {
         readOnlyHint: true,
@@ -115,16 +119,24 @@ export function registerRegoDescribePolicy(server: McpServer, config: Config): v
         for (const rule of ast.rules ?? []) {
           const name = rule.head?.name ?? refToString(rule.head?.ref);
           if (!name) continue;
+          const isDefaultClause = rule.default === true;
+          const hasArgsClause = Array.isArray(rule.head?.args) && (rule.head?.args.length ?? 0) > 0;
+          const bodyLen = rule.body?.length ?? 0;
           const existing = seen.get(name);
           if (existing) {
-            existing.bodyLength += rule.body?.length ?? 0;
+            existing.clauseCount += 1;
+            existing.bodyLength += bodyLen;
+            existing.isDefault = existing.isDefault || isDefaultClause;
+            existing.hasArgs = existing.hasArgs || hasArgsClause;
+            if (!existing.annotations && rule.annotations) existing.annotations = rule.annotations;
             continue;
           }
           seen.set(name, {
             name,
-            isDefault: rule.default === true,
-            hasArgs: Array.isArray(rule.head?.args) && (rule.head?.args.length ?? 0) > 0,
-            bodyLength: rule.body?.length ?? 0,
+            isDefault: isDefaultClause,
+            clauseCount: 1,
+            hasArgs: hasArgsClause,
+            bodyLength: bodyLen,
             annotations: rule.annotations,
           });
         }
