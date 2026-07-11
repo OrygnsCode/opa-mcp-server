@@ -8,13 +8,26 @@ updates:
       timezone: 'America/Chicago'
     open-pull-requests-limit: 10
     groups:
+      # Majors are deliberately excluded from the grouped PRs. A single breaking
+      # major (e.g. a compiler bump) otherwise fails the whole group and blocks
+      # the routine minor/patch updates riding along with it.
       development-dependencies:
         dependency-type: development
+        update-types:
+          - minor
+          - patch
       production-minor-and-patch:
         dependency-type: production
         update-types:
           - minor
           - patch
+    ignore:
+      # Every released @typescript-eslint 8.x pins peer typescript ">=4.8.4 <6.1.0",
+      # so bumping to TypeScript 7 makes npm fail to resolve the tree and every job
+      # dies before it compiles. Revisit once typescript-eslint supports TypeScript 7.
+      - dependency-name: 'typescript'
+        update-types:
+          - version-update:semver-major
     labels:
       - dependencies
 
