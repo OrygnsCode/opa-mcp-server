@@ -20,9 +20,7 @@ import type { VerifyExpr, VerifyRuleClause, VerifyValue } from './rego-ir.js';
 type Z3Context = ReturnType<Awaited<ReturnType<typeof Z3Init>>['Context']>;
 type Z3Bool = ReturnType<Z3Context['Bool']['const']>;
 type Z3AnyExpr =
-  | Z3Bool
-  | ReturnType<Z3Context['Int']['const']>
-  | ReturnType<Z3Context['String']['const']>;
+  Z3Bool | ReturnType<Z3Context['Int']['const']> | ReturnType<Z3Context['String']['const']>;
 
 export interface EncoderContext {
   Z3: Z3Context;
