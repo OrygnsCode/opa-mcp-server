@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-05
+
 ### Changed
 
 - The bundled OPA binary moves from 0.69.0 to 1.19.0. This is a breaking change for
