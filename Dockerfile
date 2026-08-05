@@ -31,7 +31,7 @@ RUN npm prune --omit=dev
 # Pinned versions. Bumped via Dependabot or manual PR.
 FROM alpine:3.24 AS binaries
 
-ARG OPA_VERSION=0.69.0
+ARG OPA_VERSION=1.19.0
 ARG REGAL_VERSION=0.30.0
 ARG TARGETARCH
 

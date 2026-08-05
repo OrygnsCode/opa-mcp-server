@@ -77,7 +77,8 @@ test_viewer_cannot_delete if {
 
 test_anonymous_denied if {
     not rbac.allow with input as {"action": "read"}
-    "anonymous request" in (rbac.deny_reasons with input as {"action": "read"})
+    reasons := rbac.deny_reasons with input as {"action": "read"}
+    "anonymous request" in reasons
 }
 \`\`\`
 
@@ -276,7 +277,10 @@ public_endpoints := {
     {"method": "GET", "path": ["version"]},
 }
 
-allow if some _ in public_endpoints; matches_endpoint(_)
+allow if {
+    some endpoint in public_endpoints
+    matches_endpoint(endpoint)
+}
 
 # Authenticated reads on resources the user has access to.
 allow if {
@@ -340,13 +344,15 @@ current_window := requests if {
     requests := [t | some t in data.requests[input.principal]; t > input.now - window_seconds * 1000000000]
 }
 
-count := count(current_window)
+# Do not name this rule \`count\`: it would shadow the built-in of the same
+# name, and the call below would resolve to the rule instead.
+request_count := count(current_window)
 
-allow if count < limit
+allow if request_count < limit
 
 deny_reason := sprintf(
     "rate limit exceeded: %d requests in last %d seconds (limit %d)",
-    [count, window_seconds, limit],
+    [request_count, window_seconds, limit],
 ) if not allow
 \`\`\`
 

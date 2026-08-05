@@ -17,6 +17,35 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- The bundled OPA binary moves from 0.69.0 to 1.19.0. This is a breaking change for
+  anyone relying on the bundle. OPA 1.0 made Rego v1 the default, so rule bodies
+  require the `if` keyword and partial set rules require `contains`; policies written
+  against OPA 0.x no longer parse. `rego_migrate_v1` converts them. Installs that
+  supply their own binary through `OPA_BINARY` or `PATH` are unaffected, since the
+  bundled copy is only a fallback. The Docker image ships the same version.
+
+### Fixed
+
+- `rego_test` returns `INVALID_REGO` when the policies under test fail to load. It
+  previously reported a successful run with zero tests, so a caller whose policies had
+  stopped compiling was told the suite was fine. Most likely to surface right after
+  this upgrade, on trees that still hold v0 policies.
+
+- A subprocess that exceeds the configured timeout returns `TIMEOUT` instead of
+  `OPA_BINARY_NOT_FOUND`. A killed process reports a null exit code, and the failure
+  mappers checked that before the timeout flag, so a slow command looked like a missing
+  install. Affected every CLI-backed tool, and `rego_test_multiroot` separately.
+
+- Three Rego snippets in the bundled pattern library did not compile: two failed to
+  parse, and the rate-limiting example named a rule `count`, which shadowed the built-in
+  it then called. All shipped snippets are now compiled against the bundled OPA in CI.
+
+- Corrected the tool list on the Docker Hub page, which named seven tools that do not
+  exist (`rego_bundle_*`, `rego_parse`, `rego_profile`, `rego_compile`) and undercounted
+  the total. Added the missing `rego_playground_share` entry to the README tool tables.
+
 ## [0.2.1] - 2026-06-25
 
 ### Fixed
