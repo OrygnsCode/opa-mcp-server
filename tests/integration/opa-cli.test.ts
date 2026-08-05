@@ -46,7 +46,7 @@ describe('OpaCli integration', () => {
 
   describe('fmt()', () => {
     it('reformats unidiomatic source to canonical form', async () => {
-      const ugly = 'package x\nallow{input.user==1}\n';
+      const ugly = 'package x\nallow if {input.user==1}\n';
       const result = await opa.fmt({ source: ugly });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('package x');
@@ -676,7 +676,8 @@ describe('OpaCli integration', () => {
       expect(result.exitCode).toBe(0);
 
       const formatted = await readFile(dirty, 'utf8');
-      expect(formatted).toContain('allow = true');
+      // OPA 1.x canonicalizes a bare `=` rule head to the `:=` assignment form.
+      expect(formatted).toContain('allow := true');
     });
 
     it('exits 0 on an already-canonical file (no-op)', async () => {

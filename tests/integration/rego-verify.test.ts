@@ -57,24 +57,24 @@ async function verify(
 
 const roleAdminPolicy = `
 package authz
-allow {
+allow if {
   input.user.role == "admin"
 }
 `;
 
 const tautologyPolicy = `
 package authz
-allow {
+allow if {
   1 == 1
 }
 `;
 
 const twoClausePolicy = `
 package authz
-allow {
+allow if {
   input.user.role == "admin"
 }
-allow {
+allow if {
   input.user.role == "editor"
   input.action == "read"
 }
@@ -82,7 +82,7 @@ allow {
 
 const intPolicy = `
 package authz
-allow {
+allow if {
   input.user.age >= 18
   input.user.age <= 120
 }
@@ -90,21 +90,21 @@ allow {
 
 const nafPolicy = `
 package authz
-allow {
+allow if {
   not input.blocked
 }
 `;
 
 const regexPolicy = `
 package authz
-allow {
+allow if {
   regex.match("^admin.*", input.user.name)
 }
 `;
 
 const startsWithPolicy = `
 package authz
-allow {
+allow if {
   startswith(input.path, "/api/v2/")
 }
 `;
@@ -168,7 +168,7 @@ describe('rego_verify - satisfiable', () => {
     // input.role must equal both "admin" AND "editor" simultaneously -- impossible
     const policy = `
 package authz
-allow {
+allow if {
   input.role == "admin"
   input.role == "editor"
 }
@@ -182,7 +182,7 @@ allow {
     // age must be both >= 100 AND <= 50 simultaneously -- impossible
     const policy = `
 package authz
-allow {
+allow if {
   input.age >= 100
   input.age <= 50
 }
@@ -215,10 +215,10 @@ describe('rego_verify - unsupported construct attribution', () => {
     // deny uses NAF, allow does not. Verifying allow should not attribute deny's NAF to allow.
     const policy = `
 package authz
-allow {
+allow if {
   input.user.role == "admin"
 }
-deny {
+deny if {
   not input.user.active
 }
 `;
@@ -231,10 +231,10 @@ deny {
   it('verifying a rule WITH NAF does report NAF as unsupported', async () => {
     const policy = `
 package authz
-allow {
+allow if {
   input.user.role == "admin"
 }
-allow {
+allow if {
   not input.blocked
 }
 `;
@@ -247,10 +247,10 @@ allow {
   it('two completely separate rules - unsupported from rule B never bleeds into rule A results', async () => {
     const policy = `
 package authz
-allow {
+allow if {
   input.role == "admin"
 }
-other_rule {
+other_rule if {
   not input.blocked
   input.role == "guest"
 }
@@ -275,7 +275,7 @@ describe('rego_verify - regex.match', () => {
   it('returns inconclusive for complex character-class pattern ([a-z]+)', async () => {
     const policy = `
 package authz
-allow { regex.match("[a-z]+", input.user.name) }
+allow if { regex.match("[a-z]+", input.user.name) }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('inconclusive');
@@ -287,7 +287,7 @@ allow { regex.match("[a-z]+", input.user.name) }
   it('returns inconclusive for digit-quantifier pattern (\\d+)', async () => {
     const policy = `
 package authz
-allow { regex.match("\\\\d+", input.code) }
+allow if { regex.match("\\\\d+", input.code) }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('inconclusive');
@@ -299,7 +299,7 @@ allow { regex.match("\\\\d+", input.code) }
   it('returns inconclusive for alternation pattern (admin|guest)', async () => {
     const policy = `
 package authz
-allow { regex.match("admin|guest", input.role) }
+allow if { regex.match("admin|guest", input.role) }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('inconclusive');
@@ -311,7 +311,7 @@ allow { regex.match("admin|guest", input.role) }
   it('always_true: regex.match(".*", input.x) is tautological - proven', async () => {
     const policy = `
 package authz
-allow { regex.match(".*", input.x) }
+allow if { regex.match(".*", input.x) }
 `;
     const result = await verify(policy, 'allow', 'always_true');
     expect(result?.verdict).toBe('proven');
@@ -320,7 +320,7 @@ allow { regex.match(".*", input.x) }
   it('always_true: regex.match("^.*$", input.x) is tautological - proven', async () => {
     const policy = `
 package authz
-allow { regex.match("^.*$", input.x) }
+allow if { regex.match("^.*$", input.x) }
 `;
     const result = await verify(policy, 'allow', 'always_true');
     expect(result?.verdict).toBe('proven');
@@ -329,7 +329,7 @@ allow { regex.match("^.*$", input.x) }
   it('always_true: regex.match("^.*", input.x) is tautological - proven', async () => {
     const policy = `
 package authz
-allow { regex.match("^.*", input.x) }
+allow if { regex.match("^.*", input.x) }
 `;
     const result = await verify(policy, 'allow', 'always_true');
     expect(result?.verdict).toBe('proven');
@@ -338,7 +338,7 @@ allow { regex.match("^.*", input.x) }
   it('always_true: regex.match(".*$", input.x) is tautological - proven', async () => {
     const policy = `
 package authz
-allow { regex.match(".*$", input.x) }
+allow if { regex.match(".*$", input.x) }
 `;
     const result = await verify(policy, 'allow', 'always_true');
     expect(result?.verdict).toBe('proven');
@@ -347,7 +347,7 @@ allow { regex.match(".*$", input.x) }
   it('always_true: regex.match("^admin.*", input.x) is NOT tautological - counterexample', async () => {
     const policy = `
 package authz
-allow { regex.match("^admin.*", input.x) }
+allow if { regex.match("^admin.*", input.x) }
 `;
     const result = await verify(policy, 'allow', 'always_true');
     // "foo" does not start with "admin" -- counterexample exists
@@ -457,7 +457,7 @@ describe('rego_verify - local variable assignment', () => {
   it('handles x := input.role; x == "admin" (string assign)', async () => {
     const policy = `
 package authz
-allow {
+allow if {
   x := input.role
   x == "admin"
 }
@@ -471,7 +471,7 @@ allow {
   it('handles age := input.user.age; age >= 21 (int assign propagates sort)', async () => {
     const policy = `
 package authz
-allow {
+allow if {
   age := input.user.age
   age >= 21
   age <= 100
@@ -490,7 +490,7 @@ allow {
   it('handles two-level chain: y := input.user.age; x := y; x >= 21 (transitive sort propagation)', async () => {
     const policy = `
 package authz
-allow {
+allow if {
   y := input.user.age
   x := y
   x >= 21
@@ -512,11 +512,11 @@ describe('rego_verify - multi-expression helper rule inlining', () => {
   it('satisfiable: two-condition helper - witness satisfies both conditions', async () => {
     const policy = `
 package authz
-is_admin {
+is_admin if {
   input.user.role == "admin"
   input.user.active == true
 }
-allow { is_admin }
+allow if { is_admin }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('proven');
@@ -529,12 +529,12 @@ allow { is_admin }
   it('satisfiable: three-condition helper - witness satisfies all three', async () => {
     const policy = `
 package authz
-is_eligible {
+is_eligible if {
   input.age >= 18
   input.age <= 65
   input.active == true
 }
-allow { is_eligible }
+allow if { is_eligible }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('proven');
@@ -549,11 +549,11 @@ allow { is_eligible }
   it('satisfiable: multi-expr helper plus extra condition in allow - all must hold', async () => {
     const policy = `
 package authz
-is_admin {
+is_admin if {
   input.role == "admin"
   input.active == true
 }
-allow {
+allow if {
   is_admin
   input.region == "us"
 }
@@ -569,11 +569,11 @@ allow {
   it('always_true: multi-expr helper finds counterexample correctly', async () => {
     const policy = `
 package authz
-is_admin {
+is_admin if {
   input.user.role == "admin"
   input.user.active == true
 }
-allow { is_admin }
+allow if { is_admin }
 `;
     const result = await verify(policy, 'allow', 'always_true');
     // Not always true -- counterexample where role != "admin" or active != true
@@ -584,15 +584,15 @@ allow { is_admin }
   it('satisfiable: nested helper inlining with multi-expr at each level', async () => {
     const policy = `
 package authz
-is_active {
+is_active if {
   input.active == true
   input.enabled == true
 }
-is_admin_active {
+is_admin_active if {
   is_active
   input.role == "admin"
 }
-allow { is_admin_active }
+allow if { is_admin_active }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('proven');
@@ -605,11 +605,11 @@ allow { is_admin_active }
   it('satisfiable: string built-in inside multi-expr helper', async () => {
     const policy = `
 package authz
-is_api_admin {
+is_api_admin if {
   startswith(input.path, "/api/")
   input.role == "admin"
 }
-allow { is_api_admin }
+allow if { is_api_admin }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('proven');
@@ -622,11 +622,11 @@ allow { is_api_admin }
   it('satisfiable: int range in multi-expr helper returns valid witness', async () => {
     const policy = `
 package authz
-is_valid_age {
+is_valid_age if {
   input.user.age >= 21
   input.user.age <= 99
 }
-allow { is_valid_age }
+allow if { is_valid_age }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('proven');
@@ -641,11 +641,11 @@ allow { is_valid_age }
   it('inconclusive: NAF inside multi-expr helper makes clause unsupported', async () => {
     const policy = `
 package authz
-is_unblocked_admin {
+is_unblocked_admin if {
   not input.blocked
   input.role == "admin"
 }
-allow { is_unblocked_admin }
+allow if { is_unblocked_admin }
 `;
     const result = await verify(policy, 'allow', 'satisfiable');
     expect(result?.verdict).toBe('inconclusive');
@@ -659,10 +659,10 @@ describe('rego_verify - multi-clause OR correctness', () => {
     // directly with a policy that encodes both branches
     const exhaustivePolicy = `
 package authz
-allow {
+allow if {
   input.flag == true
 }
-allow {
+allow if {
   input.flag == false
 }
 `;
@@ -676,12 +676,12 @@ describe('rego_verify - cross-call Z3 sort isolation', () => {
     // input.value == "hello" → inferred as string
     const stringPolicy = `
 package authz
-allow { input.value == "hello" }
+allow if { input.value == "hello" }
 `;
     // input.value >= 10 → inferred as int
     const intPolicy = `
 package authz
-allow { input.value >= 10 }
+allow if { input.value >= 10 }
 `;
     // Run both sequentially - without namespacing, the second call would crash with a Z3 sort conflict
     const r1 = await verify(stringPolicy, 'allow', 'satisfiable');
@@ -700,11 +700,11 @@ allow { input.value >= 10 }
   it('same input path inferred as bool in call 1 and string in call 2 - both succeed', async () => {
     const boolPolicy = `
 package authz
-allow { input.flag == true }
+allow if { input.flag == true }
 `;
     const strPolicy = `
 package authz
-allow { input.flag == "yes" }
+allow if { input.flag == "yes" }
 `;
     const r1 = await verify(boolPolicy, 'allow', 'satisfiable');
     const r2 = await verify(strPolicy, 'allow', 'satisfiable');
@@ -713,9 +713,9 @@ allow { input.flag == "yes" }
   });
 
   it('three sequential calls with conflicting sorts on input.x all return correct results', async () => {
-    const p1 = `package authz\nallow { input.x == "str" }`;
-    const p2 = `package authz\nallow { input.x >= 0 }`;
-    const p3 = `package authz\nallow { input.x == true }`;
+    const p1 = `package authz\nallow if { input.x == "str" }`;
+    const p2 = `package authz\nallow if { input.x >= 0 }`;
+    const p3 = `package authz\nallow if { input.x == true }`;
 
     const [r1, r2, r3] = await Promise.all([
       verify(p1, 'allow', 'satisfiable'),
@@ -737,7 +737,7 @@ describe('rego_verify - intra-clause sort conflict (no crash, no leak)', () => {
   // the tool, and the previous behaviour leaked an absolute-path stack trace.
   const conflictPolicy = `
 package authz
-allow {
+allow if {
   input.a == input.b
   input.a >= 5
   input.b == "x"

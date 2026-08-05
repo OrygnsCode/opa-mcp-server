@@ -120,8 +120,11 @@ export const spawnUnreachable = () => ({
   stderr: 'spawn ENOENT',
 });
 
+// A timed-out subprocess is killed, so Node reports a null exit code (not a
+// numeric one). Modelling it as null is what the real runBinary produces and
+// keeps the timeout tests honest.
 export const spawnTimedOut = () => ({
   ...okSpawn,
-  exitCode: 137,
+  exitCode: null,
   timedOut: true,
 });

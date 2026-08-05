@@ -69,6 +69,19 @@ export function mapSubprocessFailure(
       details: { durationMs: result.durationMs },
     });
   }
+  // A timed-out process is killed, so it also reports a null exit code. Check
+  // the timeout first, otherwise a slow command (e.g. `opa bench` on a large
+  // policy) is misreported as a missing binary and sends the user hunting for
+  // an install problem that does not exist.
+  if (result.timedOut) {
+    return err(
+      'TIMEOUT',
+      `${binary} subprocess exceeded the configured timeout (OPA_MCP_TIMEOUT_MS).`,
+      {
+        details: { durationMs: result.durationMs },
+      },
+    );
+  }
   if (result.exitCode === null) {
     const code: ToolErrorCode =
       binary === 'opa'
@@ -83,15 +96,6 @@ export function mapSubprocessFailure(
           ? 'Install Regal (https://docs.styra.com/regal) or set REGAL_BINARY to the absolute path of the binary.'
           : 'Install Conftest (https://www.conftest.dev/) or set CONFTEST_BINARY to the absolute path of the binary.';
     return err(code, `${binary} binary unreachable: ${result.stderr || 'spawn failed'}`, { hint });
-  }
-  if (result.timedOut) {
-    return err(
-      'TIMEOUT',
-      `${binary} subprocess exceeded the configured timeout (OPA_MCP_TIMEOUT_MS).`,
-      {
-        details: { durationMs: result.durationMs },
-      },
-    );
   }
   return undefined;
 }
