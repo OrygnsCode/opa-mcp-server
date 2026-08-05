@@ -46,7 +46,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
-      - run: npm install -g npm@latest
+      # Pin the npm major: npm 12 dropped Node 20, which .nvmrc still targets.
+      # 11.x satisfies the >= 11.5.1 the OIDC trusted publisher needs.
+      - run: npm install -g npm@^11
       # Defensive: ensure the 5 packages carry the release version even if the
       # release-prep commit forgot to run `npm run bundle:sync`.
       - name: Sync platform package versions to the main version
@@ -97,7 +99,9 @@ jobs:
       # not the trusted-publisher token exchange, and the publish PUT
       # falls back to the placeholder _authToken setup-node writes,
       # which the registry answers with a 404.
-      - run: npm install -g npm@latest
+      # Pin the npm major: npm 12 dropped Node 20, which .nvmrc still targets.
+      # 11.x satisfies the >= 11.5.1 the OIDC trusted publisher needs.
+      - run: npm install -g npm@^11
       - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run build
       - name: Publish via OIDC (provenance auto-attached)
