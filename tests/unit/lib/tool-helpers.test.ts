@@ -1,6 +1,52 @@
 import { describe, expect, it } from 'vitest';
 
-import { sanitizeInlinePath, sanitizeInlinePathsDeep } from '../../../src/lib/tool-helpers.js';
+import {
+  mapSubprocessFailure,
+  sanitizeInlinePath,
+  sanitizeInlinePathsDeep,
+} from '../../../src/lib/tool-helpers.js';
+
+describe('mapSubprocessFailure', () => {
+  const base = { stdout: '', stderr: '', aborted: false, durationMs: 12 };
+
+  it('reports a timed-out process as TIMEOUT, not a missing binary', () => {
+    // A killed process reports a null exit code, so checking exitCode first
+    // would misreport a slow command (e.g. `opa bench`) as OPA_BINARY_NOT_FOUND
+    // and send the user chasing an install problem that does not exist.
+    const env = mapSubprocessFailure({ ...base, exitCode: null, timedOut: true }, 'opa');
+    expect(env?.error?.code).toBe('TIMEOUT');
+  });
+
+  it('still reports a genuine spawn failure as the binary-not-found code', () => {
+    const env = mapSubprocessFailure(
+      { ...base, exitCode: null, timedOut: false, stderr: 'spawn ENOENT' },
+      'opa',
+    );
+    expect(env?.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+  });
+
+  it('maps regal and conftest spawn failures to their own codes', () => {
+    expect(
+      mapSubprocessFailure({ ...base, exitCode: null, timedOut: false }, 'regal')?.error?.code,
+    ).toBe('REGAL_NOT_FOUND');
+    expect(
+      mapSubprocessFailure({ ...base, exitCode: null, timedOut: false }, 'conftest')?.error?.code,
+    ).toBe('CONFTEST_NOT_FOUND');
+  });
+
+  it('prefers CANCELLED over both when the client aborted', () => {
+    const env = mapSubprocessFailure(
+      { ...base, exitCode: null, timedOut: true, aborted: true },
+      'opa',
+    );
+    expect(env?.error?.code).toBe('CANCELLED');
+  });
+
+  it('returns undefined for a normally-exited process', () => {
+    expect(mapSubprocessFailure({ ...base, exitCode: 0, timedOut: false }, 'opa')).toBeUndefined();
+    expect(mapSubprocessFailure({ ...base, exitCode: 1, timedOut: false }, 'opa')).toBeUndefined();
+  });
+});
 
 describe('sanitizeInlinePath', () => {
   it('rewrites a temp inline-source path to <inline> (Windows and POSIX)', () => {

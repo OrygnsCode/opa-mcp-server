@@ -577,6 +577,15 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
             break;
           }
           // Systemic failures (binary missing, timeout) abort the entire run.
+          // Check the timeout first: a killed process also reports a null exit
+          // code, so the other order reports a slow run as a missing binary.
+          if (result.timedOut) {
+            return err(
+              'TIMEOUT',
+              'opa subprocess exceeded the configured timeout (OPA_MCP_TIMEOUT_MS).',
+              { details: { durationMs: result.durationMs } },
+            );
+          }
           if (result.exitCode === null) {
             return err(
               'OPA_BINARY_NOT_FOUND',
@@ -584,13 +593,6 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
               {
                 hint: 'Install OPA (https://www.openpolicyagent.org/docs/latest/) or set OPA_BINARY to the absolute path of the binary.',
               },
-            );
-          }
-          if (result.timedOut) {
-            return err(
-              'TIMEOUT',
-              'opa subprocess exceeded the configured timeout (OPA_MCP_TIMEOUT_MS).',
-              { details: { durationMs: result.durationMs } },
             );
           }
 

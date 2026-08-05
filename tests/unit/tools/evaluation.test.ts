@@ -300,6 +300,26 @@ describe('rego_test', () => {
     expect(env.error?.code).toBe('NO_TESTS_FOUND');
   });
 
+  it('surfaces a load failure instead of reporting a successful run of zero tests', async () => {
+    // `opa test` exits non-zero with the errors on stderr and nothing on stdout
+    // when the policies do not compile. Reporting ok/0-tests here would tell the
+    // caller their suite is fine while the policies are broken.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '1 error occurred during loading:\npolicy.rego:3: rego_parse_error: `if` keyword is required before rule body',
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ total: number }>(server, 'rego_test', {
+      paths: [validRegoPath()],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect((env.error?.details as { stderr?: string }).stderr).toContain('rego_parse_error');
+  });
+
   it('forwards --verbose and --run flags in normal mode', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
     const server = makeServer();

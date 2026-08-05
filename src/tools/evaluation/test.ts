@@ -225,7 +225,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
           return handleCoverageMode(result.stdout, result.stderr, result.exitCode, threshold);
         }
 
-        return handleTestRecordsMode(result.stdout, result.exitCode, runPattern);
+        return handleTestRecordsMode(result.stdout, result.stderr, result.exitCode, runPattern);
       });
     },
   );
@@ -297,6 +297,7 @@ function handleCoverageMode(
  */
 function handleTestRecordsMode(
   stdout: string,
+  stderr: string,
   exitCode: number | null,
   runPattern?: string,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
@@ -315,7 +316,17 @@ function handleTestRecordsMode(
     }
   }
 
-  if (records.length === 0 && exitCode === 0) {
+  if (records.length === 0) {
+    // A non-zero exit with no test records means opa never got as far as
+    // running tests -- typically the policies failed to load or compile.
+    // Reporting that as a successful run of zero tests would tell the caller
+    // everything is fine while their policies are broken.
+    if (exitCode !== 0) {
+      return err('INVALID_REGO', 'opa test could not load the policies under the provided paths.', {
+        hint: 'Fix the reported policy errors, then re-run the tests.',
+        details: { stderr: stderr.trim() },
+      });
+    }
     const hint = runPattern
       ? `No tests matched the pattern "${runPattern}". Verify the regex against your test rule names. Tests live in *_test.rego files with rules named test_*.`
       : 'Tests live in *_test.rego files with rules named test_*.';

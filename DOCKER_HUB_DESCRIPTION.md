@@ -81,14 +81,14 @@ inside the container.
 
 ## What's inside
 
-**49 tools across six categories:**
+**52 tools across seven categories:**
 
-- **Authoring** -- `rego_format`, `rego_lint`, `rego_check`, `rego_check_schema`, `rego_parse`,
-  `rego_deps`, `rego_inspect`, `rego_capabilities`
-- **Evaluation** -- `rego_eval`, `rego_test`, `rego_bench`, `rego_profile`, `rego_coverage_gaps`,
-  `rego_compile`
-- **Bundles** -- `rego_bundle_build`, `rego_bundle_sign`, `rego_bundle_verify`,
-  `rego_bundle_inspect`
+- **Authoring** -- `rego_format`, `rego_lint`, `rego_check`, `rego_check_schema`, `rego_parse_ast`,
+  `rego_deps`, `rego_inspect`, `rego_capabilities`, `rego_migrate_v1`
+- **Evaluation** -- `rego_eval`, `rego_test`, `rego_test_multiroot`, `rego_bench`,
+  `rego_eval_with_profile`, `rego_eval_with_explain`, `rego_eval_with_coverage`,
+  `rego_compile_query`, `opa_exec`
+- **Bundles** -- `opa_bundle_build`, `opa_bundle_sign`, `opa_bundle_verify`
 - **OPA REST** -- `opa_list_policies`, `opa_get_policy`, `opa_put_policy`, `opa_delete_policy`,
   `opa_get_data`, `opa_put_data`, `opa_patch_data`, `opa_delete_data`, `opa_query_decision`,
   `opa_compile_query`, `opa_health`, `opa_status`, `opa_config`
