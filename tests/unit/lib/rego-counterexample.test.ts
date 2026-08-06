@@ -5,7 +5,7 @@
  * extractCounterexample correctly converts Z3 variable values to
  * a nested JSON object with the right structure and types.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { init } from 'z3-solver';
 
 import {
@@ -27,6 +27,14 @@ async function getZ3(): Promise<ReturnType<Awaited<ReturnType<typeof init>>['Con
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return Z3;
 }
+
+// Booting the Z3 WASM module is slow and highly machine-dependent: on a cold
+// Windows runner it has come in a few milliseconds either side of the 10s
+// testTimeout. Pay that cost once here, on a budget of its own, so the first
+// test to touch Z3 is not billed for it and does not fail intermittently.
+beforeAll(async () => {
+  await getZ3();
+}, 120_000);
 
 describe('extractCounterexample - string var', () => {
   it('extracts a string value from a Z3 model', async () => {
