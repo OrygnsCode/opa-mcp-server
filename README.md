@@ -26,6 +26,11 @@ environment.
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
+> **Upgrading to 0.3.0:** the bundled OPA is now 1.19, so Rego v0 policies
+> no longer parse (`if` is required before a rule body, `contains` before a
+> partial set). Run `rego_migrate_v1` to convert them. If you supply your own
+> binary via `OPA_BINARY` or `PATH`, nothing changes.
+
 ---
 
 ## Table of contents
