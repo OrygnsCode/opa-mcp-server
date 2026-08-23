@@ -10,8 +10,23 @@ export default {
       const p = url.searchParams.get('p') ?? 'unknown';
       const u = url.searchParams.get('u') ?? null;
       const today = utcDate();
+      const dauKey = u && UUID_RE.test(u) ? `dau:${today}:${u}` : null;
 
-      // Always-on: cumulative counters (existing behaviour) + daily buckets.
+      // An install pings on every server start, and each ping used to cost six
+      // KV writes. A client stuck in a restart loop could therefore spend the
+      // whole daily free-tier write budget by itself, which is exactly what
+      // happened on 2026-08-16 (one install, ~142 pings, ~870 writes).
+      //
+      // Count each install once per UTC day instead, so write cost tracks the
+      // number of installs rather than the number of restarts. Repeat pings
+      // from an install already counted today cost one read and no writes.
+      //
+      // Pings without a usable install id cannot be de-duplicated, so they are
+      // still counted per ping. Those are rare and come from very old clients.
+      if (dauKey && (await env.TELEMETRY.get(dauKey))) {
+        return new Response('ok', { status: 200 });
+      }
+
       const writes = [
         increment(env.TELEMETRY, 'total'),
         increment(env.TELEMETRY, `v:${v}`),
@@ -21,25 +36,19 @@ export default {
         increment(env.TELEMETRY, `day:${today}:p:${p}`),
       ];
 
-      // UUID-gated: unique install tracking + daily active uniques.
-      if (u && UUID_RE.test(u)) {
+      if (dauKey) {
+        // Reaching here means this is the install's first ping of the day.
+        writes.push(
+          env.TELEMETRY.put(dauKey, '1', { expirationTtl: 8 * 24 * 60 * 60 }),
+          increment(env.TELEMETRY, `day:${today}:dau`),
+        );
+
         // First-seen detection: uid:<uuid> is written once and never updated.
-        const firstSeen = await env.TELEMETRY.get(`uid:${u}`);
-        if (!firstSeen) {
+        if (!(await env.TELEMETRY.get(`uid:${u}`))) {
           writes.push(
             env.TELEMETRY.put(`uid:${u}`, today),
             increment(env.TELEMETRY, 'installs:total'),
             increment(env.TELEMETRY, `day:${today}:installs:new`),
-          );
-        }
-
-        // Daily active unique: one key per UUID per day, expires after 8 days.
-        const dauKey = `dau:${today}:${u}`;
-        const dauSeen = await env.TELEMETRY.get(dauKey);
-        if (!dauSeen) {
-          writes.push(
-            env.TELEMETRY.put(dauKey, '1', { expirationTtl: 8 * 24 * 60 * 60 }),
-            increment(env.TELEMETRY, `day:${today}:dau`),
           );
         }
       }
