@@ -2,7 +2,7 @@
 
 **Model Context Protocol (MCP) server for Open Policy Agent (OPA) and the Rego policy language.**
 
-Wraps the OPA CLI, the OPA REST API, and the Regal linter behind 49 schema-validated tools so
+Wraps the OPA CLI, the OPA REST API, and the Regal linter behind 52 schema-validated tools so
 any MCP-compatible client (Claude Desktop, Claude Code, Cursor, VS Code, Zed, Windsurf) can
 author, evaluate, and debug Rego policies through a structured tool surface instead of free-form
 CLI text.
@@ -49,10 +49,11 @@ The container speaks MCP over stdio. Wire it into your client by pointing it at
 
 ## Tags
 
-| Tag                  | Meaning                                 |
-| -------------------- | --------------------------------------- |
-| `latest`             | Latest stable release.                  |
-| `0.1.12`, `0.1`, `0` | SemVer aliases for the current release. |
+| Tag        | Meaning                           |
+| ---------- | --------------------------------- |
+| `latest`   | Latest stable release.            |
+| `0.3.0`    | An exact, immutable release.      |
+| `0.3`, `0` | Track the newest patch and minor. |
 
 Versioned tags follow Semantic Versioning. The public surface for SemVer purposes is the set of
 registered tools, prompts, and resources, their input/output schemas, and the recognized
@@ -64,15 +65,18 @@ environment variables.
 
 All configuration is via environment variables. Every variable is optional.
 
-| Variable                     | Default                            | Purpose                                                                                                                                 |
-| ---------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPA_URL`                    | `http://host.docker.internal:8181` | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                |
-| `OPA_TOKEN`                  | (unset)                            | Bearer token for OPA, if required. Treated as a secret.                                                                                 |
-| `OPA_MCP_ALLOWED_PATHS`      | (unset)                            | Comma-separated list of directories the server is allowed to read policies from. When unset, file-based tools refuse to read from disk. |
-| `OPA_MCP_LOG_LEVEL`          | `info`                             | One of `debug`, `info`, `warn`, `error`.                                                                                                |
-| `OPA_MCP_MAX_RESPONSE_BYTES` | `100000`                           | Cap on a single tool response.                                                                                                          |
-| `OPA_MCP_TIMEOUT_MS`         | `30000`                            | Hard timeout for any spawned subprocess.                                                                                                |
-| `CONFTEST_BINARY`            | `conftest`                         | Path to the conftest binary. Only relevant if you extend this image to include conftest.                                                |
+| Variable                     | Default                            | Purpose                                                                                                                                                                   |
+| ---------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPA_URL`                    | `http://host.docker.internal:8181` | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                                  |
+| `OPA_TOKEN`                  | (unset)                            | Bearer token for OPA, if required. Treated as a secret.                                                                                                                   |
+| `OPA_MCP_ALLOWED_PATHS`      | (unset)                            | Comma-separated list of directories the server is allowed to read policies from. When unset, file-based tools refuse to read from disk.                                   |
+| `OPA_MCP_LOG_LEVEL`          | `info`                             | One of `debug`, `info`, `warn`, `error`.                                                                                                                                  |
+| `OPA_MCP_MAX_RESPONSE_BYTES` | `100000`                           | Cap on a single tool response.                                                                                                                                            |
+| `OPA_MCP_TIMEOUT_MS`         | `30000`                            | Hard timeout for any spawned subprocess.                                                                                                                                  |
+| `CONFTEST_BINARY`            | `conftest`                         | Path to the conftest binary. Only relevant if you extend this image to include conftest.                                                                                  |
+| `OPA_MCP_HTTP_TIMEOUT_MS`    | `15000`                            | Timeout for HTTP requests to the OPA REST API.                                                                                                                            |
+| `OPA_MCP_LOG_FILE`           | `<tmpdir>/orygn-opa-mcp.log`       | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                                        |
+| `OPA_MCP_NO_TELEMETRY`       | (unset)                            | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. No policy content or file paths are ever sent. |
 
 `OPA_BINARY` and `REGAL_BINARY` are not used in this image -- both binaries ship at known paths
 inside the container.
