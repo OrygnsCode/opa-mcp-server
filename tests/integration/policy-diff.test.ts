@@ -31,6 +31,7 @@ const config: Config = {
   logFile: join(tmpdir(), 'orygn-opa-mcp-policy-diff-it.log'),
   logLevel: 'error',
   maxResponseBytes: 100_000,
+  maxSubprocessBytes: 32 * 1024 * 1024,
 };
 
 // Canonical policy allowing only "admin" role

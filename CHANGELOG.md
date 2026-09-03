@@ -17,6 +17,43 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Security
+
+- Policies evaluated through this server no longer receive the server's environment.
+  Rego exposes the environment of the `opa` process through `opa.runtime().env`, and
+  child processes inherited `process.env`, so any evaluated policy could read
+  `OPA_TOKEN`, the `GITHUB_TOKEN` the README asks users to set for
+  `rego_playground_share`, and everything else the operator's client passed in.
+  `rego_eval` accepts inline source, so `OPA_MCP_ALLOWED_PATHS` never applied and no
+  filesystem access was needed; a policy arriving through a README, an issue, or a
+  diff was enough. `conftest_test` was affected the same way, and is the likelier
+  route to third-party policy. Children now get an explicit allow-list containing no
+  secret. `OPA_MCP_PASSTHROUGH_ENV` opts individual variables back in, and anything
+  named there is readable by evaluated policy by design.
+
+  On Windows, libuv copies a fixed set of variables to every child regardless of what
+  is requested. `USERNAME`, `USERDOMAIN` and `LOGONSERVER` cannot be removed, so they
+  are blanked rather than left to disclose the operating-system user and domain.
+
+### Fixed
+
+- A subprocess that produces very large output no longer takes the server down.
+  stdout and stderr were captured without a size limit, and decoding a capture past
+  V8's maximum string length throws inside an async `close` handler, where no tool's
+  `try`/`catch` can reach it and the process exits. A policy iterating
+  `numbers.range(1, 1000)` under `--explain full` produced 518 MiB in under seven
+  seconds, so the 30-second timeout never applied; `opa` buffers its result and writes
+  it in one burst at exit, which means the runs that complete comfortably are the
+  dangerous ones. Capture is now capped per stream, the child is stopped on overflow,
+  and the tool returns the new `OUTPUT_TOO_LARGE` error code. Configurable with
+  `OPA_MCP_MAX_SUBPROCESS_BYTES`, default 32 MiB.
+
+### Added
+
+- `OPA_MCP_MAX_SUBPROCESS_BYTES` and `OPA_MCP_PASSTHROUGH_ENV` environment variables.
+- `OUTPUT_TOO_LARGE` error code.
+
+
 ## [0.3.0] - 2026-08-05
 
 ### Changed

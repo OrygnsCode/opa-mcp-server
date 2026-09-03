@@ -179,6 +179,7 @@ export class RegalCli {
     const opts: Parameters<typeof runBinary>[1] = {
       args,
       timeoutMs: this.config.subprocessTimeoutMs,
+      maxOutputBytes: this.config.maxSubprocessBytes,
     };
     if (signal !== undefined) opts.signal = signal;
     return runBinary(this.config.regalBinary, opts);

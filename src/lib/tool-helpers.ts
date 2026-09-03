@@ -82,6 +82,20 @@ export function mapSubprocessFailure(
       },
     );
   }
+  // Like the timeout above, an over-size process is killed and so also reports a
+  // null exit code. Check it before the null-code branch, or a policy that
+  // simply produced too much output is reported as a missing binary and sends
+  // the user hunting for an install problem that does not exist.
+  if (result.outputTruncated) {
+    return err(
+      'OUTPUT_TOO_LARGE',
+      `${binary} produced more output than the capture limit (OPA_MCP_MAX_SUBPROCESS_BYTES) allows, and was stopped.`,
+      {
+        hint: 'Narrow the query, or drop `--explain full` in favour of a shallower explanation. Trace output grows with the square of the data iterated, so a comprehension over a large collection produces hundreds of megabytes from a small policy.',
+        details: { durationMs: result.durationMs },
+      },
+    );
+  }
   if (result.exitCode === null) {
     const code: ToolErrorCode =
       binary === 'opa'
