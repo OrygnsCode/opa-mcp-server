@@ -22,6 +22,7 @@ const baseConfig: Config = {
   logFile: '/tmp/test.log',
   logLevel: 'error',
   maxResponseBytes: 100_000,
+  maxSubprocessBytes: 32 * 1024 * 1024,
 };
 
 const okSpawn = {
@@ -483,6 +484,7 @@ describe('OpaCli', () => {
       expect(mockRun).toHaveBeenCalledWith('opa', {
         args: ['fmt', '/abs/p.rego'],
         timeoutMs: 30_000,
+        maxOutputBytes: 32 * 1024 * 1024,
         stdin: 'package x',
       });
     });
@@ -492,6 +494,7 @@ describe('OpaCli', () => {
       expect(mockRun).toHaveBeenCalledWith('opa', {
         args: ['version'],
         timeoutMs: 30_000,
+        maxOutputBytes: 32 * 1024 * 1024,
       });
     });
 

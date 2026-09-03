@@ -39,6 +39,7 @@ const baseConfig: Config = {
   logFile: '/tmp/fault-test.log',
   logLevel: 'error',
   maxResponseBytes: 100_000,
+  maxSubprocessBytes: 32 * 1024 * 1024,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;

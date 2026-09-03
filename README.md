@@ -240,20 +240,22 @@ The server reads its configuration from environment variables. Every
 variable is optional; defaults are sensible for a local OPA on
 `http://localhost:8181`.
 
-| Variable                     | Default                      | Purpose                                                                                                                                                                                                                                                                 |
-| ---------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPA_URL`                    | `http://localhost:8181`      | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                                                                                                                                |
-| `OPA_TOKEN`                  | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret. Never echoed in logs or tool responses.                                                                                                                                                      |
-| `OPA_BINARY`                 | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools.                                                                                                                                                                                                                          |
-| `REGAL_BINARY`               | `regal` (on `PATH`)          | Path to the `regal` linter. Only required by `rego_lint`.                                                                                                                                                                                                               |
-| `CONFTEST_BINARY`            | `conftest` (on `PATH`)       | Path to the `conftest` binary. Only required by `conftest_*` tools. Returns `CONFTEST_NOT_FOUND` if absent.                                                                                                                                                             |
-| `OPA_MCP_ALLOWED_PATHS`      | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.**                                                                                                               |
-| `OPA_MCP_LOG_FILE`           | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                                                                                                                                      |
-| `OPA_MCP_LOG_LEVEL`          | `info`                       | One of `debug`, `info`, `warn`, `error`.                                                                                                                                                                                                                                |
-| `OPA_MCP_MAX_RESPONSE_BYTES` | `100000`                     | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker.                                                                                                                                                                    |
-| `OPA_MCP_TIMEOUT_MS`         | `30000`                      | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`.                                                                                                                                                      |
-| `OPA_MCP_HTTP_TIMEOUT_MS`    | `15000`                      | Timeout for HTTP requests to the OPA REST API.                                                                                                                                                                                                                          |
-| `OPA_MCP_NO_TELEMETRY`       | _(unset)_                    | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. The install ID is stored at `~/.orygn/opa-mcp/install-id` and is generated once on first run. No policy content or file paths are ever sent. |
+| Variable                       | Default                      | Purpose                                                                                                                                                                                                                                                                                      |
+| ------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPA_URL`                      | `http://localhost:8181`      | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                                                                                                                                                     |
+| `OPA_TOKEN`                    | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret. Never echoed in logs or tool responses.                                                                                                                                                                           |
+| `OPA_BINARY`                   | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools.                                                                                                                                                                                                                                               |
+| `REGAL_BINARY`                 | `regal` (on `PATH`)          | Path to the `regal` linter. Only required by `rego_lint`.                                                                                                                                                                                                                                    |
+| `CONFTEST_BINARY`              | `conftest` (on `PATH`)       | Path to the `conftest` binary. Only required by `conftest_*` tools. Returns `CONFTEST_NOT_FOUND` if absent.                                                                                                                                                                                  |
+| `OPA_MCP_ALLOWED_PATHS`        | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.**                                                                                                                                    |
+| `OPA_MCP_LOG_FILE`             | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                                                                                                                                                           |
+| `OPA_MCP_LOG_LEVEL`            | `info`                       | One of `debug`, `info`, `warn`, `error`.                                                                                                                                                                                                                                                     |
+| `OPA_MCP_MAX_RESPONSE_BYTES`   | `100000`                     | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker.                                                                                                                                                                                         |
+| `OPA_MCP_TIMEOUT_MS`           | `30000`                      | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`.                                                                                                                                                                           |
+| `OPA_MCP_HTTP_TIMEOUT_MS`      | `15000`                      | Timeout for HTTP requests to the OPA REST API.                                                                                                                                                                                                                                               |
+| `OPA_MCP_NO_TELEMETRY`         | _(unset)_                    | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. The install ID is stored at `~/.orygn/opa-mcp/install-id` and is generated once on first run. No policy content or file paths are ever sent.                      |
+| `OPA_MCP_MAX_SUBPROCESS_BYTES` | `33554432` (32 MiB)          | Maximum bytes captured from a subprocess's stdout and stderr, counted separately. On overflow the stream is clamped, the child is stopped, and the tool returns `OUTPUT_TOO_LARGE`. Distinct from `OPA_MCP_MAX_RESPONSE_BYTES`, which trims the reply after the output is already in memory. |
+| `OPA_MCP_PASSTHROUGH_ENV`      | _(unset)_                    | Comma-separated variable names to pass through to `opa`, `regal` and `conftest`. Everything else is withheld. **Anything named here is readable by any policy the server evaluates**, via `opa.runtime().env`, so use it only for values that are safe in that position.                     |
 
 Paths in `OPA_MCP_ALLOWED_PATHS` and the `*_BINARY` variables must be
 absolute. Relative paths and missing binaries are rejected with structured
@@ -274,7 +276,8 @@ Stable error codes: `INVALID_INPUT`, `INVALID_REGO`, `INVALID_BUNDLE`,
 `OPA_AUTH_FAILED`, `POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`,
 `PATH_NOT_FOUND`, `DEPENDENCY_CONFLICT`, `NO_TESTS_FOUND`,
 `COVERAGE_BELOW_THRESHOLD`, `OPA_VERSION_UNSUPPORTED`, `VERIFY_INCONCLUSIVE`,
-`Z3_INIT_ERROR`, `GITHUB_TOKEN_MISSING`, `GIST_CREATE_FAILED`, `TIMEOUT`,
+`Z3_INIT_ERROR`, `GITHUB_TOKEN_MISSING`, `GIST_CREATE_FAILED`,
+`OUTPUT_TOO_LARGE`, `TIMEOUT`,
 `CANCELLED`, `UNKNOWN_ERROR`.
 
 ### Category A: Authoring & static analysis
@@ -579,11 +582,21 @@ Three things worth knowing if you're going to operate this:
    bytes, the client disconnects; the MCP transport layer is strict.
 2. **No tool throws.** Every tool catches its own exceptions and returns
    a structured `{ ok: false, error: ... }` envelope. The agent sees a
-   stable error vocabulary, not a stack trace.
-3. **Subprocesses are tightly bounded.** `lib/subprocess.ts` runs `opa`
-   and `regal` with `shell: false`, a hard timeout, and `SIGTERM`-then-
-   `SIGKILL` escalation. There is no path through the server where an
-   agent can construct a shell command.
+   stable error vocabulary, not a stack trace. Decoding subprocess output
+   happens inside an async callback, where a throw would bypass those
+   handlers entirely, so that path is bounded by bytes rather than left to
+   a `try`/`catch` that could not see it.
+3. **Subprocesses are bounded in time, size, and environment.**
+   `lib/subprocess.ts` runs the binaries with `shell: false`, a hard
+   timeout with `SIGTERM`-then-`SIGKILL` escalation, and a per-stream byte
+   cap. There is no path through the server where an agent can construct a
+   shell command. The timeout alone is not enough: `opa` buffers a result
+   in memory and writes it in one burst at exit, so a command that finishes
+   well inside the timeout can still deliver hundreds of megabytes.
+4. **Children do not inherit the server's environment.** `lib/child-env.ts`
+   builds an explicit allow-list instead. Rego can read its interpreter's
+   environment through `opa.runtime().env`, so anything passed down is
+   readable by any policy the server evaluates.
 
 ## Security
 
@@ -593,8 +606,18 @@ be exposed on the network.
 
 - File-based tools refuse to read anything outside `OPA_MCP_ALLOWED_PATHS`.
   When that variable is unset, file tools return `PATH_NOT_ALLOWED`.
-- Subprocesses run with `shell: false` and a hard timeout.
-- `OPA_TOKEN` is never echoed in tool responses or log entries.
+- Subprocesses run with `shell: false`, a hard timeout, and a byte cap on
+  captured output.
+- **Evaluated policy cannot read the server's environment.** Rego exposes the
+  environment of the `opa` process through `opa.runtime().env`, so a child that
+  inherited `process.env` would hand `OPA_TOKEN`, `GITHUB_TOKEN`, and every
+  other variable to any policy it evaluated. Since `rego_eval` accepts inline
+  source, no filesystem access is needed to reach that, which puts it one
+  prompt injection away from any untrusted Rego an agent reads. Children get an
+  explicit allow-list instead (`lib/child-env.ts`), containing no secret.
+  `OPA_MCP_PASSTHROUGH_ENV` opts individual variables back in.
+- `OPA_TOKEN` is never echoed in tool responses or log entries, and is not
+  passed to any child process.
 - Releases are published with
   [npm provenance](https://docs.npmjs.com/generating-provenance-statements);
   the Docker image is built reproducibly from the committed `Dockerfile`.

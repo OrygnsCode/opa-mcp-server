@@ -26,6 +26,7 @@ const config: Config = {
   logFile: join(tmpdir(), 'orygn-opa-mcp-shipped-rego.log'),
   logLevel: 'error',
   maxResponseBytes: 200_000,
+  maxSubprocessBytes: 32 * 1024 * 1024,
 };
 
 const workDir = mkdtempSync(join(tmpdir(), 'orygn-shipped-rego-'));

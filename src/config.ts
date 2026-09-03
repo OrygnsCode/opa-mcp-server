@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import { resolveOpaBinary } from './lib/resolve-binary.js';
+import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
 
 const ConfigSchema = z.object({
   /** Base URL of a running OPA server (used by `opa_*` runtime tools). */
@@ -60,6 +61,25 @@ const ConfigSchema = z.object({
    * write to a file path the agent specifies.
    */
   maxResponseBytes: z.coerce.number().int().positive().default(100_000),
+
+  /**
+   * Maximum bytes captured from a subprocess's stdout and stderr, each counted
+   * separately. On overflow the stream is clamped and the child is killed.
+   *
+   * This is a memory bound, distinct from `maxResponseBytes`, which trims the
+   * response after the output has already been read into the heap. A capture
+   * past V8's max string length cannot be decoded at all, and the throw would
+   * land in an async callback where no tool can catch it.
+   */
+  maxSubprocessBytes: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(
+      DEFAULT_MAX_OUTPUT_BYTES * 8,
+      'OPA_MCP_MAX_SUBPROCESS_BYTES is too large to decode safely; keep it well under 512 MiB.',
+    )
+    .default(DEFAULT_MAX_OUTPUT_BYTES),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -85,6 +105,7 @@ const ENV_VAR_NAMES: Record<string, string> = {
   logFile: 'OPA_MCP_LOG_FILE',
   logLevel: 'OPA_MCP_LOG_LEVEL',
   maxResponseBytes: 'OPA_MCP_MAX_RESPONSE_BYTES',
+  maxSubprocessBytes: 'OPA_MCP_MAX_SUBPROCESS_BYTES',
 };
 
 export function loadConfig(): Config {
@@ -102,6 +123,7 @@ export function loadConfig(): Config {
     logFile: process.env['OPA_MCP_LOG_FILE'],
     logLevel: process.env['OPA_MCP_LOG_LEVEL'],
     maxResponseBytes: process.env['OPA_MCP_MAX_RESPONSE_BYTES'],
+    maxSubprocessBytes: process.env['OPA_MCP_MAX_SUBPROCESS_BYTES'],
   });
 
   if (!parsed.success) {

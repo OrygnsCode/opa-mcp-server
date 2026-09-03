@@ -24,10 +24,15 @@ interface FakeStream extends EventEmitter {
   on(event: string, listener: (...args: unknown[]) => void): this;
 }
 
+interface FakeStdin extends EventEmitter {
+  write: ReturnType<typeof vi.fn>;
+  end: ReturnType<typeof vi.fn>;
+}
+
 interface FakeChild extends EventEmitter {
   stdout: FakeStream;
   stderr: FakeStream;
-  stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+  stdin: FakeStdin;
   kill: ReturnType<typeof vi.fn>;
   killed: boolean;
 }
@@ -36,7 +41,13 @@ function makeChild(): FakeChild {
   const child = new EventEmitter() as FakeChild;
   child.stdout = new EventEmitter() as FakeStream;
   child.stderr = new EventEmitter() as FakeStream;
-  child.stdin = { write: vi.fn(), end: vi.fn() };
+  // A real ChildProcess.stdin is a Writable, so it emits events like the other
+  // two streams. Modelling it as a bare object hid the fact that runBinary can
+  // legitimately subscribe to it.
+  const stdin = new EventEmitter() as FakeStdin;
+  stdin.write = vi.fn();
+  stdin.end = vi.fn();
+  child.stdin = stdin;
   child.kill = vi.fn(() => true);
   child.killed = false;
   return child;
@@ -316,5 +327,162 @@ describe('runBinary — AbortSignal cancellation', () => {
     expect(result.aborted).toBe(true);
     expect(result.timedOut).toBe(false);
     expect(result.exitCode).toBeNull();
+  });
+});
+
+describe('runBinary — output cap', () => {
+  it('captures normally and reports no truncation when under the limit', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 100 });
+    child.stdout.emit('data', Buffer.from('a'.repeat(50)));
+    child.emit('close', 0);
+
+    const result = await promise;
+    expect(result.stdout).toHaveLength(50);
+    expect(result.outputTruncated).toBe(false);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('clamps a single oversized chunk to exactly the limit and kills the child', async () => {
+    // The realistic shape: `opa eval --format json` marshals its whole result in
+    // memory and writes it in one burst, so the cap has to bite inside the very
+    // first chunk. A running total that only rejects the *next* chunk never runs.
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 100 });
+    child.stdout.emit('data', Buffer.from('x'.repeat(10_000)));
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.stdout).toHaveLength(100);
+    expect(result.outputTruncated).toBe(true);
+  });
+
+  it('accumulates across chunks and stops at the boundary', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 10 });
+    child.stdout.emit('data', Buffer.from('abcd'));
+    child.stdout.emit('data', Buffer.from('efgh'));
+    child.stdout.emit('data', Buffer.from('ijkl'));
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.stdout).toBe('abcdefghij');
+    expect(result.outputTruncated).toBe(true);
+  });
+
+  it('ignores further chunks once the limit is passed', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 4 });
+    child.stdout.emit('data', Buffer.from('aaaaaaaa'));
+    child.stdout.emit('data', Buffer.from('bbbbbbbb'));
+    child.stdout.emit('data', Buffer.from('cccccccc'));
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.stdout).toBe('aaaa');
+    // One kill for the overflow, not one per subsequent chunk.
+    expect(child.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps stderr independently of stdout', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 5 });
+    child.stdout.emit('data', Buffer.from('ok'));
+    child.stderr.emit('data', Buffer.from('yyyyyyyyyy'));
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.stdout).toBe('ok');
+    expect(result.stderr).toBe('yyyyy');
+    expect(result.outputTruncated).toBe(true);
+  });
+
+  it('treats output landing exactly on the limit as complete, not truncated', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 8 });
+    child.stdout.emit('data', Buffer.from('12345678'));
+    child.emit('close', 0);
+
+    const result = await promise;
+    expect(result.stdout).toBe('12345678');
+    // Nothing was lost, so reporting truncation here would send the agent
+    // chasing a limit it never actually hit.
+    expect(result.outputTruncated).toBe(false);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('overflows on the following chunk when the limit was exactly reached', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 8 });
+    child.stdout.emit('data', Buffer.from('12345678'));
+    child.stdout.emit('data', Buffer.from('9'));
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.stdout).toBe('12345678');
+    expect(result.outputTruncated).toBe(true);
+  });
+
+  it('applies a default limit when the caller supplies none', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['version'], timeoutMs: 5_000 });
+    child.stdout.emit('data', Buffer.from('Version: 1.19.0'));
+    child.emit('close', 0);
+
+    const result = await promise;
+    expect(result.stdout).toBe('Version: 1.19.0');
+    expect(result.outputTruncated).toBe(false);
+  });
+});
+
+describe('runBinary — the close handler cannot take the process down', () => {
+  it('resolves once even when both error and close fire', async () => {
+    // Killing a child mid-write is the ordinary route to both events. A second
+    // resolve would silently discard a result rather than crash, but the guard
+    // keeps which-one-wins deterministic.
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000 });
+    child.emit('error', new Error('EPIPE'));
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.exitCode).toBeNull();
+    expect(result.stderr).toBe('EPIPE');
+  });
+
+  it('survives an EPIPE on the stdout stream after a kill', async () => {
+    // Without a listener this is an unhandled 'error' event, which would take
+    // the whole server down -- the exact failure the cap exists to prevent.
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['eval'], timeoutMs: 5_000, maxOutputBytes: 4 });
+    child.stdout.emit('data', Buffer.from('aaaaaaaa'));
+    expect(() => child.stdout.emit('error', new Error('EPIPE'))).not.toThrow();
+    expect(() => child.stderr.emit('error', new Error('EPIPE'))).not.toThrow();
+    child.emit('close', null);
+
+    const result = await promise;
+    expect(result.outputTruncated).toBe(true);
   });
 });

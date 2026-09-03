@@ -261,6 +261,7 @@ describe('loadConfig — combined real-world configurations', () => {
       logFile: '/var/log/orygn-opa-mcp.log',
       logLevel: 'warn',
       maxResponseBytes: 500_000,
+      maxSubprocessBytes: 32 * 1024 * 1024,
     });
   });
 });

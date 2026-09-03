@@ -25,6 +25,7 @@ const config: Config = {
   logFile: join(tmpdir(), 'orygn-opa-mcp-eval-sanitize-it.log'),
   logLevel: 'error',
   maxResponseBytes: 1_000_000,
+  maxSubprocessBytes: 32 * 1024 * 1024,
 };
 
 const policy = 'package authz\nimport rego.v1\nallow if input.role == "admin"';

@@ -65,18 +65,20 @@ environment variables.
 
 All configuration is via environment variables. Every variable is optional.
 
-| Variable                     | Default                            | Purpose                                                                                                                                                                   |
-| ---------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPA_URL`                    | `http://host.docker.internal:8181` | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                                  |
-| `OPA_TOKEN`                  | (unset)                            | Bearer token for OPA, if required. Treated as a secret.                                                                                                                   |
-| `OPA_MCP_ALLOWED_PATHS`      | (unset)                            | Comma-separated list of directories the server is allowed to read policies from. When unset, file-based tools refuse to read from disk.                                   |
-| `OPA_MCP_LOG_LEVEL`          | `info`                             | One of `debug`, `info`, `warn`, `error`.                                                                                                                                  |
-| `OPA_MCP_MAX_RESPONSE_BYTES` | `100000`                           | Cap on a single tool response.                                                                                                                                            |
-| `OPA_MCP_TIMEOUT_MS`         | `30000`                            | Hard timeout for any spawned subprocess.                                                                                                                                  |
-| `CONFTEST_BINARY`            | `conftest`                         | Path to the conftest binary. Only relevant if you extend this image to include conftest.                                                                                  |
-| `OPA_MCP_HTTP_TIMEOUT_MS`    | `15000`                            | Timeout for HTTP requests to the OPA REST API.                                                                                                                            |
-| `OPA_MCP_LOG_FILE`           | `<tmpdir>/orygn-opa-mcp.log`       | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                                        |
-| `OPA_MCP_NO_TELEMETRY`       | (unset)                            | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. No policy content or file paths are ever sent. |
+| Variable                       | Default                            | Purpose                                                                                                                                                                   |
+| ------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPA_URL`                      | `http://host.docker.internal:8181` | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                                  |
+| `OPA_TOKEN`                    | (unset)                            | Bearer token for OPA, if required. Treated as a secret.                                                                                                                   |
+| `OPA_MCP_ALLOWED_PATHS`        | (unset)                            | Comma-separated list of directories the server is allowed to read policies from. When unset, file-based tools refuse to read from disk.                                   |
+| `OPA_MCP_LOG_LEVEL`            | `info`                             | One of `debug`, `info`, `warn`, `error`.                                                                                                                                  |
+| `OPA_MCP_MAX_RESPONSE_BYTES`   | `100000`                           | Cap on a single tool response.                                                                                                                                            |
+| `OPA_MCP_TIMEOUT_MS`           | `30000`                            | Hard timeout for any spawned subprocess.                                                                                                                                  |
+| `CONFTEST_BINARY`              | `conftest`                         | Path to the conftest binary. Only relevant if you extend this image to include conftest.                                                                                  |
+| `OPA_MCP_HTTP_TIMEOUT_MS`      | `15000`                            | Timeout for HTTP requests to the OPA REST API.                                                                                                                            |
+| `OPA_MCP_LOG_FILE`             | `<tmpdir>/orygn-opa-mcp.log`       | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                                        |
+| `OPA_MCP_NO_TELEMETRY`         | (unset)                            | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. No policy content or file paths are ever sent. |
+| `OPA_MCP_MAX_SUBPROCESS_BYTES` | `33554432`                         | Cap on bytes captured from a subprocess's stdout and stderr. On overflow the child is stopped and the tool returns `OUTPUT_TOO_LARGE`.                                    |
+| `OPA_MCP_PASSTHROUGH_ENV`      | (unset)                            | Comma-separated variable names to pass through to the OPA binary. Everything else is withheld. Anything named here is readable by evaluated policy.                       |
 
 `OPA_BINARY` and `REGAL_BINARY` are not used in this image -- both binaries ship at known paths
 inside the container.
