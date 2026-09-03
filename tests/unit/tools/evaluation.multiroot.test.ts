@@ -181,6 +181,32 @@ describe('rego_test_multiroot (explicit mode)', () => {
     expect(mockRun).toHaveBeenCalledTimes(1);
   });
 
+  it('aborts all roots and returns OUTPUT_TOO_LARGE when a root floods stdout', async () => {
+    // A killed child reports a null exit code whichever reason killed it, so
+    // this used to surface as OPA_BINARY_NOT_FOUND and send the user hunting
+    // for an install problem that did not exist.
+    mockRun.mockResolvedValueOnce({
+      exitCode: null,
+      stdout: 'x'.repeat(64),
+      stderr: '',
+      timedOut: false,
+      aborted: false,
+      durationMs: 4_200,
+      outputTruncated: true,
+    });
+
+    const server = makeServer();
+    registerRegoTestMultiroot(server, baseConfig);
+
+    const env = await callTool(server, 'rego_test_multiroot', {
+      roots: [{ path: root1() }, { path: root2() }],
+    });
+
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OUTPUT_TOO_LARGE');
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
   it('appends include paths after the root path in opa test argv', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(testRecordsPass()));
 

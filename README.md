@@ -235,8 +235,9 @@ which opa && which regal                                    # macOS / Linux
 Get-Command opa, regal | Select-Object Source              # Windows
 ```
 
-This does not affect the **Docker** or **MCPB** install paths; those
-ship `opa` and `regal` inside the bundle and bypass `PATH` entirely.
+This does not affect the **Docker** install path, which ships `opa` and
+`regal` in the image and bypasses `PATH` entirely. The **MCPB** bundle
+carries neither and resolves `opa` the same way the npm install does.
 See [Troubleshooting](#troubleshooting) for full detail.
 
 ## Configuration
@@ -250,7 +251,7 @@ variable is optional; defaults are sensible for a local OPA on
 | `OPA_URL`                      | `http://localhost:8181`      | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                                                                                                                                                     |
 | `OPA_TOKEN`                    | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret. Never echoed in logs or tool responses.                                                                                                                                                                           |
 | `OPA_BINARY`                   | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools.                                                                                                                                                                                                                                               |
-| `REGAL_BINARY`                 | `regal` (on `PATH`)          | Path to the `regal` linter. Only required by `rego_lint`.                                                                                                                                                                                                                                    |
+| `REGAL_BINARY`                 | `regal` (on `PATH`)          | Path to the `regal` linter. Required by `rego_lint`, `rego_fix`, and `rego_security_audit`.                                                                                                                                                                                                  |
 | `CONFTEST_BINARY`              | `conftest` (on `PATH`)       | Path to the `conftest` binary. Only required by `conftest_*` tools. Returns `CONFTEST_NOT_FOUND` if absent.                                                                                                                                                                                  |
 | `OPA_MCP_ALLOWED_PATHS`        | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.**                                                                                                                                    |
 | `OPA_MCP_LOG_FILE`             | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                                                                                                                                                           |
@@ -308,7 +309,7 @@ Operate on Rego source code without needing a running OPA server. Wrap
 ```jsonc
 // Input
 {
-  "source": "package x\nallow{input.user==\"admin\"}"
+  "source": "package x\nallow if input.user==\"admin\""
 }
 
 // Output (ok)
@@ -454,7 +455,7 @@ YAML/JSON/HCL/TOML/INI against Rego policies using
 // Input
 {
   "inlineConfig": "apiVersion: v1\nkind: Pod\nspec:\n  containers:\n  - name: app\n    image: nginx:latest",
-  "inlinePolicy": "package main\ndeny[msg] { input.spec.containers[_].image == \"nginx:latest\"; msg := \"pin your image tag\" }"
+  "inlinePolicy": "package main\ndeny contains msg if { input.spec.containers[_].image == \"nginx:latest\"; msg := \"pin your image tag\" }"
 }
 
 // Output
@@ -580,7 +581,7 @@ Agent: Done. Policy `rbac` is live on staging at $OPA_URL.
 └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Three things worth knowing if you're going to operate this:
+Four things worth knowing if you're going to operate this:
 
 1. **stdout is the protocol channel.** The server logs to a file via
    `lib/logger.ts` and never writes to stdout. If you see stray stdout
@@ -667,8 +668,9 @@ is not enough -- the spawned server gets a reduced `PATH`. The
 [`examples/`](./examples) configs already include these env vars; just
 edit the placeholder paths.
 
-This issue does **not** affect the Docker or MCPB install paths. Those
-bundle `opa` and `regal` and bypass `PATH` entirely.
+This issue does **not** affect the Docker install path, which bundles
+`opa` and `regal` and bypasses `PATH` entirely. The MCPB bundle resolves
+`opa` from `OPA_BINARY` or `PATH`, so it can hit this.
 
 **The server starts, then the client says "disconnected."**
 
@@ -749,7 +751,7 @@ Breaking changes will be:
 
 Pinned versions of the upstream toolchain (`opa` and `regal`) are treated
 as part of the build, not as a dependency the operator manages. The
-Dockerfile, MCPB bundle, and CI all use the same pin; bumps go through
+Dockerfile and CI use the same pin; bumps go through
 Dependabot or a manual PR.
 
 ## License
