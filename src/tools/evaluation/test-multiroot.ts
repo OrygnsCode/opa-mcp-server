@@ -24,7 +24,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { tryParseJson, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
+import {
+  mapSubprocessFailure,
+  tryParseJson,
+  validatePaths,
+  withToolEnvelope,
+} from '../../lib/tool-helpers.js';
 import type { SpawnResult } from '../../lib/subprocess.js';
 import type { ToolErrorCode } from '../../types.js';
 import type { CoverageReport, TestRecord } from './test.js';
@@ -576,25 +581,13 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
             abortedAt = i;
             break;
           }
-          // Systemic failures (binary missing, timeout) abort the entire run.
-          // Check the timeout first: a killed process also reports a null exit
-          // code, so the other order reports a slow run as a missing binary.
-          if (result.timedOut) {
-            return err(
-              'TIMEOUT',
-              'opa subprocess exceeded the configured timeout (OPA_MCP_TIMEOUT_MS).',
-              { details: { durationMs: result.durationMs } },
-            );
-          }
-          if (result.exitCode === null) {
-            return err(
-              'OPA_BINARY_NOT_FOUND',
-              `opa binary unreachable: ${result.stderr || 'spawn failed'}`,
-              {
-                hint: 'Install OPA (https://www.openpolicyagent.org/docs/latest/) or set OPA_BINARY to the absolute path of the binary.',
-              },
-            );
-          }
+          // Systemic failures (binary missing, timeout, output over the capture
+          // limit) abort the entire run. Share the ladder in mapSubprocessFailure
+          // rather than repeating it: every one of these is killed and so reports
+          // a null exit code, and a local copy silently misses whichever case is
+          // added next. Cancellation is handled above, so it never reaches here.
+          const failure = mapSubprocessFailure(result, 'opa');
+          if (failure) return failure;
 
           const outcome = processRootOutput(result, coverageMode, threshold);
           const rootResult: RootTestResult = {

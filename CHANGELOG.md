@@ -50,6 +50,12 @@ not part of the public surface and may change in minor releases.
   and the tool returns the new `OUTPUT_TOO_LARGE` error code. Configurable with
   `OPA_MCP_MAX_SUBPROCESS_BYTES`, default 32 MiB.
 
+- `rego_test_multiroot` reports `OUTPUT_TOO_LARGE` and `TIMEOUT` through the same mapper as
+  every other tool. It carried its own copy of the failure ladder, and a run killed for
+  producing too much output reported `OPA_BINARY_NOT_FOUND`, sending the caller after an
+  install problem that did not exist. This is the same defect that was fixed for timeouts in
+  0.3.0, in the one place that did not share the fix.
+
 ### Added
 
 - `OPA_MCP_MAX_SUBPROCESS_BYTES` and `OPA_MCP_PASSTHROUGH_ENV` environment variables.

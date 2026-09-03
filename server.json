@@ -69,7 +69,7 @@
         {
           "name": "OPA_URL",
           "description": "Base URL of a running OPA server.",
-          "default": "http://host.docker.internal:8181",
+          "default": "http://localhost:8181",
           "isRequired": false
         },
         {
