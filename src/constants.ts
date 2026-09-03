@@ -4,4 +4,4 @@
  * (server.ts -> tools -> meta -> server.ts).
  */
 export const SERVER_NAME = 'orygn-opa-mcp';
-export const SERVER_VERSION = '0.3.0';
+export const SERVER_VERSION = '0.4.0';
