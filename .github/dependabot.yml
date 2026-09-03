@@ -28,6 +28,14 @@ updates:
       - dependency-name: 'typescript'
         update-types:
           - version-update:semver-major
+      # zod 4 drops `additionalProperties: false` from 48 of our 52 published tool
+      # schemas and turns enums into anyOf/const, so the schemas MCP clients read
+      # get looser and harder for a model to follow. Tests and tsc pass either way,
+      # which is what makes it easy to miss. Revisit if the SDK's zod 4 conversion
+      # starts emitting the same JSON Schema as its zod 3 path.
+      - dependency-name: 'zod'
+        update-types:
+          - version-update:semver-major
     labels:
       - dependencies
 

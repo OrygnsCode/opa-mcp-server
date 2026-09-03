@@ -47,7 +47,7 @@ const RegoCheckSchemaInput = {
       'Filesystem paths to policy files or directories to validate. Each path must be inside an allowed root (OPA_MCP_ALLOWED_PATHS). Mutually exclusive with `source`.',
     ),
   inlineSchema: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional()
     .describe(
       'JSON Schema (draft-07) object describing the expected shape of the `input` document. Mutually exclusive with `schemaPath`. Accepts the `schema` field from `rego_infer_input_schema` output directly.',
