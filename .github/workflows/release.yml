@@ -32,8 +32,13 @@ jobs:
 
   # The bundled-OPA platform packages must publish BEFORE the main package so
   # the main package's optionalDependencies resolve for the first installer.
-  # These 5 are brand-new packages, so they use a granular @orygn-scoped token
-  # (NPM_TOKEN) rather than OIDC; the main package below keeps OIDC untouched.
+  #
+  # They carry the OPA binary and nothing else, so their version tracks the
+  # bundled OPA version rather than the server version: a server-only release
+  # leaves them alone and every one is skipped below as already published. They
+  # publish with a granular @orygn-scoped token (NPM_TOKEN) rather than OIDC,
+  # so a release that does not move the binary needs no token at all. The main
+  # package below keeps OIDC untouched.
   publish-binaries:
     name: Publish platform binary packages to npm
     runs-on: ubuntu-latest
@@ -49,8 +54,9 @@ jobs:
       # Pin the npm major: npm 12 dropped Node 20, which .nvmrc still targets.
       # 11.x satisfies the >= 11.5.1 the OIDC trusted publisher needs.
       - run: npm install -g npm@^11
-      # Defensive: ensure the 5 packages carry the release version even if the
-      # release-prep commit forgot to run `npm run bundle:sync`.
+      # Defensive: ensure optionalDependencies point at the platform versions
+      # that actually exist, even if the release-prep commit forgot to run
+      # `npm run bundle:sync`. Only bumps a package when the binary changed.
       - name: Sync platform package versions to the main version
         run: node scripts/sync-versions.mjs
       - name: Fetch and checksum-verify all 5 OPA binaries
