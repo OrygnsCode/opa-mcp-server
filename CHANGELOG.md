@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-03
+
 ### Security
 
 - Policies evaluated through this server no longer receive the server's environment.
@@ -1020,7 +1022,19 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.20...v0.2.0
+[0.1.20]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.19...v0.1.20
+[0.1.19]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.18...v0.1.19
+[0.1.18]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.17...v0.1.18
+[0.1.17]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.16...v0.1.17
+[0.1.16]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.15...v0.1.16
+[0.1.15]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.14...v0.1.15
+[0.1.14]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.13...v0.1.14
+[0.1.13]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.9...v0.1.10
@@ -1031,6 +1045,6 @@ for npm, GitHub Actions, and Docker base images.
 [0.1.5]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.2
-[0.1.1]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.1
+[0.1.2]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/OrygnsCode/opa-mcp-server/releases/tag/v0.1.0

@@ -22,9 +22,14 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
-> **Status:** v0.3.0. Tool surface, error codes, and
+> **Status:** v0.4.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.4.0:** subprocesses no longer inherit the server's
+> environment. A policy that read a variable through `opa.runtime().env`
+> will no longer see it; name the variable in `OPA_MCP_PASSTHROUGH_ENV` if
+> it is genuinely needed. See the security section for why.
 
 > **Upgrading to 0.3.0:** the bundled OPA is now 1.19, so Rego v0 policies
 > no longer parse (`if` is required before a rule body, `contains` before a
