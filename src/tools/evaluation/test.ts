@@ -305,6 +305,7 @@ function handleCoverageMode(
       passed: 0,
       failed: 0,
       skipped: 0,
+      errored: 0,
       total: 0,
       results: [],
       coverage: coverageData,
