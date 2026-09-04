@@ -6,10 +6,75 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
-import { OpaClient, OpaUnreachableError } from '../../lib/opa-client.js';
-import { err, ok } from '../../lib/errors.js';
+import { OpaClient, OpaHttpError } from '../../lib/opa-client.js';
+import { ok } from '../../lib/errors.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
 import { mapOpaClientError } from './_shared.js';
+
+/** Stands in for a header value so the header is still visible as configured. */
+const REDACTED = '<redacted by opa-mcp>';
+
+/** OPA answers an unhealthy check with `{"error": "..."}`; surface that text. */
+function healthReason(e: OpaHttpError): string | undefined {
+  const body = e.body;
+  if (typeof body === 'string' && body.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed.error === 'string') return parsed.error;
+    } catch {
+      return body.trim();
+    }
+    return body.trim();
+  }
+  if (typeof body === 'object' && body !== null) {
+    const parsed = body as { error?: unknown };
+    if (typeof parsed.error === 'string') return parsed.error;
+  }
+  return undefined;
+}
+
+/**
+ * Redact the values of `services.*.headers` in an OPA configuration document.
+ *
+ * OPA drops the `credentials` block from `GET /v1/config` but returns `headers`
+ * verbatim, and a header is the ordinary way to put an API key or a bearer token
+ * in an OPA config. Handing those to an agent, which is what these two tools do
+ * with the document, puts a live credential into a transcript. The header names
+ * survive, so the document still answers what the server is configured to send.
+ */
+function redactServiceHeaders(document: unknown): unknown {
+  if (typeof document !== 'object' || document === null || Array.isArray(document)) {
+    return document;
+  }
+  const doc = document as Record<string, unknown>;
+  const services = doc['services'];
+  if (typeof services !== 'object' || services === null || Array.isArray(services)) {
+    return document;
+  }
+
+  let touched = false;
+  const redactedServices: Record<string, unknown> = {};
+
+  for (const [name, service] of Object.entries(services as Record<string, unknown>)) {
+    if (typeof service !== 'object' || service === null || Array.isArray(service)) {
+      redactedServices[name] = service;
+      continue;
+    }
+    const entry = service as Record<string, unknown>;
+    const headers = entry['headers'];
+    if (typeof headers !== 'object' || headers === null || Array.isArray(headers)) {
+      redactedServices[name] = service;
+      continue;
+    }
+    touched = true;
+    redactedServices[name] = {
+      ...entry,
+      headers: Object.fromEntries(Object.keys(headers).map((k) => [k, REDACTED])),
+    };
+  }
+
+  return touched ? { ...doc, services: redactedServices } : document;
+}
 
 export function registerStatusTools(server: McpServer, config: Config): void {
   const opa = new OpaClient(config);
@@ -19,7 +84,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
     {
       title: 'OPA health check',
       description:
-        'Hit the OPA `/health` endpoint. Returns `{ healthy: true }` on 200. Supports `bundles` and `plugins` query flags to require those subsystems to also be healthy.',
+        "Hit the OPA `/health` endpoint. A server that answers reports `{ healthy: true }` on 200 and `{ healthy: false }` with OPA's own reason otherwise, so an unactivated bundle is a health result rather than a tool error. `OPA_UNREACHABLE` means the server could not be reached at all. Supports `bundles` and `plugins` query flags to require those subsystems to also be healthy.",
       inputSchema: {
         bundles: z.boolean().optional().describe('Require bundle plugin to be healthy as well.'),
         plugins: z.boolean().optional().describe('Require all plugins to be healthy.'),
@@ -32,7 +97,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
       },
     },
     async ({ bundles, plugins }, { signal }) => {
-      return withToolEnvelope<{ healthy: boolean }>(config, async () => {
+      return withToolEnvelope<{ healthy: boolean; reason?: string }>(config, async () => {
         try {
           const query: Record<string, boolean> = {};
           if (bundles) query['bundles'] = true;
@@ -45,13 +110,16 @@ export function registerStatusTools(server: McpServer, config: Config): void {
           });
           return ok({ healthy: true });
         } catch (e) {
-          if (e instanceof OpaUnreachableError) {
-            return mapOpaClientError(e);
+          // A server that answered is reachable. Reporting an unactivated
+          // bundle as OPA_UNREACHABLE told the caller to go start a server that
+          // was already running, and buried OPA's own reason in a stringified
+          // error. Authentication is its own failure, not a health result, and
+          // so is a server that could not be reached or a cancelled request.
+          if (e instanceof OpaHttpError && e.status !== 401) {
+            const reason = healthReason(e);
+            return ok({ healthy: false, ...(reason !== undefined ? { reason } : {}) });
           }
-          // Any non-2xx counts as unhealthy without raising.
-          return err('OPA_UNREACHABLE', 'OPA reported unhealthy.', {
-            details: { error: e instanceof Error ? e.message : String(e) },
-          });
+          return mapOpaClientError(e);
         }
       });
     },
@@ -66,7 +134,9 @@ export function registerStatusTools(server: McpServer, config: Config): void {
         'Returns the same underlying document as `opa_config` but presented under a `status` ' +
         'key as a convenience for agents that want to check "what is running" rather than ' +
         '"what was the server configured with". The response includes bundle settings, ' +
-        'decision-log settings, and plugin configuration as OPA reported them at startup.',
+        'decision-log settings, and plugin configuration as OPA reported them at startup. ' +
+        'Service header values are redacted, since OPA returns them verbatim and a header is ' +
+        'the ordinary place to put an API key.',
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -83,7 +153,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
             path: '/v1/config',
             signal,
           });
-          return ok({ status: data.result ?? data });
+          return ok({ status: redactServiceHeaders(data.result ?? data) });
         } catch (e) {
           return mapOpaClientError(e);
         }
@@ -96,7 +166,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
     {
       title: 'OPA configuration',
       description:
-        'Return the running OPA server configuration (sanitized -- secrets are not included).',
+        'Return the running OPA server configuration from `GET /v1/config`. OPA drops the `credentials` block but returns `services.*.headers` verbatim, which is the ordinary place to put an API key or a bearer token, so those values are redacted here and the header names kept.',
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -113,7 +183,7 @@ export function registerStatusTools(server: McpServer, config: Config): void {
             path: '/v1/config',
             signal,
           });
-          return ok({ config: data.result ?? data });
+          return ok({ config: redactServiceHeaders(data.result ?? data) });
         } catch (e) {
           return mapOpaClientError(e);
         }

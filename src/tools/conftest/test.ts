@@ -19,14 +19,17 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
-import { ConftestCli, type ConftestFileResult } from '../../lib/conftest-cli.js';
-import { err, ok } from '../../lib/errors.js';
 import {
-  mapSubprocessFailure,
-  tryParseJson,
-  validatePaths,
-  withToolEnvelope,
-} from '../../lib/tool-helpers.js';
+  CONFTEST_PARSERS,
+  ConftestCli,
+  isConftestParser,
+  parseConftestResults,
+  type ConftestFileResult,
+} from '../../lib/conftest-cli.js';
+import { err, ok } from '../../lib/errors.js';
+import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
+
+const PARSER_LIST = CONFTEST_PARSERS.join(', ');
 
 const ConftestTestInput = {
   files: z
@@ -45,22 +48,20 @@ const ConftestTestInput = {
         'Mutually exclusive with `files`. Defaults to YAML format; set `inlineConfigParser` to override.',
     ),
   inlineConfigParser: z
-    .string()
+    .enum(CONFTEST_PARSERS)
     .optional()
     .describe(
-      'Parser to use for `inlineConfig`. Valid values: yaml (default), json, toml, hcl1, hcl2, ' +
-        'ini, xml, dotenv, cue, jsonnet, properties, edn, hocon, dockerfile. ' +
+      `Parser to use for \`inlineConfig\`. One of: ${PARSER_LIST}. Defaults to yaml. ` +
         "Ignored when `files` is used (conftest infers the parser from each file's extension, " +
         'unless `parser` is set).',
     ),
   parser: z
-    .string()
+    .enum(CONFTEST_PARSERS)
     .optional()
     .describe(
       "Force a specific parser for all input `files` via conftest's global `--parser` flag, " +
         'overriding extension-based detection. Useful for files whose extension does not match ' +
-        'their format (e.g. parse a `.tfstate` file as `json`). Valid values: yaml, json, toml, ' +
-        'hcl1, hcl2, ini, xml, dotenv, cue, jsonnet, properties, edn, hocon, dockerfile. ' +
+        `their format (e.g. parse a \`.tfstate\` file as \`json\`). One of: ${PARSER_LIST}. ` +
         'For `inlineConfig`, prefer `inlineConfigParser`.',
     ),
   policy: z
@@ -112,19 +113,23 @@ const ConftestTestInput = {
 };
 
 export interface ConftestTestOutput {
-  /** `true` when no failures (and no warnings if `failOnWarn` was set). */
+  /** `true` when conftest exited 0: no failures, and no warnings if `failOnWarn` was set. */
   passed: boolean;
-  /** Per-file, per-namespace evaluation results. */
+  /** One entry per (file, namespace) pair conftest evaluated, arrays always present. */
   results: ConftestFileResult[];
   summary: {
-    /** Number of files with zero failures and zero warnings. */
+    /** Distinct files with no failure in any namespace. */
     passed: number;
-    /** Number of files with at least one failure. */
+    /** Distinct files with at least one failure in any namespace. */
     failed: number;
-    /** Total number of warning messages across all files. */
+    /** Warning messages across all entries. */
     warnings: number;
-    /** Total number of skipped rules across all files. */
+    /** Skipped-rule messages across all entries. */
     skipped: number;
+    /** Rule evaluations that passed across all entries (conftest's `successes`). */
+    successes: number;
+    /** Failure messages across all entries. */
+    failures: number;
   };
 }
 
@@ -143,13 +148,14 @@ export function registerConftestTest(server: McpServer, config: Config): void {
         'CONFTEST_NOT_FOUND otherwise. ' +
         'Provide config via `files` (disk paths) or `inlineConfig` (inline string). ' +
         'Provide policy via `policy` (disk path) or `inlinePolicy` (inline Rego source). ' +
-        "Omit `policy` and `inlinePolicy` to use conftest's default `./policy` directory.",
+        "Omit `policy` and `inlinePolicy` to use conftest's default `./policy` directory. " +
+        'Policies are executed by conftest and can call OPA built-ins such as http.send.',
       inputSchema: ConftestTestInput,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: true,
       },
     },
     async (input, { signal }) => {
@@ -166,6 +172,21 @@ export function registerConftestTest(server: McpServer, config: Config): void {
         }
         if (input.policy !== undefined && input.inlinePolicy !== undefined) {
           return err('INVALID_INPUT', '`policy` and `inlinePolicy` are mutually exclusive.');
+        }
+
+        // The schema restricts parser names to the closed set, and the
+        // check is repeated here because the name becomes part of a temp
+        // file path: this handler must never see free text there, whatever
+        // path it was reached by.
+        for (const [field, value] of [
+          ['inlineConfigParser', input.inlineConfigParser],
+          ['parser', input.parser],
+        ] as const) {
+          if (value !== undefined && !isConftestParser(value)) {
+            return err('INVALID_INPUT', `\`${field}\` must be one of: ${PARSER_LIST}.`, {
+              details: { [field]: value },
+            });
+          }
         }
 
         // ── Path validation ──────────────────────────────────────────────
@@ -213,18 +234,17 @@ export function registerConftestTest(server: McpServer, config: Config): void {
         // Exit 0 = all pass, exit 1 = failures present.
         // Both produce valid JSON on stdout.
         if (result.exitCode === 0 || result.exitCode === 1) {
-          const parsed = tryParseJson<ConftestFileResult[]>(result.stdout);
-          if (!parsed || !Array.isArray(parsed)) {
+          const results = parseConftestResults(result.stdout);
+          if (results === null) {
             return err('UNKNOWN_ERROR', 'conftest test produced no parseable JSON output.', {
               details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
             });
           }
 
-          const summary = buildSummary(parsed);
           return ok<ConftestTestOutput>({
             passed: result.exitCode === 0,
-            results: parsed,
-            summary,
+            results,
+            summary: buildSummary(results),
           });
         }
 
@@ -245,20 +265,30 @@ export function registerConftestTest(server: McpServer, config: Config): void {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildSummary(results: ConftestFileResult[]): ConftestTestOutput['summary'] {
-  let passed = 0;
-  let failed = 0;
+  // conftest emits one entry per (file, namespace); with --all-namespaces a
+  // file appears once per namespace, so files are counted by name.
+  const failedFiles = new Set<string>();
+  const allFiles = new Set<string>();
   let warnings = 0;
   let skipped = 0;
+  let successes = 0;
+  let failures = 0;
 
   for (const r of results) {
-    if (r.failures.length > 0) {
-      failed++;
-    } else {
-      passed++;
-    }
+    allFiles.add(r.filename);
+    if (r.failures.length > 0) failedFiles.add(r.filename);
     warnings += r.warnings.length;
     skipped += r.skipped.length;
+    successes += r.successes;
+    failures += r.failures.length;
   }
 
-  return { passed, failed, warnings, skipped };
+  return {
+    passed: allFiles.size - failedFiles.size,
+    failed: failedFiles.size,
+    warnings,
+    skipped,
+    successes,
+    failures,
+  };
 }

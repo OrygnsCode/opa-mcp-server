@@ -208,12 +208,17 @@ describe('opa_status and opa_config', () => {
 // ─── Policy lifecycle ─────────────────────────────────────────────────────
 
 describe('policy lifecycle (list / get / put / delete)', () => {
-  it('lists at least one policy and surfaces its raw source', async () => {
+  it('surfaces raw source when asked, and only then', async () => {
     const { call } = await setup();
-    const env = await call<{ policies: Array<{ id: string; raw?: string }> }>(
+    const bare = await call<{ policies: Array<{ id: string; raw?: string }> }>(
       'opa_list_policies',
       {},
     );
+    expect(bare.data?.policies.every((p) => p.raw === undefined)).toBe(true);
+
+    const env = await call<{ policies: Array<{ id: string; raw?: string }> }>('opa_list_policies', {
+      includeSource: true,
+    });
     expect(env.ok).toBe(true);
     expect(env.data?.policies.length).toBeGreaterThan(0);
     // The seeded policy lives at <workDir>/seed.rego — OPA stores it under
@@ -355,5 +360,247 @@ allow if input.user.role == "admin"
     expect(viewerEnv.data?.result).toBe(false);
 
     expect((await call<{ deleted: boolean }>('opa_delete_policy', { id })).ok).toBe(true);
+  });
+});
+
+// ─── Data path separators and encoding ────────────────────────────────────
+
+describe('data paths with awkward keys', () => {
+  it('addresses a key containing a dot instead of splitting it', async () => {
+    const { call } = await setup();
+    // Both documents exist. Splitting on dots as well as slashes read
+    // `hosts/example/com` when `hosts/example.com` was asked for, and returned
+    // the wrong document with no indication anything had gone wrong.
+    await call('opa_put_data', { path: 'hosts', value: {} });
+    await call('opa_put_data', {
+      segments: ['hosts', 'example.com'],
+      value: { tier: 'dotted-key' },
+    });
+    await call('opa_put_data', {
+      path: 'hosts/example/com',
+      value: { tier: 'nested' },
+    });
+
+    const dottedKey = await call<{ result: { tier: string } }>('opa_get_data', {
+      path: 'hosts/example.com',
+    });
+    expect(dottedKey.ok, JSON.stringify(dottedKey.error)).toBe(true);
+    expect(dottedKey.data?.result.tier).toBe('dotted-key');
+
+    // The dotted spelling still means three segments.
+    const nested = await call<{ result: { tier: string } }>('opa_get_data', {
+      path: 'hosts.example.com',
+    });
+    expect(nested.data?.result.tier).toBe('nested');
+  });
+
+  it('round-trips keys holding characters that would end a URL path', async () => {
+    const { call } = await setup();
+    const keys = ['app.kubernetes.io/name', 'a?b', 'a#b', '100%', 'a b', 'caf\u00e9'];
+
+    for (const key of keys) {
+      const written = await call<{ segments: string[] }>('opa_put_data', {
+        segments: ['awkward', key],
+        value: { key },
+      });
+      expect(written.ok, `write ${key}: ${JSON.stringify(written.error)}`).toBe(true);
+      expect(written.data?.segments).toEqual(['awkward', key]);
+
+      const read = await call<{ result: { key: string } }>('opa_get_data', {
+        segments: ['awkward', key],
+      });
+      expect(read.ok, `read ${key}: ${JSON.stringify(read.error)}`).toBe(true);
+      expect(read.data?.result.key).toBe(key);
+    }
+
+    // The whole document confirms the keys were stored literally, not split.
+    const all = await call<{ result: Record<string, unknown> }>('opa_get_data', {
+      path: 'awkward',
+    });
+    expect(Object.keys(all.data?.result ?? {}).sort()).toEqual([...keys].sort());
+  });
+
+  it('deletes the key named, not a neighbour', async () => {
+    const { call } = await setup();
+    await call('opa_put_data', { segments: ['del', 'a.b'], value: 1 });
+    await call('opa_put_data', { segments: ['del', 'a'], value: { b: 2 } });
+
+    expect((await call('opa_delete_data', { path: 'del/a.b' })).ok).toBe(true);
+
+    const survivor = await call<{ result: unknown }>('opa_get_data', { path: 'del/a' });
+    expect(survivor.data?.result).toEqual({ b: 2 });
+  });
+
+  it('evaluates a decision under a package whose path is given either way', async () => {
+    const { call } = await setup();
+    const id = 'sep-decision';
+    await call('opa_put_policy', {
+      id,
+      source: 'package sep.check\nimport rego.v1\n\nallow := true\n',
+    });
+    for (const path of ['sep.check.allow', 'sep/check/allow']) {
+      const env = await call<{ result: unknown }>('opa_query_decision', { path });
+      expect(env.ok, `${path}: ${JSON.stringify(env.error)}`).toBe(true);
+      expect(env.data?.result).toBe(true);
+    }
+    const viaSegments = await call<{ result: unknown }>('opa_query_decision', {
+      segments: ['sep', 'check', 'allow'],
+    });
+    expect(viaSegments.data?.result).toBe(true);
+    await call('opa_delete_policy', { id });
+  });
+
+  it('patches the root of the data hierarchy when no path is given', async () => {
+    const { call } = await setup();
+    // The tool documented a root patch but rejected the empty path that was
+    // supposed to select it, and would have addressed `/v1/data/`, which OPA
+    // answers with a redirect rather than a patch.
+    const env = await call<{ segments: string[] }>('opa_patch_data', {
+      operations: [{ op: 'add', path: '/rootpatch', value: { added: true } }],
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.segments).toEqual([]);
+
+    const read = await call<{ result: unknown }>('opa_get_data', { path: 'rootpatch' });
+    expect(read.data?.result).toEqual({ added: true });
+  });
+
+  it('refuses a traversal out of the data prefix', async () => {
+    const { call } = await setup();
+    for (const path of ['../v1/config', '%2e%2e/v1/config', 'a/../../v1/config']) {
+      const env = await call('opa_get_data', { path });
+      expect(env.ok, path).toBe(false);
+      expect(env.error?.code, path).toBe('INVALID_INPUT');
+    }
+    expect((await call('opa_get_data', { segments: ['..', 'v1', 'config'] })).ok).toBe(false);
+  });
+
+  it('rejects a call that supplies both path and segments, or neither', async () => {
+    const { call } = await setup();
+    const both = await call('opa_get_data', { path: 'users', segments: ['users'] });
+    expect(both.error?.code).toBe('INVALID_INPUT');
+    const neither = await call('opa_get_data', {});
+    expect(neither.error?.code).toBe('INVALID_INPUT');
+  });
+});
+
+// ─── Policy listing stays within the response cap ─────────────────────────
+
+describe('policy listing size', () => {
+  it('lists many policies without tripping the response cap', async () => {
+    // The cap replaces the whole payload with a notice telling the caller to
+    // narrow the scope, and opa_list_policies had no argument to narrow. A
+    // server holding a few dozen ordinary policies made the tool useless.
+    const { call } = await setup({ maxResponseBytes: 100_000 });
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const id = `cap${i}`;
+      ids.push(id);
+      const put = await call('opa_put_policy', {
+        id,
+        source: `package cap${i}
+import rego.v1
+
+default allow := false
+
+allow if {
+\tsome role in input.user.roles
+\trole in data.rbac.admin_roles
+}
+
+deny contains msg if {
+\tnot allow
+\tmsg := sprintf("denied %v", [input.user.id])
+}
+`,
+      });
+      expect(put.ok, `put ${id}: ${JSON.stringify(put.error)}`).toBe(true);
+    }
+
+    const env = await call<{ policies: Array<{ id: string }>; count: number }>(
+      'opa_list_policies',
+      {},
+    );
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.truncated).toBeUndefined();
+    expect(env.data?.count).toBeGreaterThanOrEqual(30);
+    for (const id of ids) {
+      expect(
+        env.data?.policies.some((p) => p.id === id),
+        id,
+      ).toBe(true);
+    }
+    // Nothing but ids, so the payload scales with the number of policies
+    // rather than with the size of their ASTs.
+    expect(Object.keys(env.data?.policies[0] ?? {})).toEqual(['id']);
+
+    for (const id of ids) await call('opa_delete_policy', { id });
+  }, 60_000);
+
+  it('returns a policy far smaller than its AST', async () => {
+    const { call } = await setup();
+    const id = 'sizecheck';
+    const source = `package sizecheck
+import rego.v1
+
+default allow := false
+
+allow if {
+\tsome role in input.user.roles
+\trole in data.rbac.admin_roles
+}
+
+allow if {
+\tinput.action == "read"
+\tinput.resource.owner == input.user.id
+}
+`;
+    await call('opa_put_policy', { id, source });
+
+    const plain = await call<{ policy: { raw: string; ast?: unknown } }>('opa_get_policy', { id });
+    expect(plain.data?.policy.raw).toContain('package sizecheck');
+    expect(plain.data?.policy.ast).toBeUndefined();
+
+    const withAst = await call<{ policy: { ast?: unknown } }>('opa_get_policy', {
+      id,
+      includeAst: true,
+    });
+    expect(withAst.data?.policy.ast).toBeDefined();
+
+    // The AST is what made the default response expensive.
+    const plainBytes = JSON.stringify(plain.data).length;
+    const astBytes = JSON.stringify(withAst.data).length;
+    expect(astBytes).toBeGreaterThan(plainBytes * 4);
+
+    await call('opa_delete_policy', { id });
+  });
+});
+
+// ─── Health and config truthfulness ───────────────────────────────────
+
+describe('opa_health against a reachable server', () => {
+  it('reports healthy for the running server', async () => {
+    const { call } = await setup();
+    const env = await call<{ healthy: boolean }>('opa_health', {});
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.healthy).toBe(true);
+  });
+
+  it('reports OPA_UNREACHABLE only when the server really is unreachable', async () => {
+    const { call } = await setup({ opaUrl: 'http://127.0.0.1:1' });
+    const env = await call('opa_health', {});
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+  });
+});
+
+describe('opa_config redaction', () => {
+  it('keeps the rest of the document intact', async () => {
+    // The seeded server configures no services, so this checks the redaction
+    // leaves an ordinary config alone. The header case is covered by unit
+    // tests, which can supply a config without restarting OPA.
+    const { call } = await setup();
+    const env = await call<{ config: { labels?: { version?: string } } }>('opa_config', {});
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.config.labels?.version).toBeTruthy();
   });
 });

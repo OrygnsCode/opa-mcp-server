@@ -48,20 +48,35 @@ function parseId(content: string): string | null {
  */
 export async function getInstallId(): Promise<string | null> {
   // Try reading an existing file first.
+  let unusableFileExists = false;
   try {
     const content = await readFile(INSTALL_ID_FILE, 'utf8');
     const id = parseId(content);
     if (id) return id;
+    // The file is there but holds no id: truncated by a crash or a full
+    // disk, or a first run interrupted between create and write.
+    unusableFileExists = true;
   } catch {
     // File not found yet -- fall through to create.
   }
 
-  // Generate a new UUID and write it exclusively (wx = fail if exists,
-  // handles two processes starting simultaneously without a lock).
   const id = randomUUID();
   try {
     await mkdir(INSTALL_ID_DIR, { recursive: true });
-    await writeFile(INSTALL_ID_FILE, FILE_HEADER + id + '\n', { flag: 'wx' });
+    // `wx` (fail if exists) when the file is absent, so two processes
+    // starting at once cannot both claim to have created it.
+    //
+    // `w` when the file exists but is unusable, so it can be repaired. With
+    // `wx` unconditionally a zero-byte file was permanent: the read found no
+    // id, the exclusive write failed because the file existed, the fallback
+    // read found no id again, and every later run repeated that. The install
+    // then pinged without an id forever, was never counted as an install, and
+    // cost the collector six writes per start instead of one read. Two
+    // processes repairing at once may write different ids and one wins, which
+    // over-counts a single install once; that is the cheaper failure.
+    await writeFile(INSTALL_ID_FILE, FILE_HEADER + id + '\n', {
+      flag: unusableFileExists ? 'w' : 'wx',
+    });
     return id;
   } catch {
     // Race: another process created the file between our read and write.

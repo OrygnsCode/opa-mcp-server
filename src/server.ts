@@ -8,7 +8,8 @@
  * IMPORTANT: never write to stdout from anywhere in this process --
  * stdout is the MCP protocol channel. Use `logger` (file) or stderr.
  */
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -171,8 +172,15 @@ function isEntryPoint(): boolean {
   const argv1 = process.argv[1];
   if (!argv1) return false;
   try {
-    return import.meta.url === pathToFileURL(argv1).href;
+    // Compare real paths. Node resolves symlinks for the module's own URL but
+    // leaves process.argv[1] as it was invoked, so a server reached through a
+    // link saw two different strings and started nothing: no --version, no
+    // --help, and no transport, which a client sees as a process that exits
+    // immediately. npm's bin entry is a symlink on macOS and Linux, and
+    // installing globally or running through npx goes through it.
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(argv1);
   } catch {
+    // A path that cannot be resolved is not this module.
     return false;
   }
 }
