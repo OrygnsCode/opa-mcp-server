@@ -33,7 +33,12 @@ const OpaBundleBuildInput = {
     .array(z.string())
     .optional()
     .describe('Entrypoint refs (required when `target=wasm` or `optimize > 0`).'),
-  signingKey: z.string().optional().describe('Path to a signing key for inline signing.'),
+  signingKey: z
+    .string()
+    .optional()
+    .describe(
+      'Path to a PEM private key for signing the built bundle (`--signing-key`). Implies `bundle: true`, which OPA requires for signing.',
+    ),
   signingAlg: z.string().optional().describe('Signing algorithm (e.g. RS256).'),
   claimsFile: z.string().optional().describe('Path to a claims file for inline signing.'),
   capabilities: z.string().optional().describe('Path to a capabilities JSON file.'),
@@ -41,7 +46,7 @@ const OpaBundleBuildInput = {
     .boolean()
     .optional()
     .describe(
-      'Load `paths` as bundle files or root directories (`--bundle`). Required when rebuilding or re-signing an existing bundle.',
+      'Load `paths` as bundle files or root directories (`--bundle`). Implied by `signingKey` and `verificationKey`; set it explicitly to rebuild an existing bundle without signing.',
     ),
   pruneUnused: z
     .boolean()
@@ -65,7 +70,7 @@ const OpaBundleBuildInput = {
     .string()
     .optional()
     .describe(
-      'Path to a PEM public key (or HMAC secret file) used to re-verify an existing signed bundle during the build (`--verification-key`). Pair with `bundle: true`.',
+      'Path to a PEM public key (or HMAC secret file) used to re-verify an existing signed bundle during the build (`--verification-key`). Implies `bundle: true`, which OPA requires for verification.',
     ),
   verificationKeyId: z
     .string()
@@ -145,7 +150,13 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
             signingAlg: input.signingAlg,
             claimsFile: resolvedClaimsFile,
             capabilities: resolvedCapabilities,
-            bundle: input.bundle,
+            // opa build refuses --signing-key and --verification-key outside
+            // bundle mode ("enable bundle mode (ie. --bundle) to verify or sign
+            // bundle files or directories"), so either option implies it.
+            bundle:
+              input.bundle === true ||
+              input.signingKey !== undefined ||
+              input.verificationKey !== undefined,
             pruneUnused: input.pruneUnused,
             ignore: input.ignore,
             v1Compatible: input.v1Compatible,

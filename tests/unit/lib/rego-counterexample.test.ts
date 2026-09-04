@@ -78,7 +78,7 @@ describe('extractCounterexample - int var', () => {
     const model = solver.model();
 
     const inputVars = new Map([['input.user.age', ageVar as never]]);
-    const sorts = new Map<string, Z3Sort>([['input.user.age', 'int']]);
+    const sorts = new Map<string, Z3Sort>([['input.user.age', 'real']]);
     const ce = extractCounterexample(model, inputVars, sorts);
     expect(ce).toEqual({ user: { age: 42 } });
   });
@@ -92,7 +92,7 @@ describe('extractCounterexample - int var', () => {
     const model = solver.model();
 
     const inputVars = new Map([['input.n', v as never]]);
-    const sorts = new Map<string, Z3Sort>([['input.n', 'int']]);
+    const sorts = new Map<string, Z3Sort>([['input.n', 'real']]);
     const ce = extractCounterexample(model, inputVars, sorts);
     expect(ce).toEqual({ n: -7 });
   });

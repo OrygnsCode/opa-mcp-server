@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # No base-branch filter: a pull request stacked on another feature branch
+  # is still a change that has to pass before it merges, and it retargets main
+  # only once its base lands, which is after review.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -114,6 +116,7 @@ jobs:
     env:
       OPA_VERSION: '1.19.0'
       REGAL_VERSION: '0.30.0'
+      CONFTEST_VERSION: '0.69.0'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -132,6 +135,13 @@ jobs:
             "https://github.com/StyraInc/regal/releases/download/v${REGAL_VERSION}/regal_Linux_x86_64"
           sudo install -m 0755 /tmp/regal /usr/local/bin/regal
           regal version
+      - name: Install Conftest
+        run: |
+          curl -fsSL -o /tmp/conftest.tar.gz \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          tar -xzf /tmp/conftest.tar.gz -C /tmp conftest
+          sudo install -m 0755 /tmp/conftest /usr/local/bin/conftest
+          conftest --version
       - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run build
       - run: npm run test:integration
