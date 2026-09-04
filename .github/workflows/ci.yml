@@ -13,6 +13,11 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # The suites start the real server, which pings the telemetry collector on
+  # startup. CI is not an install: every runner has a fresh home directory and
+  # would mint a new id per job, inflating the install count and spending the
+  # collector's daily write budget on ourselves.
+  OPA_MCP_NO_TELEMETRY: '1'
 
 concurrency:
   group: ci-${{ github.ref }}
