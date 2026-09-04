@@ -17,6 +17,22 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: a data document passed by absolute path was loaded under its drive
+  letter instead of where the policy expected it. OPA reads every load path as
+  an optional `prefix:path` pair and splits on the first colon, so
+  `C:\policies\data.json` mounted at `data.C` and a rule reading `data.tier`
+  found nothing, while the tool reported success. `opa test` on a suite whose
+  tests read data reported those tests as failing. Load paths are now passed
+  relative to a directory the `opa` process runs in, which is the only spelling
+  OPA reads correctly. Rego modules are unaffected either way, because a module
+  mounts at its own `package` rather than at its path, which is why policies
+  worked and only their data did not. Nothing changes on macOS or Linux, whose
+  absolute paths carry no drive letter. Load paths spanning two drives are now
+  reported as an error, since OPA cannot load documents from two drives in one
+  invocation.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security

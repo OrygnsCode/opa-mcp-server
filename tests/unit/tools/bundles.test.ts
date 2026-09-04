@@ -8,6 +8,7 @@ import {
   callTool,
   fixturePath,
   makeServer,
+  resolvedArgs,
   spawnFailure,
   spawnSuccess,
   spawnTimedOut,
@@ -76,7 +77,7 @@ describe('opa_bundle_build', () => {
     expect(args).toContain('rev-1');
     expect(args).toContain('--optimize');
     expect(args).toContain('1');
-    expect(args).toContain(fixturePath('policies', 'valid'));
+    expect(resolvedArgs(mockRun.mock.calls[0]![1])).toContain(fixturePath('policies', 'valid'));
   });
 
   it('passes target=wasm and entrypoints when set', async () => {

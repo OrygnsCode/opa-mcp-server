@@ -21,6 +21,7 @@ import { join } from 'node:path';
 
 import type { Config } from '../config.js';
 import { coerceJsonArg } from './json-coerce.js';
+import { rewriteLoadPaths } from './opa-paths.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
 
 /** Input for the formatter. */
@@ -405,7 +406,7 @@ export class OpaCli {
     }
     if (input.bundle) args.push('--bundle');
     args.push(...(input.paths ?? []));
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths ?? []);
   }
 
   /**
@@ -456,7 +457,7 @@ export class OpaCli {
       args.push('--data', path);
     }
     args.push(input.ref);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   // ─── Evaluation ──────────────────────────────────────────────────────
@@ -505,7 +506,7 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin, signal);
+    return this.run(args, stdin, signal, input.paths ?? []);
   }
 
   /**
@@ -529,7 +530,7 @@ export class OpaCli {
     if (input.explain) args.push('--explain', input.explain);
     if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.paths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   /**
@@ -550,7 +551,7 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin, signal);
+    return this.run(args, stdin, signal, input.paths ?? []);
   }
 
   // ─── Bundles ─────────────────────────────────────────────────────────
@@ -576,7 +577,7 @@ export class OpaCli {
     if (input.verificationKey) args.push('--verification-key', input.verificationKey);
     if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
     args.push(...input.paths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   /**
@@ -627,8 +628,12 @@ export class OpaCli {
     if (input.failNonEmpty) args.push('--fail-non-empty');
     if (input.timeout) args.push('--timeout', input.timeout);
     if (input.v1Compatible) args.push('--v1-compatible');
+    // The --bundle roots are mounted. The positional input files are read as
+    // the input document for each evaluation, not mounted, so they are left
+    // exactly as given.
+    const execLoadPaths = [...(input.bundle ? [input.bundle] : []), ...(input.dataPaths ?? [])];
     args.push(...input.inputPaths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, execLoadPaths);
   }
 
   // ─── Low-level escape hatch ──────────────────────────────────────────
@@ -638,14 +643,43 @@ export class OpaCli {
    * prefer the typed methods above, but this exists for the rare cases
    * the typed surface does not yet cover.
    */
-  async run(args: string[], stdin?: string, signal?: AbortSignal): Promise<SpawnResult> {
+  async run(
+    args: string[],
+    stdin?: string,
+    signal?: AbortSignal,
+    /**
+     * The arguments OPA will mount as documents. On Windows an absolute one
+     * mounts under its drive letter, so these are rewritten relative to a
+     * working directory the child then runs in. Files OPA merely opens
+     * (`--input`, `--signing-key`, `--capabilities`, `-o`) must NOT be listed:
+     * they work absolute, and rewriting them risks a spurious drive conflict.
+     * See lib/opa-paths.ts.
+     */
+    loadPaths: readonly string[] = [],
+  ): Promise<SpawnResult> {
+    const rewritten = rewriteLoadPaths(args, loadPaths);
+    if (rewritten.conflict) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr:
+          `load paths span more than one drive (${rewritten.conflict.drives.join(', ')}). ` +
+          'opa reads an absolute path as prefix:path, so on Windows it can load documents ' +
+          'from only one drive at a time. Use paths on a single drive.',
+        timedOut: false,
+        aborted: false,
+        durationMs: 0,
+      };
+    }
+
     const opts: Parameters<typeof runBinary>[1] = {
-      args,
+      args: rewritten.args,
       timeoutMs: this.config.subprocessTimeoutMs,
       maxOutputBytes: this.config.maxSubprocessBytes,
     };
     if (stdin !== undefined) opts.stdin = stdin;
     if (signal !== undefined) opts.signal = signal;
+    if (rewritten.cwd !== undefined) opts.cwd = rewritten.cwd;
     return runBinary(this.config.opaBinary, opts);
   }
 

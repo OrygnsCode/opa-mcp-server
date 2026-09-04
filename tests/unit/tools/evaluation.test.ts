@@ -5,6 +5,7 @@ import {
   callTool,
   fixturePath,
   makeServer,
+  resolvedArgs,
   spawnFailure,
   spawnSuccess,
   spawnTimedOut,
@@ -921,10 +922,12 @@ describe('opa_exec', () => {
       decision: 'data.authz.allow',
       bundle: fixturePath('policies', 'valid'),
     });
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).toContain('--bundle');
-    expect(args[args.indexOf('--bundle') + 1]).toBe(fixturePath('policies', 'valid'));
-    expect(args).not.toContain('--data');
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args).toContain('--bundle');
+    // The bundle root is a load path, so it may be spelled relative to cwd.
+    const resolved = resolvedArgs(call);
+    expect(resolved[call.args.indexOf('--bundle') + 1]).toBe(fixturePath('policies', 'valid'));
+    expect(call.args).not.toContain('--data');
   });
 
   it('passes --bundle for each dataPaths entry (opa exec has no --data flag)', async () => {
@@ -941,8 +944,9 @@ describe('opa_exec', () => {
     const args = mockRun.mock.calls[0]![1].args;
     const bundleIdxs = args.map((a, i) => (a === '--bundle' ? i : -1)).filter((i) => i !== -1);
     expect(bundleIdxs).toHaveLength(2);
-    expect(args[bundleIdxs[0]! + 1]).toBe(validRegoPath());
-    expect(args[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
+    const resolvedExec = resolvedArgs(mockRun.mock.calls[0]![1]);
+    expect(resolvedExec[bundleIdxs[0]! + 1]).toBe(validRegoPath());
+    expect(resolvedExec[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
     expect(args).not.toContain('--data');
   });
 
