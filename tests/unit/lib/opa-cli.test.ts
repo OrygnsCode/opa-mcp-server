@@ -597,7 +597,7 @@ describe('OpaCli', () => {
     });
 
     it('forwards cwd when provided', async () => {
-      await opa.run(['sign'], undefined, undefined, tmpdir());
+      await opa.run(['sign'], undefined, undefined, [], tmpdir());
       expect(mockRun).toHaveBeenCalledWith(
         'opa',
         expect.objectContaining({ args: ['sign'], cwd: tmpdir() }),
@@ -607,7 +607,7 @@ describe('OpaCli', () => {
     it('names a missing working directory instead of spawning into it', async () => {
       // spawn would fail with the same ENOENT a missing binary produces, which
       // the tool layer reports as OPA_BINARY_NOT_FOUND.
-      const result = await opa.run(['sign'], undefined, undefined, '/definitely/not/here');
+      const result = await opa.run(['sign'], undefined, undefined, [], '/definitely/not/here');
       expect(mockRun).not.toHaveBeenCalled();
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toMatch(/working directory does not exist/);

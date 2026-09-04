@@ -22,6 +22,7 @@ import { join } from 'node:path';
 
 import type { Config } from '../config.js';
 import { coerceJsonArg } from './json-coerce.js';
+import { rewriteLoadPaths } from './opa-paths.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
 
 /** Input for the formatter. */
@@ -428,7 +429,7 @@ export class OpaCli {
     }
     if (input.bundle) args.push('--bundle');
     args.push(...(input.paths ?? []));
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths ?? []);
   }
 
   /**
@@ -479,7 +480,7 @@ export class OpaCli {
       args.push('--data', path);
     }
     args.push(input.ref);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   // ─── Evaluation ──────────────────────────────────────────────────────
@@ -528,7 +529,7 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin, signal);
+    return this.run(args, stdin, signal, input.paths ?? []);
   }
 
   /**
@@ -552,7 +553,7 @@ export class OpaCli {
     if (input.explain) args.push('--explain', input.explain);
     if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.paths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   /**
@@ -573,7 +574,7 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin, signal);
+    return this.run(args, stdin, signal, input.paths ?? []);
   }
 
   // ─── Bundles ─────────────────────────────────────────────────────────
@@ -599,7 +600,7 @@ export class OpaCli {
     if (input.verificationKey) args.push('--verification-key', input.verificationKey);
     if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
     args.push(...input.paths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   /**
@@ -614,7 +615,7 @@ export class OpaCli {
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.claimsFile) args.push('--claims-file', input.claimsFile);
     args.push('--output-file-path', input.outputDir, '--', input.bundle);
-    return this.run(args, undefined, signal, input.cwd);
+    return this.run(args, undefined, signal, [], input.cwd);
   }
 
   /**
@@ -637,7 +638,7 @@ export class OpaCli {
       if (input.scope) args.push('--scope', input.scope);
       if (input.v0Compatible) args.push('--v0-compatible');
       args.push('-o', join(tmpDir, 'verified.tar.gz'), '--', input.bundle);
-      return await this.run(args, undefined, signal, input.cwd);
+      return await this.run(args, undefined, signal, [], input.cwd);
     } finally {
       await rm(tmpDir, { recursive: true, force: true });
     }
@@ -663,8 +664,12 @@ export class OpaCli {
     if (input.failNonEmpty) args.push('--fail-non-empty');
     if (input.timeout) args.push('--timeout', input.timeout);
     if (input.v1Compatible) args.push('--v1-compatible');
+    // The --bundle roots are mounted. The positional input files are read as
+    // the input document for each evaluation, not mounted, so they are left
+    // exactly as given.
+    const execLoadPaths = [...(input.bundle ? [input.bundle] : []), ...(input.dataPaths ?? [])];
     args.push(...input.inputPaths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, execLoadPaths);
   }
 
   // ─── Low-level escape hatch ──────────────────────────────────────────
@@ -681,30 +686,61 @@ export class OpaCli {
     args: string[],
     stdin?: string,
     signal?: AbortSignal,
+    /**
+     * The arguments OPA will mount as documents. On Windows an absolute one
+     * mounts under its drive letter, so these are rewritten relative to a
+     * working directory the child then runs in. Files OPA merely opens
+     * (`--input`, `--signing-key`, `--capabilities`, `-o`) must NOT be listed:
+     * they work absolute, and rewriting them risks a spurious drive conflict.
+     * See lib/opa-paths.ts.
+     */
+    loadPaths: readonly string[] = [],
+    /**
+     * Run the child here. Used where OPA binds behaviour to the path it is
+     * given rather than to the file it opens, as `opa sign` does for a
+     * directory bundle. A rewritten load path derives its own working
+     * directory, and the two are never needed by the same command.
+     */
     cwd?: string,
   ): Promise<SpawnResult> {
+    const rewritten = rewriteLoadPaths(args, loadPaths);
+    if (rewritten.conflict) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr:
+          `load paths span more than one drive (${rewritten.conflict.drives.join(', ')}). ` +
+          'opa reads an absolute path as prefix:path, so on Windows it can load documents ' +
+          'from only one drive at a time. Use paths on a single drive.',
+        timedOut: false,
+        aborted: false,
+        durationMs: 0,
+      };
+    }
+
     const opts: Parameters<typeof runBinary>[1] = {
-      args,
+      args: rewritten.args,
       timeoutMs: this.config.subprocessTimeoutMs,
       maxOutputBytes: this.config.maxSubprocessBytes,
     };
     if (stdin !== undefined) opts.stdin = stdin;
     if (signal !== undefined) opts.signal = signal;
-    if (cwd !== undefined) {
+    const runCwd = cwd ?? rewritten.cwd;
+    if (runCwd !== undefined) {
       // A working directory that vanished after validation makes spawn fail
       // with the same ENOENT a missing binary produces, which would be
       // reported as OPA_BINARY_NOT_FOUND. Name the real cause instead.
-      if (!existsSync(cwd)) {
+      if (!existsSync(runCwd)) {
         return {
           exitCode: 1,
           stdout: '',
-          stderr: `working directory does not exist: ${cwd}`,
+          stderr: `working directory does not exist: ${runCwd}`,
           timedOut: false,
           aborted: false,
           durationMs: 0,
         };
       }
-      opts.cwd = cwd;
+      opts.cwd = runCwd;
     }
     return runBinary(this.config.opaBinary, opts);
   }
