@@ -236,14 +236,27 @@ deny contains msg if {
 }
 
 # Reject IAM policies with action "*" on resource "*".
+#
+# AWS accepts either a bare string or an array for Statement, Action
+# and Resource, so each is widened to a set before the wildcard test.
+# Testing the array form alone lets the most common admin policy of
+# all, {"Action": "*", "Resource": "*"}, through untouched.
+to_set(v) := {v} if is_string(v)
+
+to_set(v) := {x | some x in v} if is_array(v)
+
+statements(policy) := to_set(policy.Statement) if is_array(policy.Statement)
+
+statements(policy) := {policy.Statement} if is_object(policy.Statement)
+
 deny contains msg if {
     resource := input.resource_changes[_]
     resource.type == "aws_iam_policy"
     policy := json.unmarshal(resource.change.after.policy)
-    statement := policy.Statement[_]
+    some statement in statements(policy)
     statement.Effect == "Allow"
-    "*" in statement.Action
-    statement.Resource == "*"
+    "*" in to_set(statement.Action)
+    "*" in to_set(statement.Resource)
     msg := sprintf("IAM policy %q grants Allow * on *", [resource.address])
 }
 \`\`\`
@@ -253,6 +266,8 @@ deny contains msg if {
   \`terraform plan -json\` schema you target.
 - \`resource_changes[_].change.after\` may be \`null\` for destroys --
   guard against it.
+- IAM policy documents are string-or-array in several places. Match
+  both, or a policy that grants everything slips through.
 - For wide-radius changes, use \`opa exec --decision\` against a plan
   file in CI, not the live API.
 

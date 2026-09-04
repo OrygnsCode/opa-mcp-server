@@ -17,6 +17,18 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Terraform example in the `opa://patterns` resource did not reject a
+  full-admin IAM policy. It tested `"*" in statement.Action`, which requires
+  `Action` to be a collection, and AWS accepts a bare string there, in
+  `Resource`, and for `Statement` itself. Of the four ways to spell
+  `Allow * on *`, the rule caught one; the most common form,
+  `{"Action": "*", "Resource": "*"}`, was allowed. Each position is now widened
+  to a set before the wildcard test. Scoped policies and `Deny` statements are
+  still allowed, so the rule has not become indiscriminate. These snippets are
+  documentation users copy, so the mistake shipped as advice.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
