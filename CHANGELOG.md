@@ -17,6 +17,24 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- `opa_exec` never evaluated the rule it was asked for. Its `decision`
+  description told callers to pass a fully-qualified Rego reference such as
+  `data.authz.allow`, but `opa exec --decision` names a decision by
+  slash-separated path with no `data.` prefix. Any other spelling is accepted by
+  the flag and resolves to nothing, so every input file came back with
+  `opa_undefined_error`, which under a `deny`-style policy reads as a clean
+  pass. Both spellings are now converted to the path OPA expects, and a
+  reference with nothing left to name is rejected as `INVALID_INPUT`.
+
+### Added
+
+- `opa_exec` output gains `hint`, present when every input left the decision
+  undefined. That is the expected outcome when no rule matched and also what a
+  decision naming nothing looks like, and the per-file results do not
+  distinguish them.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
