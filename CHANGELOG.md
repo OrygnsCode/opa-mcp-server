@@ -38,6 +38,12 @@ not part of the public surface and may change in minor releases.
   dangling link is refused, and roots and paths are compared in canonical form,
   which also ends false rejections for a root spelled through a link (macOS
   `/var`), a Windows short name, or a different letter case.
+- `conftest_test` joined the `inlineConfigParser` value into the temp file name
+  for inline config without checking it, so a value carrying `../` segments
+  placed the inline config, whose content the caller also chooses, at any path
+  the server could write. Parser names are now a closed set (conftest 0.69's
+  nineteen), enforced in the schema and again in the handler, and the parser is
+  passed to conftest explicitly rather than through the file name.
 
 ### Fixed
 
@@ -60,6 +66,16 @@ not part of the public surface and may change in minor releases.
   `bundle: true` was also set. Either option now implies bundle mode.
 - `opa_bundle_sign` returned an empty `stderr` on failure because `opa sign`
   prints its errors on stdout. `details` now carries both streams.
+- `conftest_test` and `conftest_verify` threw `UNKNOWN_ERROR` on every clean run.
+  conftest omits every empty array from its JSON, so a passing file arrives with
+  no `failures` key and the summary code dereferenced it. Results now always
+  carry their arrays, `conftest_verify` reports `NO_TESTS_FOUND` for a policy
+  directory with no test rules (conftest prints `null` there), and both
+  summaries count files by name, since conftest emits one entry per namespace
+  or per test rule. `summary.successes` and `summary.failures` are added to
+  `conftest_test`. `exceptions` are messages, not strings, matching conftest.
+- CI installs conftest for the integration job, so the real-binary conftest
+  tests run there instead of skipping.
 
 ### Added
 
