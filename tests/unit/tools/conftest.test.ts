@@ -12,7 +12,6 @@
  *   - conftest_pull does NOT require policy dir to exist
  *   - conftest_push DOES require policy dir to exist
  */
-import { spawnSync } from 'node:child_process';
 import { mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -640,15 +639,12 @@ describe('conftest_verify', () => {
 
 /**
  * Directory link: a junction on Windows, which needs no privilege, a symlink
- * elsewhere. Returns false when neither can be created.
+ * elsewhere. Node creates a junction natively, so no shell is involved.
+ * Returns false when neither can be created.
  */
 async function linkDir(link: string, target: string): Promise<boolean> {
-  if (process.platform === 'win32') {
-    const r = spawnSync('cmd', ['/c', 'mklink', '/J', link, target], { encoding: 'utf8' });
-    return r.status === 0;
-  }
   try {
-    await symlink(target, link, 'dir');
+    await symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir');
     return true;
   } catch {
     return false;
