@@ -208,12 +208,17 @@ describe('opa_status and opa_config', () => {
 // ─── Policy lifecycle ─────────────────────────────────────────────────────
 
 describe('policy lifecycle (list / get / put / delete)', () => {
-  it('lists at least one policy and surfaces its raw source', async () => {
+  it('surfaces raw source when asked, and only then', async () => {
     const { call } = await setup();
-    const env = await call<{ policies: Array<{ id: string; raw?: string }> }>(
+    const bare = await call<{ policies: Array<{ id: string; raw?: string }> }>(
       'opa_list_policies',
       {},
     );
+    expect(bare.data?.policies.every((p) => p.raw === undefined)).toBe(true);
+
+    const env = await call<{ policies: Array<{ id: string; raw?: string }> }>('opa_list_policies', {
+      includeSource: true,
+    });
     expect(env.ok).toBe(true);
     expect(env.data?.policies.length).toBeGreaterThan(0);
     // The seeded policy lives at <workDir>/seed.rego — OPA stores it under
@@ -476,5 +481,97 @@ describe('data paths with awkward keys', () => {
     expect(both.error?.code).toBe('INVALID_INPUT');
     const neither = await call('opa_get_data', {});
     expect(neither.error?.code).toBe('INVALID_INPUT');
+  });
+});
+
+// ─── Policy listing stays within the response cap ─────────────────────────
+
+describe('policy listing size', () => {
+  it('lists many policies without tripping the response cap', async () => {
+    // The cap replaces the whole payload with a notice telling the caller to
+    // narrow the scope, and opa_list_policies had no argument to narrow. A
+    // server holding a few dozen ordinary policies made the tool useless.
+    const { call } = await setup({ maxResponseBytes: 100_000 });
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const id = `cap${i}`;
+      ids.push(id);
+      const put = await call('opa_put_policy', {
+        id,
+        source: `package cap${i}
+import rego.v1
+
+default allow := false
+
+allow if {
+\tsome role in input.user.roles
+\trole in data.rbac.admin_roles
+}
+
+deny contains msg if {
+\tnot allow
+\tmsg := sprintf("denied %v", [input.user.id])
+}
+`,
+      });
+      expect(put.ok, `put ${id}: ${JSON.stringify(put.error)}`).toBe(true);
+    }
+
+    const env = await call<{ policies: Array<{ id: string }>; count: number }>(
+      'opa_list_policies',
+      {},
+    );
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.truncated).toBeUndefined();
+    expect(env.data?.count).toBeGreaterThanOrEqual(30);
+    for (const id of ids) {
+      expect(
+        env.data?.policies.some((p) => p.id === id),
+        id,
+      ).toBe(true);
+    }
+    // Nothing but ids, so the payload scales with the number of policies
+    // rather than with the size of their ASTs.
+    expect(Object.keys(env.data?.policies[0] ?? {})).toEqual(['id']);
+
+    for (const id of ids) await call('opa_delete_policy', { id });
+  }, 60_000);
+
+  it('returns a policy far smaller than its AST', async () => {
+    const { call } = await setup();
+    const id = 'sizecheck';
+    const source = `package sizecheck
+import rego.v1
+
+default allow := false
+
+allow if {
+\tsome role in input.user.roles
+\trole in data.rbac.admin_roles
+}
+
+allow if {
+\tinput.action == "read"
+\tinput.resource.owner == input.user.id
+}
+`;
+    await call('opa_put_policy', { id, source });
+
+    const plain = await call<{ policy: { raw: string; ast?: unknown } }>('opa_get_policy', { id });
+    expect(plain.data?.policy.raw).toContain('package sizecheck');
+    expect(plain.data?.policy.ast).toBeUndefined();
+
+    const withAst = await call<{ policy: { ast?: unknown } }>('opa_get_policy', {
+      id,
+      includeAst: true,
+    });
+    expect(withAst.data?.policy.ast).toBeDefined();
+
+    // The AST is what made the default response expensive.
+    const plainBytes = JSON.stringify(plain.data).length;
+    const astBytes = JSON.stringify(withAst.data).length;
+    expect(astBytes).toBeGreaterThan(plainBytes * 4);
+
+    await call('opa_delete_policy', { id });
   });
 });

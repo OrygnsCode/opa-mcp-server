@@ -153,6 +153,17 @@ not part of the public surface and may change in minor releases.
   hierarchy, but the schema required at least one character and the path it
   built for the root is one OPA answers with a redirect. Omitting both `path`
   and `segments` now patches the root.
+- `opa_list_policies` returned nothing but a truncation notice on a server
+  holding more than a couple of dozen policies. OPA answers the policy
+  endpoints with each policy's parsed AST alongside its source, and the AST is
+  far larger than the text it came from, so the response passed
+  `OPA_MCP_MAX_RESPONSE_BYTES` and the payload was replaced with advice to
+  narrow the scope. The tool took no arguments, so there was no scope to
+  narrow. It now returns the policy IDs and a count, with `includeSource` and
+  `includeAst` to ask for more.
+- `opa_get_policy` returned the AST alongside the source, which nothing had
+  asked for: a 477-byte policy came back as a 19 KB response. The AST is now
+  behind `includeAst`.
 
 ### Added
 
@@ -177,6 +188,7 @@ not part of the public surface and may change in minor releases.
 - `opa-mcp --help` lists `OPA_MCP_MAX_SUBPROCESS_BYTES`,
   `OPA_MCP_PASSTHROUGH_ENV` and `OPA_MCP_NO_TELEMETRY`, which were documented
   but absent from the output an invalid-configuration message points at.
+- `opa_list_policies` output gains `count`.
 
 ### Documentation
 
