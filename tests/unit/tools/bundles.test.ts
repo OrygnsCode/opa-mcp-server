@@ -58,7 +58,50 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * Directory link: a junction on Windows, which needs no privilege, a symlink
+ * elsewhere. Node creates a junction natively, so no shell is involved.
+ * Returns false when neither can be created.
+ */
+async function linkDir(link: string, target: string): Promise<boolean> {
+  try {
+    await symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe('opa_bundle_build', () => {
+  it('refuses an output path that goes through a directory link pointing outside the roots', async (ctx) => {
+    // The output does not exist yet, so its containment is decided by the
+    // real location of its nearest existing ancestor. A junction or symlink
+    // inside an allowed root that points outside must not become a write
+    // destination.
+    const outside = join(tmpdir(), `orygn-outside-${Math.random().toString(36).slice(2)}`);
+    await mkdir(outside, { recursive: true });
+    const link = join(workDir, 'escape-link');
+    try {
+      if (!(await linkDir(link, outside))) ctx.skip('cannot create directory links here');
+      const server = makeServer();
+      registerBundleTools(server, {
+        ...baseConfig,
+        allowedPaths: [...baseConfig.allowedPaths, workDir],
+      });
+      const env = await callTool(server, 'opa_bundle_build', {
+        paths: [fixturePath('policies', 'valid')],
+        output: join(link, 'bundle.tar.gz'),
+      });
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+      expect(mockRun).not.toHaveBeenCalled();
+      expect(existsSync(join(outside, 'bundle.tar.gz'))).toBe(false);
+    } finally {
+      await rm(link, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it('builds with the expected argv and reports the output bytes', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
     const server = makeServer();

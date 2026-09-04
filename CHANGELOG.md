@@ -29,6 +29,15 @@ not part of the public surface and may change in minor releases.
   disk. A `.signatures.json` already present as a symbolic link is refused
   rather than written through. The response carries the path written, the
   algorithm, and the number of files covered.
+- Path validation followed links only for paths that already existed, so a
+  write destination that did not exist yet, such as an `opa_bundle_build` output
+  or a `conftest_pull` policy directory, was accepted on its spelling alone. A
+  junction or symbolic link inside an allowed root that pointed outside it made
+  such a write land outside the roots. A path is now judged by the real location
+  of its nearest existing ancestor with the missing segments re-attached, a
+  dangling link is refused, and roots and paths are compared in canonical form,
+  which also ends false rejections for a root spelled through a link (macOS
+  `/var`), a Windows short name, or a different letter case.
 
 ### Fixed
 
