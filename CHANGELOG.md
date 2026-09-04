@@ -17,6 +17,38 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- `OPA_MCP_ALLOWED_PATHS` now refuses a relative entry, which the documentation
+  has always said it did. A relative root was resolved against the server's
+  working directory, so for a stdio server the same configuration permitted
+  different directories depending on how the client launched it.
+- `opa-mcp --help` lists `OPA_MCP_MAX_SUBPROCESS_BYTES`,
+  `OPA_MCP_PASSTHROUGH_ENV` and `OPA_MCP_NO_TELEMETRY`, which were documented
+  but absent from the output an invalid-configuration message points at.
+
+### Documentation
+
+- The child-process environment allow-list is described accurately. It carries
+  no cloud or repository credential, but it does carry the proxy and TLS-trust
+  variables, so a proxy URL that embeds credentials is readable by evaluated
+  policy. The README previously said it contained no secret.
+- Corrected: `opa_status` returns `GET /v1/config`, not bundle or decision-log
+  status; `rego_describe_policy` does not report input references, so the two
+  prompts that told the model to use it for that now name
+  `rego_infer_input_schema`; `rego_lint` returns a flat list of violations
+  rather than findings grouped by category; `rego_capabilities` reflects the
+  resolved `opa` binary rather than the bundled one; `rego_explain_decision`
+  returns a structured summary rather than a natural-language explanation, and
+  the extension manifest no longer says the helper tools use AI; the MCPB
+  bundle has no bundled-binary fallback; unit tests run on macOS only on Node
+  22.
+- Four error codes that nothing returns are no longer listed as codes a caller
+  can expect: `REGAL_VERSION_TOO_OLD`, `DEPENDENCY_CONFLICT`,
+  `VERIFY_INCONCLUSIVE` and `Z3_INIT_ERROR`. They remain reserved in the type.
+  The troubleshooting entry for a Regal minimum-version check that does not
+  exist is removed.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security

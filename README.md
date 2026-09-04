@@ -76,7 +76,7 @@ Once an MCP client is connected, an agent can:
   deployable bundle, optionally signing it. Output is a regular `.tar.gz`
   the agent can hand to your delivery system.
 - **Lint.** `rego_lint` runs Regal across a directory or a single file
-  and returns categorized findings (style, bugs, performance, idioms).
+  and returns each finding with its category, level and location.
 
 A walk-through of a typical session lives in [Cookbook](#cookbook).
 
@@ -237,7 +237,8 @@ Get-Command opa, regal | Select-Object Source              # Windows
 
 This does not affect the **Docker** install path, which ships `opa` and
 `regal` in the image and bypasses `PATH` entirely. The **MCPB** bundle
-carries neither and resolves `opa` the same way the npm install does.
+carries neither, and unlike the npm install has no bundled fallback: set
+`OPA_BINARY` or put `opa` on `PATH`.
 See [Troubleshooting](#troubleshooting) for full detail.
 
 ## Configuration
@@ -278,12 +279,10 @@ Every tool returns a JSON envelope:
 
 Stable error codes: `INVALID_INPUT`, `INVALID_REGO`, `INVALID_BUNDLE`,
 `EVAL_ERROR`, `OPA_BINARY_NOT_FOUND`, `REGAL_NOT_FOUND`,
-`REGAL_VERSION_TOO_OLD`, `CONFTEST_NOT_FOUND`, `OPA_UNREACHABLE`,
-`OPA_AUTH_FAILED`, `POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`,
-`PATH_NOT_FOUND`, `DEPENDENCY_CONFLICT`, `NO_TESTS_FOUND`,
-`COVERAGE_BELOW_THRESHOLD`, `OPA_VERSION_UNSUPPORTED`, `VERIFY_INCONCLUSIVE`,
-`Z3_INIT_ERROR`, `GITHUB_TOKEN_MISSING`, `GIST_CREATE_FAILED`,
-`OUTPUT_TOO_LARGE`, `TIMEOUT`,
+`CONFTEST_NOT_FOUND`, `OPA_UNREACHABLE`, `OPA_AUTH_FAILED`,
+`POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`, `PATH_NOT_FOUND`,
+`NO_TESTS_FOUND`, `COVERAGE_BELOW_THRESHOLD`, `OPA_VERSION_UNSUPPORTED`,
+`GITHUB_TOKEN_MISSING`, `GIST_CREATE_FAILED`, `OUTPUT_TOO_LARGE`, `TIMEOUT`,
 `CANCELLED`, `UNKNOWN_ERROR`.
 
 ### Category A: Authoring & static analysis
@@ -296,10 +295,10 @@ Operate on Rego source code without needing a running OPA server. Wrap
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                                                                                        |
 | `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                                                                                        |
-| `rego_lint`         | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                                                       |
+| `rego_lint`         | Run Regal across a file or directory. Returns each violation with its category, level and location. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                               |
 | `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                                                                                              |
 | `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                                                                                       |
-| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                                                                                                     |
+| `rego_capabilities` | List the built-ins and features the resolved `opa` binary understands (`OPA_BINARY`, then `PATH`, then the bundled copy)                                                                                |
 | `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                                                         |
 | `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`.                                |
 | `rego_check_schema` | Check Rego against a JSON Schema. Validates that every `input.*` field the policy reads exists in the schema using `opa check --schema`. Accepts inline schema or a path to a JSON Schema file on disk. |
@@ -398,21 +397,21 @@ Package and sign deployable bundles. Wrap `opa build` and `opa sign`.
 Talk to a running OPA server over its REST API. Require `OPA_URL` to
 point at a reachable server.
 
-| Tool                 | What it does                                           |
-| -------------------- | ------------------------------------------------------ |
-| `opa_list_policies`  | List policies registered on the server.                |
-| `opa_get_policy`     | Get a single policy by ID.                             |
-| `opa_put_policy`     | Upload or replace a policy.                            |
-| `opa_delete_policy`  | Delete a policy by ID.                                 |
-| `opa_get_data`       | Read a path from the data hierarchy.                   |
-| `opa_put_data`       | Write to a path in the data hierarchy.                 |
-| `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.              |
-| `opa_delete_data`    | Delete a document from the data hierarchy.             |
-| `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input. |
-| `opa_compile_query`  | Partially evaluate a query against the running server. |
-| `opa_health`         | Liveness / readiness check.                            |
-| `opa_status`         | Bundle / decision-log status.                          |
-| `opa_config`         | Server configuration (without secrets).                |
+| Tool                 | What it does                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `opa_list_policies`  | List policies registered on the server.                                                                            |
+| `opa_get_policy`     | Get a single policy by ID.                                                                                         |
+| `opa_put_policy`     | Upload or replace a policy.                                                                                        |
+| `opa_delete_policy`  | Delete a policy by ID.                                                                                             |
+| `opa_get_data`       | Read a path from the data hierarchy.                                                                               |
+| `opa_put_data`       | Write to a path in the data hierarchy.                                                                             |
+| `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.                                                                          |
+| `opa_delete_data`    | Delete a document from the data hierarchy.                                                                         |
+| `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input.                                                             |
+| `opa_compile_query`  | Partially evaluate a query against the running server.                                                             |
+| `opa_health`         | Liveness / readiness check.                                                                                        |
+| `opa_status`         | Server configuration as reported by `GET /v1/config`. Bundle and decision-log status (`/v1/status`) is not exposed |
+| `opa_config`         | Server configuration (without secrets).                                                                            |
 
 ### Category E: Higher-level helpers
 
@@ -421,9 +420,9 @@ the tasks agents are actually asked to do.
 
 | Tool                          | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rego_explain_decision`       | Walk through every rule that fired (and didn't) for a given query. Wraps `rego_eval_with_explain` and produces a step-by-step natural-language trace.                                                                                                                                                                                                                                                                                                                                                                           |
+| `rego_explain_decision`       | Turn an evaluation trace into a structured per-rule summary of what fired and what did not                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `rego_describe_policy`        | Summarize what a policy does, its inputs, decisions, and assumptions.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `rego_describe_policy`        | Summarize a policy's package, imports and per-rule structure from its AST. For the input references a policy reads, use `rego_infer_input_schema`                                                                                                                                                                                                                                                                                                                                                                               |
 | `rego_suggest_fix`            | For a failed `rego_check` or `rego_lint`, propose minimal patches.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `rego_coverage_gaps`          | Run `opa test --coverage` and return per-file uncovered line ranges, sorted worst first. Use `threshold` to focus on files below a target percentage.                                                                                                                                                                                                                                                                                                                                                                           |
 | `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -620,7 +619,13 @@ be exposed on the network.
   other variable to any policy it evaluated. Since `rego_eval` accepts inline
   source, no filesystem access is needed to reach that, which puts it one
   prompt injection away from any untrusted Rego an agent reads. Children get an
-  explicit allow-list instead (`lib/child-env.ts`), containing no secret.
+  explicit allow-list instead (`lib/child-env.ts`). No cloud or repository
+  credential is in it: `OPA_TOKEN`, `GITHUB_TOKEN` and their like stay behind.
+  The proxy and TLS-trust variables are, because without them `http.send` and
+  remote fetches fail behind a corporate proxy, so a proxy URL that embeds
+  credentials is readable by evaluated policy. Unset those for this server, or
+  use a proxy that does not need credentials in the URL, if that matters more
+  than reaching the network.
   `OPA_MCP_PASSTHROUGH_ENV` opts individual variables back in.
 - `OPA_TOKEN` is never echoed in tool responses or log entries, and is not
   passed to any child process.
@@ -689,12 +694,6 @@ path(s) you want the server to read from, comma-separated.
 `OPA_URL` (default `http://localhost:8181`) must point at a running OPA
 server (`opa run --server ...`). Check with `curl $OPA_URL/health`.
 
-**Regal "version too old."**
-
-We track the current Regal release. If `REGAL_VERSION_TOO_OLD` fires,
-upgrade Regal: `brew upgrade regal` or download from the
-[Regal releases](https://github.com/StyraInc/regal/releases) page.
-
 **`directory-package-mismatch` violation when linting inline source.**
 
 Since v0.1.1, the server auto-disables this rule for inline-source calls.
@@ -730,7 +729,7 @@ npm run build             # compile to dist/
 ```
 
 CI runs lint, typecheck, build, and unit tests on every push and PR
-across Ubuntu, macOS, and Windows on Node 20, 22, and 24. Integration
+across Ubuntu and Windows on Node 20, 22 and 24, plus macOS on Node 22. Integration
 tests run on Linux against pinned `opa` and `regal` releases.
 
 For the full contributor workflow (adding tools, naming conventions,
