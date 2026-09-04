@@ -37,11 +37,14 @@ const config: Config = {
 };
 
 interface ExplainOutput {
-  queryResult: 'undefined' | 'defined';
+  queryResult: 'undefined' | 'defined' | 'default';
   value?: unknown;
+  summary: string;
+  defaultValue?: unknown;
   rulesFound: number;
   rules: Array<{
     isDefault: boolean;
+    location: { row: number };
     source: 'trace' | 'standalone-eval';
     conditions: Array<{ index: number; text: string; result: string }>;
     blockingCondition: { index: number; text: string; result: string } | null;
@@ -148,4 +151,100 @@ describe('rego_explain_undefined integration (real OPA binary)', () => {
     expect(rule.conditions.find((c) => c.text.includes('owner'))!.result).toBe('false');
     expect(rule.blockingCondition!.text).toContain('owner');
   });
+});
+
+describe('rego_explain_undefined with a default rule', () => {
+  // `default allow := false` gives the query a value, so it is never undefined.
+  // Skipping the analysis for that meant the tool had nothing to say about the
+  // shape almost every real policy is written in.
+  const source = [
+    'package authz',
+    '',
+    'import rego.v1',
+    '',
+    'default allow := false',
+    '',
+    'allow if {',
+    '\tinput.user.role == "admin"',
+    '\tinput.env == "prod"',
+    '}',
+    '',
+    'allow if {',
+    '\tinput.action == "read"',
+    '\tinput.user.id == input.resource.owner',
+    '}',
+    '',
+  ].join('\n');
+
+  it('names the blocking condition in every clause', async () => {
+    const server = makeServer();
+    registerRegoExplainUndefined(server, config);
+    const env = await callTool<ExplainOutput>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source,
+      input: {
+        user: { role: 'viewer', id: 'u1' },
+        env: 'dev',
+        action: 'write',
+        resource: { owner: 'u2' },
+      },
+    });
+
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.queryResult).toBe('default');
+    expect(env.data?.value).toBe(false);
+    expect(env.data?.defaultValue).toBe(false);
+    expect(env.data?.rulesFound).toBe(2);
+    expect(env.data?.summary).toContain('falls back to its default');
+
+    const clauses = (env.data?.rules ?? []).filter((r) => !r.isDefault);
+    expect(clauses).toHaveLength(2);
+    // Each clause is analysed on its own: matching on the rule name alone made
+    // every clause look traced because the default rule was, and none of them
+    // were then evaluated.
+    expect(clauses[0]?.blockingCondition?.text).toBe('input.user.role == "admin"');
+    expect(clauses[1]?.blockingCondition?.text).toBe('input.action == "read"');
+    for (const c of clauses) {
+      expect(c.conditions.every((cond) => cond.result !== 'unevaluable')).toBe(true);
+    }
+  }, 60_000);
+
+  it('reports the first satisfied condition as satisfied and the next as the blocker', async () => {
+    const server = makeServer();
+    registerRegoExplainUndefined(server, config);
+    const env = await callTool<ExplainOutput>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source,
+      input: {
+        user: { role: 'admin', id: 'u1' },
+        env: 'staging',
+        action: 'write',
+        resource: { owner: 'u2' },
+      },
+    });
+
+    expect(env.data?.queryResult).toBe('default');
+    const first = (env.data?.rules ?? []).filter((r) => !r.isDefault)[0];
+    expect(first?.conditions[0]?.result).toBe('true');
+    expect(first?.blockingCondition?.text).toBe('input.env == "prod"');
+  }, 60_000);
+
+  it('stays "defined" when a clause actually matched', async () => {
+    const server = makeServer();
+    registerRegoExplainUndefined(server, config);
+    const env = await callTool<ExplainOutput>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source,
+      input: {
+        user: { role: 'admin', id: 'u1' },
+        env: 'prod',
+        action: 'write',
+        resource: { owner: 'u2' },
+      },
+    });
+
+    expect(env.data?.queryResult).toBe('defined');
+    expect(env.data?.value).toBe(true);
+    expect(env.data?.rulesFound).toBe(0);
+  }, 60_000);
 });

@@ -5,6 +5,7 @@ import {
   callTool,
   fixturePath,
   makeServer,
+  resolvedArgs,
   spawnFailure,
   spawnSuccess,
   spawnTimedOut,
@@ -274,6 +275,52 @@ describe('rego_test', () => {
     expect(env.data?.failed).toBe(1);
     expect(env.data?.skipped).toBe(1);
     expect(env.data?.total).toBe(4);
+  });
+
+  it('counts a record carrying `error` as errored, not as passed', async () => {
+    // OPA 1.19 shape for a test it could not evaluate: an `error` object and
+    // NO `fail`, so `total - failed - skipped` used to absorb it into passed.
+    const records = [
+      { name: 'test_ok', duration: 100 },
+      {
+        name: 'test_conflict',
+        error: {
+          code: 'eval_conflict_error',
+          message: 'complete rules must not produce multiple outputs',
+        },
+        duration: 0,
+      },
+      { name: 'test_broken', fail: true, duration: 5 },
+      { name: 'todo_pending', skip: true, duration: 0 },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      passed: number;
+      failed: number;
+      skipped: number;
+      errored: number;
+      total: number;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ passed: 1, failed: 1, skipped: 1, errored: 1, total: 4 });
+  });
+
+  it('does not report a suite of only errored tests as passing', async () => {
+    const records = [
+      { name: 'test_a', error: { code: 'eval_conflict_error', message: 'x' } },
+      { name: 'test_b', error: { code: 'eval_type_error', message: 'y' } },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ passed: number; errored: number; total: number }>(
+      server,
+      'rego_test',
+      { paths: [validRegoPath()] },
+    );
+    expect(env.data).toMatchObject({ passed: 0, errored: 2, total: 2 });
   });
 
   it('parses NDJSON output as a fallback', async () => {
@@ -905,9 +952,99 @@ describe('opa_exec', () => {
     expect(args[0]).toBe('exec');
     expect(args).toContain('--format=json');
     expect(args).toContain('--decision');
-    expect(args[args.indexOf('--decision') + 1]).toBe('data.rbac.allow');
+    // opa exec names a decision by slash path with no `data.` prefix; passing
+    // the Rego reference through left every input file undefined.
+    expect(args[args.indexOf('--decision') + 1]).toBe('rbac/allow');
     // Input path is a positional arg at the end of argv.
     expect(args[args.length - 1]).toBe(validInputPath());
+  });
+
+  it('converts every spelling of a decision reference to the path opa exec wants', async () => {
+    const forms: Array<[string, string]> = [
+      ['data.rbac.allow', 'rbac/allow'],
+      ['rbac/allow', 'rbac/allow'],
+      ['rbac.allow', 'rbac/allow'],
+      ['/rbac/allow', 'rbac/allow'],
+      ['data/rbac/allow', 'rbac/allow'],
+      ['data.a.b.c', 'a/b/c'],
+      // A package that merely starts with "data" keeps its first segment.
+      ['database.allow', 'database/allow'],
+    ];
+    for (const [given, expected] of forms) {
+      mockRun.mockReset();
+      mockRun.mockResolvedValueOnce(
+        spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+      );
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: given,
+      });
+      expect(env.ok, given).toBe(true);
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args[args.indexOf('--decision') + 1], given).toBe(expected);
+    }
+  });
+
+  it('rejects a decision that names nothing', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    for (const decision of ['data', 'data.', '/', 'a..b']) {
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision,
+      });
+      expect(env.error?.code, decision).toBe('INVALID_INPUT');
+    }
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('flags a run where every input left the decision undefined', async () => {
+    const undefinedEntry = (path: string) => ({
+      path,
+      error: { code: 'opa_undefined_error', message: 'decision was undefined' },
+    });
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({
+          result: [undefinedEntry(validInputPath()), undefinedEntry('other.json')],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ hint?: string; errorCount: number }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'rbac/nosuch',
+    });
+    expect(env.data?.errorCount).toBe(2);
+    // Undefined everywhere reads as a pass under a deny-style policy whether
+    // the rule matched nothing or does not exist at all.
+    expect(env.data?.hint).toContain('rbac/nosuch');
+  });
+
+  it('does not flag a run where some input produced a result', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({
+          result: [
+            { path: validInputPath(), result: true },
+            {
+              path: 'other.json',
+              error: { code: 'opa_undefined_error', message: 'undefined' },
+            },
+          ],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ hint?: string }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'rbac/allow',
+    });
+    expect(env.data?.hint).toBeUndefined();
   });
 
   it('passes --bundle flag when bundle is provided', async () => {
@@ -921,10 +1058,12 @@ describe('opa_exec', () => {
       decision: 'data.authz.allow',
       bundle: fixturePath('policies', 'valid'),
     });
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).toContain('--bundle');
-    expect(args[args.indexOf('--bundle') + 1]).toBe(fixturePath('policies', 'valid'));
-    expect(args).not.toContain('--data');
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args).toContain('--bundle');
+    // The bundle root is a load path, so it may be spelled relative to cwd.
+    const resolved = resolvedArgs(call);
+    expect(resolved[call.args.indexOf('--bundle') + 1]).toBe(fixturePath('policies', 'valid'));
+    expect(call.args).not.toContain('--data');
   });
 
   it('passes --bundle for each dataPaths entry (opa exec has no --data flag)', async () => {
@@ -941,8 +1080,9 @@ describe('opa_exec', () => {
     const args = mockRun.mock.calls[0]![1].args;
     const bundleIdxs = args.map((a, i) => (a === '--bundle' ? i : -1)).filter((i) => i !== -1);
     expect(bundleIdxs).toHaveLength(2);
-    expect(args[bundleIdxs[0]! + 1]).toBe(validRegoPath());
-    expect(args[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
+    const resolvedExec = resolvedArgs(mockRun.mock.calls[0]![1]);
+    expect(resolvedExec[bundleIdxs[0]! + 1]).toBe(validRegoPath());
+    expect(resolvedExec[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
     expect(args).not.toContain('--data');
   });
 
