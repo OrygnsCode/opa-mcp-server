@@ -76,6 +76,12 @@ not part of the public surface and may change in minor releases.
   `conftest_test`. `exceptions` are messages, not strings, matching conftest.
 - CI installs conftest for the integration job, so the real-binary conftest
   tests run there instead of skipping.
+- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
+  a passing test. OPA marks such a record with an `error` object and does not set
+  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
+  and a suite whose tests all raised (a rule conflict, for instance) was reported
+  as fully passing with zero failures. Both tools now report `errored`
+  separately, and the multiroot aggregate carries `totalErrored`.
 
 ### Added
 
@@ -84,6 +90,11 @@ not part of the public surface and may change in minor releases.
   since OPA only reads the signature from inside the bundle.
 - `opa_bundle_verify` accepts `v0Compatible` for bundles written in Rego v0,
   which otherwise fail to load after the signature has been checked.
+
+### Changed
+
+- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
+  root and `totalErrored` overall.
 
 ## [0.4.0] - 2026-09-03
 
