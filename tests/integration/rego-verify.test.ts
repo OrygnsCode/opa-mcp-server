@@ -309,40 +309,60 @@ allow if { regex.match("admin|guest", input.role) }
     );
   });
 
-  it('always_true: regex.match(".*", input.x) is tautological - proven', async () => {
+  it('always_true: regex.match(".*", input.x) is not always true, the field can be absent', async () => {
     const policy = `
 package authz
 allow if { regex.match(".*", input.x) }
 `;
+    // NOT proven, and this is correct. The pattern matches any string, but the
+    // rule still reads input.x, and a body that reads a missing field is
+    // undefined rather than true. Verified against OPA 1.19.0: this rule is
+    // undefined for input {}. The engine used to answer `proven` here because
+    // it modelled every input path as always present.
     const result = await verify(policy, 'allow', 'always_true');
-    expect(result?.verdict).toBe('proven');
+    expect(result?.verdict).toBe('counterexample');
   });
 
-  it('always_true: regex.match("^.*$", input.x) is tautological - proven', async () => {
+  it('always_true: regex.match("^.*$", input.x) is not always true, the field can be absent', async () => {
     const policy = `
 package authz
 allow if { regex.match("^.*$", input.x) }
 `;
+    // NOT proven, and this is correct. The pattern matches any string, but the
+    // rule still reads input.x, and a body that reads a missing field is
+    // undefined rather than true. Verified against OPA 1.19.0: this rule is
+    // undefined for input {}. The engine used to answer `proven` here because
+    // it modelled every input path as always present.
     const result = await verify(policy, 'allow', 'always_true');
-    expect(result?.verdict).toBe('proven');
+    expect(result?.verdict).toBe('counterexample');
   });
 
-  it('always_true: regex.match("^.*", input.x) is tautological - proven', async () => {
+  it('always_true: regex.match("^.*", input.x) is not always true, the field can be absent', async () => {
     const policy = `
 package authz
 allow if { regex.match("^.*", input.x) }
 `;
+    // NOT proven, and this is correct. The pattern matches any string, but the
+    // rule still reads input.x, and a body that reads a missing field is
+    // undefined rather than true. Verified against OPA 1.19.0: this rule is
+    // undefined for input {}. The engine used to answer `proven` here because
+    // it modelled every input path as always present.
     const result = await verify(policy, 'allow', 'always_true');
-    expect(result?.verdict).toBe('proven');
+    expect(result?.verdict).toBe('counterexample');
   });
 
-  it('always_true: regex.match(".*$", input.x) is tautological - proven', async () => {
+  it('always_true: regex.match(".*$", input.x) is not always true, the field can be absent', async () => {
     const policy = `
 package authz
 allow if { regex.match(".*$", input.x) }
 `;
+    // NOT proven, and this is correct. The pattern matches any string, but the
+    // rule still reads input.x, and a body that reads a missing field is
+    // undefined rather than true. Verified against OPA 1.19.0: this rule is
+    // undefined for input {}. The engine used to answer `proven` here because
+    // it modelled every input path as always present.
     const result = await verify(policy, 'allow', 'always_true');
-    expect(result?.verdict).toBe('proven');
+    expect(result?.verdict).toBe('counterexample');
   });
 
   it('always_true: regex.match("^admin.*", input.x) is NOT tautological - counterexample', async () => {
@@ -667,8 +687,13 @@ allow if {
   input.flag == false
 }
 `;
+    // NOT proven, and this is correct. The two clauses cover both values of
+    // input.flag, but neither covers input.flag being ABSENT, and a body that
+    // reads a missing field is undefined rather than true. Verified against
+    // OPA 1.19.0: this rule is undefined for input {}. Proving always_true here
+    // would require the rule to hold for every input, including the empty one.
     const result = await verify(exhaustivePolicy, 'allow', 'always_true');
-    expect(result?.verdict).toBe('proven');
+    expect(result?.verdict).toBe('counterexample');
   });
 });
 
