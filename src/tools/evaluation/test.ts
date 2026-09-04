@@ -250,8 +250,9 @@ function handleCoverageMode(
   exitCode: number | null,
   threshold: number | undefined,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
+  const coverageData = tryParseJson<CoverageReport>(stdout);
+
   if (exitCode === 0) {
-    const coverageData = tryParseJson<CoverageReport>(stdout);
     return ok<RegoTestOutput>({
       passed: 0,
       failed: 0,
@@ -277,10 +278,31 @@ function handleCoverageMode(
     });
   }
 
+  // A suite holding a `todo_` test exits non-zero in coverage mode with an
+  // empty stderr, and the coverage report is on stdout as asked for. Reporting
+  // that as "one or more tests failed" was wrong twice: nothing failed, and the
+  // report the caller wanted was thrown away.
+  if (coverageData !== undefined && stderrTrimmed.length === 0) {
+    return ok<RegoTestOutput>({
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      results: [],
+      coverage: coverageData,
+      coveragePct: coverageData.coverage,
+      thresholdMet: threshold !== undefined ? true : undefined,
+    });
+  }
+
   // Test failures in coverage mode (stderr has "package.test_name: FAIL" lines).
   return err('EVAL_ERROR', stderrTrimmed || 'One or more tests failed.', {
     hint: 'Fix the failing tests then re-run. Use verbose: true for trace output.',
-    details: { exitCode },
+    details: {
+      exitCode,
+      // Keep the report when OPA produced one; it is what was asked for.
+      ...(coverageData !== undefined ? { coveragePct: coverageData.coverage } : {}),
+    },
   });
 }
 

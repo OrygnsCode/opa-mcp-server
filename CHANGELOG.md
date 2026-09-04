@@ -17,6 +17,21 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- `rego_test` with `coverage` or `threshold` reported `One or more tests
+  failed` for a suite where none did. A suite holding a `todo_` test exits
+  non-zero under `--coverage` with an empty stderr, and the coverage report is
+  on stdout as asked for. The report was discarded and the run called a
+  failure. A non-zero exit with a parseable report and no failure lines is now
+  the coverage result it is, and a report OPA did produce is kept in the error
+  details when tests really did fail.
+- `rego_coverage_gaps` reported `testsPassed`, `testsFailed` and
+  `testsSkipped` as zero on every call. OPA emits no per-test records in
+  coverage mode, so the three counts could never be anything else, and three
+  zeros read as "no tests ran" rather than "not reported". They are now
+  omitted unless OPA supplied records.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security

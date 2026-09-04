@@ -268,8 +268,10 @@ describe('rego_coverage_gaps', () => {
     expect(env.error?.code).toBe('TIMEOUT');
   });
 
-  it('handles coverage report as the only JSON document in stdout', async () => {
-    // Some OPA versions may emit just the coverage object (no test records).
+  it('omits the test counts when OPA reported no test records', async () => {
+    // OPA emits only the coverage object in coverage mode, so the three counts
+    // were always zero, stating that no tests ran rather than that it did not
+    // say. Absent means unknown.
     const coverageOnly = {
       files: {
         'policy.rego': { not_covered: [{ start: { row: 5 }, end: { row: 8 } }], coverage: 50 },
@@ -285,7 +287,27 @@ describe('rego_coverage_gaps', () => {
 
     expect(env.ok).toBe(true);
     expect(env.data?.filesWithGaps).toHaveLength(1);
-    expect(env.data?.testsPassed).toBe(0);
+    expect(env.data?.testsPassed).toBeUndefined();
+    expect(env.data?.testsFailed).toBeUndefined();
+    expect(env.data?.testsSkipped).toBeUndefined();
+  });
+
+  it('reports the counts when OPA did emit test records', async () => {
+    const withRecords = [
+      JSON.stringify([
+        { name: 'test_a' },
+        { name: 'test_b', fail: true },
+        { name: 'todo_test_c', skip: true },
+      ]),
+      JSON.stringify({ files: {}, coverage: 75 }),
+    ].join('\n');
+    mockRun.mockResolvedValueOnce(spawnSuccess(withRecords));
+    const server = makeServer();
+    registerRegoCoverageGaps(server, baseConfig);
+    const env = await callTool<RegoCoverageGapsOutput>(server, 'rego_coverage_gaps', {
+      paths: [fixturePath('policies', 'valid')],
+    });
+    expect(env.data).toMatchObject({ testsPassed: 1, testsFailed: 1, testsSkipped: 1 });
   });
 
   it('passes --coverage flag to opa test', async () => {

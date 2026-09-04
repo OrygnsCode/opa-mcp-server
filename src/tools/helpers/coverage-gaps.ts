@@ -73,9 +73,17 @@ export interface RegoCoverageGapsOutput {
   overallCoverage: number;
   totalFiles: number;
   filesWithGaps: FileCoverageGap[];
-  testsPassed: number;
-  testsFailed: number;
-  testsSkipped: number;
+  /**
+   * Test counts, present only when OPA reported per-test records.
+   *
+   * It does not do so in coverage mode: `opa test --coverage` emits the
+   * coverage report alone. These were therefore always zero, which reads as
+   * "no tests ran" rather than "not reported". Absent means unknown; run
+   * `rego_test` without coverage for the counts.
+   */
+  testsPassed?: number;
+  testsFailed?: number;
+  testsSkipped?: number;
 }
 
 /**
@@ -177,6 +185,9 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
         // passing records with any status field, so filtering for pass: true
         // always produces zero. Subtraction is the correct approach.
         const testsPassed = testRecords.length - testsFailed - testsSkipped;
+        // OPA emits no test records in coverage mode, so reporting three zeros
+        // stated that no tests ran when the truth is that it did not say.
+        const counts = testRecords.length > 0 ? { testsPassed, testsFailed, testsSkipped } : {};
         const overallCoverage = coverageReport.coverage ?? 0;
 
         const filesWithGaps: FileCoverageGap[] = [];
@@ -204,9 +215,7 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
           overallCoverage,
           totalFiles: Object.keys(coverageReport.files ?? {}).length,
           filesWithGaps,
-          testsPassed,
-          testsFailed,
-          testsSkipped,
+          ...counts,
         });
       });
     },
