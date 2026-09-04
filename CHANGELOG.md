@@ -115,6 +115,22 @@ not part of the public surface and may change in minor releases.
   to no project, picked up whatever happened to be above the server. Regal now
   runs in the directory of what it is linting, and inline source runs in its own
   temp directory. An explicit `configFile` still takes precedence.
+- The ABAC example in the `opa://patterns` resource failed to evaluate on the
+  case it exists to handle. It expressed "hide secret resources from other
+  organizations" as a second rule assigning `allow := false`, which in Rego is a
+  conflict rather than an override: a user reading their own secret resource
+  from another organization got `eval_conflict_error` instead of a denial. The
+  denial is now a condition the permissive rules consult. The pitfalls list,
+  which recommended the broken form, says why it does not work.
+- The Terraform example in the `opa://patterns` resource did not reject a
+  full-admin IAM policy. It tested `"*" in statement.Action`, which requires
+  `Action` to be a collection, and AWS accepts a bare string there, in
+  `Resource`, and for `Statement` itself. Of the four ways to spell
+  `Allow * on *`, the rule caught one; the most common form,
+  `{"Action": "*", "Resource": "*"}`, was allowed. Each position is now widened
+  to a set before the wildcard test. Scoped policies and `Deny` statements are
+  still allowed, so the rule has not become indiscriminate. These snippets are
+  documentation users copy, so the mistake shipped as advice.
 
 ### Added
 
