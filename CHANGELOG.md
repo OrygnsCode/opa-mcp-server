@@ -17,6 +17,19 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- An `install-id` file that existed but held no id was a permanent trap. The
+  read found no id, the exclusive create failed because the file was there, and
+  the fallback read found no id again, on every run for the life of the machine.
+  Such an install pinged anonymously forever and was never counted. The file is
+  now rewritten when it holds no usable id; a brand-new file is still created
+  exclusively so two first runs cannot both claim it. A file can end up empty
+  after a crash or a full disk during the first run.
+- CI no longer reports itself as an install. The suites start the real server,
+  which pings on startup, and every runner has a fresh home directory, so each
+  job minted a new install id.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
