@@ -32,22 +32,80 @@ describe('parseOpaDataPath', () => {
     if (result.ok) expect(result.apiPath).toBe('/v1/data/users/alice');
   });
 
-  it('accepts the root (empty path)', () => {
+  it('rejects the root, which no data tool addresses through a path', () => {
     const result = parseOpaDataPath('');
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.apiPath).toBe('/v1/data/');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error?.code).toBe('INVALID_INPUT');
   });
 
-  it('allows a path with literal dots (converted to slashes, no traversal)', () => {
-    // dots get replaced to slashes by dataPath, so "../../v1/config" becomes
-    // "////v1/config" -- multiple slashes, not .. path segments. Not a traversal.
-    const result = parseOpaDataPath('../../v1/config');
+  it('keeps a dot inside a key when the path is slash-separated', () => {
+    // Splitting on both separators turned `example.com` into two segments and
+    // read a different document than the one asked for.
+    const result = parseOpaDataPath('hosts/example.com');
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.segments).toEqual(['hosts', 'example.com']);
+      expect(result.apiPath).toBe('/v1/data/hosts/example.com');
+    }
+  });
+
+  it('reads a path with no slash as dotted', () => {
+    const result = parseOpaDataPath('hosts.example.com');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.segments).toEqual(['hosts', 'example', 'com']);
+  });
+
+  it('takes array segments literally, separators and all', () => {
+    const result = parseOpaDataPath(['labels', 'app.kubernetes.io/name']);
+    expect(result.ok).toBe(true);
+    // OPA decodes the segment, so the slash stays part of the key.
+    if (result.ok) expect(result.apiPath).toBe('/v1/data/labels/app.kubernetes.io%2Fname');
+  });
+
+  it('encodes characters that would otherwise end the path', () => {
+    const cases: Array<[string, string]> = [
+      ['a?b', '/v1/data/k/a%3Fb'],
+      ['a#b', '/v1/data/k/a%23b'],
+      ['100%', '/v1/data/k/100%25'],
+      ['a b', '/v1/data/k/a%20b'],
+      ['caf\u00e9', '/v1/data/k/caf%C3%A9'],
+    ];
+    for (const [key, expected] of cases) {
+      const result = parseOpaDataPath(['k', key]);
+      expect(result.ok, key).toBe(true);
+      if (result.ok) expect(result.apiPath, key).toBe(expected);
+    }
+  });
+
+  it('rejects a literal .. segment', () => {
+    const result = parseOpaDataPath('../../v1/config');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error?.message).toMatch(/traversal/);
+  });
+
+  it('rejects a .. segment supplied as an array element', () => {
+    expect(parseOpaDataPath(['..', 'v1', 'config']).ok).toBe(false);
+  });
+
+  it('rejects an empty segment', () => {
+    expect(parseOpaDataPath('users//alice').ok).toBe(false);
+  });
+
+  it('does not strip a prefix that merely starts with data', () => {
+    const result = parseOpaDataPath('database/rows');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.segments).toEqual(['database', 'rows']);
+  });
+
+  it('strips a leading data/ root in slash form', () => {
+    const result = parseOpaDataPath('data/rbac/roles');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.apiPath).toBe('/v1/data/rbac/roles');
   });
 
   it('rejects percent-encoded single .. traversal (%2e%2e)', () => {
-    // %2e%2e bypasses the literal dot replacement and new URL() normalizes it
-    // as a real .. path segment, escaping /v1/data/.
+    // Segments are encoded before they reach the wire, so this could not
+    // escape /v1/data/ any more; a caller writing it still means to traverse.
     const result = parseOpaDataPath('%2e%2e/v1/config');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.error?.code).toBe('INVALID_INPUT');
