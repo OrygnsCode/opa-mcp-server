@@ -10,7 +10,7 @@
  * The encoder never touches OPA AST types -- all AST knowledge lives here.
  */
 import type { OpaExpression, OpaModule, OpaRule, OpaTerm } from './rego-ast-types.js';
-import type { VerifyExpr, VerifyValue, VerifyWalkResult } from './rego-ir.js';
+import type { RuleShape, VerifyExpr, VerifyValue, VerifyWalkResult } from './rego-ir.js';
 import { isSimpleRegexPattern } from './rego-smt-encoder.js';
 
 const MAX_INLINE_DEPTH = 5;
@@ -35,6 +35,7 @@ export function walkModule(ast: OpaModule): VerifyWalkResult {
   const result: VerifyWalkResult = {
     rules: new Map(),
     defaults: new Map(),
+    shapes: new Map(),
     inputPaths: new Map(),
     unsupported: [],
   };
@@ -61,13 +62,51 @@ function walkRule(
 ): void {
   const name = rule.head.name;
 
+  // A head shape the encoder cannot model must still be RECORDED as a clause
+  // carrying an unsupported marker. Returning early used to drop the clause
+  // entirely, leaving the rule under-constrained: the encoded rule became
+  // strictly more permissive than the real one, which is the direction that
+  // produces a false PROVEN.
+  const recordShape = (shape: RuleShape, constructType: string, description: string): void => {
+    result.shapes.set(name, shape);
+    addUnsupported(result, constructType, description);
+    const cs = result.rules.get(name) ?? [];
+    cs.push({
+      clauseIndex,
+      headValue: true,
+      expressions: [{ kind: 'unsupported', constructType, reason: description }],
+    });
+    result.rules.set(name, cs);
+  };
+
   if (rule.else !== undefined) {
-    addUnsupported(result, 'else_chain', `Rule '${name}' uses an else chain.`);
+    recordShape('else_chain', 'else_chain', `Rule '${name}' uses an else chain.`);
     return;
   }
 
   if (rule.head.args && rule.head.args.length > 0) {
-    addUnsupported(result, 'function_rule', `Rule '${name}' is a function (has arguments).`);
+    recordShape('function', 'function_rule', `Rule '${name}' is a function (has arguments).`);
+    return;
+  }
+
+  // `deny contains msg` and `perms[k] := v` produce a set and an object. Their
+  // value is never the boolean `true`, so always_true / never_true would answer
+  // a question the caller did not ask. Mark them rather than coercing the head
+  // to `true` and returning a confident wrong answer.
+  if (rule.head.key !== undefined) {
+    recordShape(
+      'partial_set',
+      'partial_set_rule',
+      `Rule '${name}' is a partial set rule; its value is a set, not a boolean.`,
+    );
+    return;
+  }
+  if (Array.isArray(rule.head.ref) && rule.head.ref.length > 1) {
+    recordShape(
+      'partial_object',
+      'partial_object_rule',
+      `Rule '${name}' is a partial object rule; its value is an object, not a boolean.`,
+    );
     return;
   }
 
@@ -77,13 +116,41 @@ function walkRule(
     return;
   }
 
-  const headValue = extractLiteralValue(rule.head.value) ?? true;
+  if (!result.shapes.has(name)) result.shapes.set(name, 'complete');
+
+  // A head with no value is the bare `allow if { ... }` form, meaning true.
+  // A head WITH a value keeps it: `allow := false if { ... }` must not be
+  // treated as asserting true.
+  const extractedHead = extractLiteralValue(rule.head.value);
+  const headValue = rule.head.value === undefined ? true : (extractedHead ?? true);
+  const headIsUnknown = rule.head.value !== undefined && extractedHead === undefined;
   const exprs: VerifyExpr[] = [];
   let anonCounter = 0;
 
+  // A head value the walker could not read is not safe to assume true.
+  if (headIsUnknown) {
+    exprs.push({
+      kind: 'unsupported',
+      constructType: 'non_literal_head',
+      reason: `Rule '${name}' has a head value that is not a literal.`,
+    });
+    addUnsupported(
+      result,
+      'non_literal_head',
+      `Rule '${name}' has a computed head value the encoder cannot read.`,
+    );
+  }
+
   for (const bodyExpr of rule.body) {
-    // Default rule body: single boolean true term -- skip.
-    if (!Array.isArray(bodyExpr.terms) && bodyExpr.terms.type === 'boolean') continue;
+    // A bare boolean body term. `true` adds no constraint, but `false` makes the
+    // clause unsatisfiable: skipping it left an empty body, which the encoder
+    // reads as "always true" and turns into a false PROVEN.
+    if (!Array.isArray(bodyExpr.terms) && bodyExpr.terms.type === 'boolean') {
+      if (bodyExpr.terms.value === false) {
+        exprs.push({ kind: 'contradiction', reason: 'literal false in rule body' });
+      }
+      continue;
+    }
 
     if (bodyExpr.negated === true) {
       addUnsupported(result, 'naf', `Rule '${name}' uses negation-as-failure.`, bodyExpr);
@@ -235,7 +302,7 @@ function walkExpression(
     ];
   }
 
-  return [buildBinaryExpr(opName, args, ruleName, clauseIndex, result, nextAnon)];
+  return [buildBinaryExpr(opName, args, ruleName, clauseIndex, depth, result, nextAnon)];
 }
 
 function walkSingleTerm(
@@ -265,7 +332,10 @@ function walkSingleTerm(
     }
     // Local var used as bool check -- unusual but handle gracefully.
     return [
-      { kind: 'bool_check', ref: { kind: 'local_var', name: scopedLocal(clauseIndex, varName) } },
+      {
+        kind: 'bool_check',
+        ref: { kind: 'local_var', name: scopedLocal(clauseIndex, varName, ruleName, depth) },
+      },
     ];
   }
 
@@ -367,6 +437,65 @@ function inlineRule(
     ];
   }
 
+  let negateInlinedBody = false;
+
+  // A helper with a default AND a clause is not just its clause body. Its value
+  // is the head value when the body holds and the default when it does not, so
+  // `helper == true` is (body AND head is true) OR (NOT body AND default is true).
+  // Inlining only the body dropped the default half and made `default helper :=
+  // true` verify as though the helper were merely its guard.
+  if (targetRules.length === 1) {
+    const only = targetRules[0]!;
+    const defRule = ast.rules.find((r) => r.head.name === targetName && r.default === true);
+
+    // A bare reference in a rule body SUCCEEDS when the referenced rule is
+    // defined and its value is not `false`. Only `false` is falsy in Rego:
+    // verified against OPA 1.19.0 that 0, "" and [] all satisfy the body term.
+    // So the test is `!== false`, not `=== true`. Using `=== true` treated a
+    // helper like `helper := "yes"` as if it could never fire.
+    const rawHead = only.head.value === undefined ? true : extractLiteralValue(only.head.value);
+    const rawDefault = defRule === undefined ? undefined : extractLiteralValue(defRule.head.value);
+
+    // A head or default the walker cannot read as a literal is not safe to guess.
+    if (rawHead === undefined || (defRule !== undefined && rawDefault === undefined)) {
+      addUnsupported(
+        result,
+        'non_literal_head',
+        `Helper '${targetName}' has a head or default value that is not a literal.`,
+      );
+      return [
+        {
+          kind: 'unsupported',
+          constructType: 'non_literal_head',
+          reason: 'non-literal helper head',
+        },
+      ];
+    }
+
+    const headSucceeds = rawHead !== false;
+    // With no default the helper is UNDEFINED when the body fails, and an
+    // undefined reference does not satisfy a body term.
+    const defaultSucceeds = defRule !== undefined && rawDefault !== false;
+
+    // Both branches satisfy the reference, so it holds for every input.
+    if (headSucceeds && defaultSucceeds) return [];
+
+    // Neither branch can satisfy it.
+    if (!headSucceeds && !defaultSucceeds) {
+      return [
+        {
+          kind: 'contradiction',
+          reason: `Helper '${targetName}' can never satisfy a body reference: its value is false when defined, and no default supplies a truthy value.`,
+        },
+      ];
+    }
+
+    // Only the default satisfies it, so the reference holds exactly when the
+    // body does NOT. Applied to the inlined body at the end.
+    if (!headSucceeds && defaultSucceeds) negateInlinedBody = true;
+    // headSucceeds && !defaultSucceeds falls through to ordinary body inlining.
+  }
+
   if (targetRules.length > 1) {
     // Multiple clauses: OR semantics can't be flattened into the caller's AND.
     addUnsupported(
@@ -400,6 +529,11 @@ function inlineRule(
   );
 
   if (bodyExprs.length === 0) {
+    // An empty body always holds, so a helper whose default is the only true
+    // branch can never be true.
+    if (negateInlinedBody) {
+      return [{ kind: 'contradiction', reason: `Helper '${targetName}' has an always-true body.` }];
+    }
     return [
       {
         kind: 'eq',
@@ -455,15 +589,18 @@ function inlineRule(
     for (const e of ve) inlined.push(e);
   }
 
-  return inlined.length > 0
-    ? inlined
-    : [
-        {
-          kind: 'eq',
-          left: { kind: 'literal_bool', value: true },
-          right: { kind: 'literal_bool', value: true },
-        },
-      ];
+  const body: VerifyExpr[] =
+    inlined.length > 0
+      ? inlined
+      : [
+          {
+            kind: 'eq',
+            left: { kind: 'literal_bool', value: true },
+            right: { kind: 'literal_bool', value: true },
+          },
+        ];
+
+  return negateInlinedBody ? [{ kind: 'negation', inner: body }] : body;
 }
 
 /**
@@ -474,6 +611,7 @@ function buildBinaryExpr(
   args: OpaTerm[],
   ruleName: string,
   clauseIndex: number,
+  depth: number,
   result: VerifyWalkResult,
   nextAnon: () => number,
 ): VerifyExpr {
@@ -486,8 +624,8 @@ function buildBinaryExpr(
     return { kind: 'unsupported', constructType: 'arity_error', reason: `${opName} arity` };
   }
 
-  const left = termToValue(args[0]!, clauseIndex, result, nextAnon);
-  const right = termToValue(args[1]!, clauseIndex, result, nextAnon);
+  const left = termToValue(args[0]!, clauseIndex, ruleName, depth, result, nextAnon);
+  const right = termToValue(args[1]!, clauseIndex, ruleName, depth, result, nextAnon);
 
   if (left === null || right === null) {
     return {
@@ -512,7 +650,11 @@ function buildBinaryExpr(
           reason: 'non-var LHS in assign',
         };
       }
-      return { kind: 'assign', local: scopedLocal(clauseIndex, a0.value), value: right };
+      return {
+        kind: 'assign',
+        local: scopedLocal(clauseIndex, a0.value, ruleName, depth),
+        value: right,
+      };
     }
     case 'neq':
       return { kind: 'neq', left, right };
@@ -578,6 +720,8 @@ function buildBinaryExpr(
 function termToValue(
   term: OpaTerm,
   clauseIndex: number,
+  ruleName: string,
+  depth: number,
   result: VerifyWalkResult,
   nextAnon: () => number,
 ): VerifyValue | null {
@@ -593,9 +737,12 @@ function termToValue(
     case 'var': {
       const varName = term.value as string;
       if (varName === '_') {
-        return { kind: 'local_var', name: scopedLocal(clauseIndex, `_anon${nextAnon()}`) };
+        return {
+          kind: 'local_var',
+          name: scopedLocal(clauseIndex, `_anon${nextAnon()}`, ruleName, depth),
+        };
       }
-      return { kind: 'local_var', name: scopedLocal(clauseIndex, varName) };
+      return { kind: 'local_var', name: scopedLocal(clauseIndex, varName, ruleName, depth) };
     }
     case 'ref': {
       const refTerms = term.value as OpaTerm[];
@@ -696,8 +843,21 @@ function addUnsupported(
   result.unsupported.push({ constructType, description, location: loc });
 }
 
-function scopedLocal(clauseIndex: number, varName: string): string {
-  return `local_${clauseIndex}_${varName}`;
+/**
+ * Scope a local variable name.
+ *
+ * The owning rule and the inline depth are part of the key. Without them,
+ * inlining a helper into a caller that reuses a variable name (`x`, `msg`,
+ * `user` are the common ones) made the two share one Z3 constant, silently
+ * unifying unrelated values and producing PROVEN for rules that do fire.
+ */
+function scopedLocal(
+  clauseIndex: number,
+  varName: string,
+  ruleName: string,
+  depth: number,
+): string {
+  return `local_${clauseIndex}_d${depth}_${ruleName}_${varName}`;
 }
 
 /**

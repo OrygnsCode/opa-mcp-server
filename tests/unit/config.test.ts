@@ -20,17 +20,22 @@ vi.mock('../../src/lib/resolve-binary.js', () => ({
   resolveOpaBinary: (configured: string) => configured,
 }));
 
+// Every variable loadConfig reads. A name missing here stays set from the
+// developer's own shell and changes the config under test: CONFTEST_BINARY
+// was absent, so `npm test` failed for anyone who had it exported.
 const ENV_KEYS = [
   'OPA_URL',
   'OPA_TOKEN',
   'OPA_BINARY',
   'REGAL_BINARY',
+  'CONFTEST_BINARY',
   'OPA_MCP_TIMEOUT_MS',
   'OPA_MCP_HTTP_TIMEOUT_MS',
   'OPA_MCP_ALLOWED_PATHS',
   'OPA_MCP_LOG_FILE',
   'OPA_MCP_LOG_LEVEL',
   'OPA_MCP_MAX_RESPONSE_BYTES',
+  'OPA_MCP_MAX_SUBPROCESS_BYTES',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
