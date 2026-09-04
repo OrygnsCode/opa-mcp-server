@@ -363,6 +363,127 @@ allow if input.user.role == "admin"
   });
 });
 
+// ─── Data path separators and encoding ────────────────────────────────────
+
+describe('data paths with awkward keys', () => {
+  it('addresses a key containing a dot instead of splitting it', async () => {
+    const { call } = await setup();
+    // Both documents exist. Splitting on dots as well as slashes read
+    // `hosts/example/com` when `hosts/example.com` was asked for, and returned
+    // the wrong document with no indication anything had gone wrong.
+    await call('opa_put_data', { path: 'hosts', value: {} });
+    await call('opa_put_data', {
+      segments: ['hosts', 'example.com'],
+      value: { tier: 'dotted-key' },
+    });
+    await call('opa_put_data', {
+      path: 'hosts/example/com',
+      value: { tier: 'nested' },
+    });
+
+    const dottedKey = await call<{ result: { tier: string } }>('opa_get_data', {
+      path: 'hosts/example.com',
+    });
+    expect(dottedKey.ok, JSON.stringify(dottedKey.error)).toBe(true);
+    expect(dottedKey.data?.result.tier).toBe('dotted-key');
+
+    // The dotted spelling still means three segments.
+    const nested = await call<{ result: { tier: string } }>('opa_get_data', {
+      path: 'hosts.example.com',
+    });
+    expect(nested.data?.result.tier).toBe('nested');
+  });
+
+  it('round-trips keys holding characters that would end a URL path', async () => {
+    const { call } = await setup();
+    const keys = ['app.kubernetes.io/name', 'a?b', 'a#b', '100%', 'a b', 'caf\u00e9'];
+
+    for (const key of keys) {
+      const written = await call<{ segments: string[] }>('opa_put_data', {
+        segments: ['awkward', key],
+        value: { key },
+      });
+      expect(written.ok, `write ${key}: ${JSON.stringify(written.error)}`).toBe(true);
+      expect(written.data?.segments).toEqual(['awkward', key]);
+
+      const read = await call<{ result: { key: string } }>('opa_get_data', {
+        segments: ['awkward', key],
+      });
+      expect(read.ok, `read ${key}: ${JSON.stringify(read.error)}`).toBe(true);
+      expect(read.data?.result.key).toBe(key);
+    }
+
+    // The whole document confirms the keys were stored literally, not split.
+    const all = await call<{ result: Record<string, unknown> }>('opa_get_data', {
+      path: 'awkward',
+    });
+    expect(Object.keys(all.data?.result ?? {}).sort()).toEqual([...keys].sort());
+  });
+
+  it('deletes the key named, not a neighbour', async () => {
+    const { call } = await setup();
+    await call('opa_put_data', { segments: ['del', 'a.b'], value: 1 });
+    await call('opa_put_data', { segments: ['del', 'a'], value: { b: 2 } });
+
+    expect((await call('opa_delete_data', { path: 'del/a.b' })).ok).toBe(true);
+
+    const survivor = await call<{ result: unknown }>('opa_get_data', { path: 'del/a' });
+    expect(survivor.data?.result).toEqual({ b: 2 });
+  });
+
+  it('evaluates a decision under a package whose path is given either way', async () => {
+    const { call } = await setup();
+    const id = 'sep-decision';
+    await call('opa_put_policy', {
+      id,
+      source: 'package sep.check\nimport rego.v1\n\nallow := true\n',
+    });
+    for (const path of ['sep.check.allow', 'sep/check/allow']) {
+      const env = await call<{ result: unknown }>('opa_query_decision', { path });
+      expect(env.ok, `${path}: ${JSON.stringify(env.error)}`).toBe(true);
+      expect(env.data?.result).toBe(true);
+    }
+    const viaSegments = await call<{ result: unknown }>('opa_query_decision', {
+      segments: ['sep', 'check', 'allow'],
+    });
+    expect(viaSegments.data?.result).toBe(true);
+    await call('opa_delete_policy', { id });
+  });
+
+  it('patches the root of the data hierarchy when no path is given', async () => {
+    const { call } = await setup();
+    // The tool documented a root patch but rejected the empty path that was
+    // supposed to select it, and would have addressed `/v1/data/`, which OPA
+    // answers with a redirect rather than a patch.
+    const env = await call<{ segments: string[] }>('opa_patch_data', {
+      operations: [{ op: 'add', path: '/rootpatch', value: { added: true } }],
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.segments).toEqual([]);
+
+    const read = await call<{ result: unknown }>('opa_get_data', { path: 'rootpatch' });
+    expect(read.data?.result).toEqual({ added: true });
+  });
+
+  it('refuses a traversal out of the data prefix', async () => {
+    const { call } = await setup();
+    for (const path of ['../v1/config', '%2e%2e/v1/config', 'a/../../v1/config']) {
+      const env = await call('opa_get_data', { path });
+      expect(env.ok, path).toBe(false);
+      expect(env.error?.code, path).toBe('INVALID_INPUT');
+    }
+    expect((await call('opa_get_data', { segments: ['..', 'v1', 'config'] })).ok).toBe(false);
+  });
+
+  it('rejects a call that supplies both path and segments, or neither', async () => {
+    const { call } = await setup();
+    const both = await call('opa_get_data', { path: 'users', segments: ['users'] });
+    expect(both.error?.code).toBe('INVALID_INPUT');
+    const neither = await call('opa_get_data', {});
+    expect(neither.error?.code).toBe('INVALID_INPUT');
+  });
+});
+
 // ─── Policy listing stays within the response cap ─────────────────────────
 
 describe('policy listing size', () => {

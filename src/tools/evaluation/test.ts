@@ -97,9 +97,21 @@ export interface TestRecord {
   pass?: boolean;
   fail?: boolean;
   skip?: boolean;
+  /**
+   * Present when the test could not be evaluated: a conflicting rule, a
+   * built-in raising with strict errors, and so on. OPA sets this INSTEAD of
+   * `fail`, so a record carrying it is neither passed nor failed. Counting
+   * `total - failed - skipped` reported such a test as passing.
+   */
+  error?: { code?: string; message?: string; location?: unknown };
   duration?: number;
   trace?: unknown;
   output?: string;
+}
+
+/** A test that could not run is neither a pass nor a failure. */
+function isErrored(r: TestRecord): boolean {
+  return r.error !== undefined && r.error !== null;
 }
 
 interface CoverageRange {
@@ -133,6 +145,11 @@ export interface RegoTestOutput {
   failed: number;
   /** Number of skipped (todo_*) tests. Always 0 in coverage mode. */
   skipped: number;
+  /**
+   * Number of tests that could not be evaluated, each carrying `error` in its
+   * record. A suite with even one of these has not been proven to pass.
+   */
+  errored: number;
   /** Total test records. Always 0 in coverage mode. */
   total: number;
   /** Per-test records. Empty in coverage mode. */
@@ -162,7 +179,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
     {
       title: 'Run Rego tests',
       description:
-        "Run Rego unit tests with `opa test`. Returns aggregate pass/fail counts plus per-test records. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up automatically. Use `runPattern` to filter by name regex; when no tests match, the error hint includes the pattern you supplied. Use `threshold` to gate on minimum coverage (returns COVERAGE_BELOW_THRESHOLD on failure). Use `varValues: true` with `verbose: true` to include local variable bindings in the trace -- essential for debugging table-driven tests written with `every tc in cases { ... }` to identify which case caused a failure. When tests use the `test_X[case]` parametrized form, the output includes `parameterizedGroups` mapping each base test name to its case records. Use `ignorePatterns` to exclude generated or fixture files. Use `bundle: true` when testing bundle-structured policy directories. Use `timeout` to raise the per-test limit beyond OPA's default 5s. Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.",
+        "Run Rego unit tests with `opa test`. Returns aggregate pass/fail/skip/error counts plus per-test records. `errored` counts tests OPA could not evaluate (a rule conflict, a raising built-in); such a test is neither a pass nor a failure, and a suite with any is not passing. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up automatically. Use `runPattern` to filter by name regex; when no tests match, the error hint includes the pattern you supplied. Use `threshold` to gate on minimum coverage (returns COVERAGE_BELOW_THRESHOLD on failure). Use `varValues: true` with `verbose: true` to include local variable bindings in the trace -- essential for debugging table-driven tests written with `every tc in cases { ... }` to identify which case caused a failure. When tests use the `test_X[case]` parametrized form, the output includes `parameterizedGroups` mapping each base test name to its case records. Use `ignorePatterns` to exclude generated or fixture files. Use `bundle: true` when testing bundle-structured policy directories. Use `timeout` to raise the per-test limit beyond OPA's default 5s. Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.",
       inputSchema: RegoTestInput,
       annotations: {
         readOnlyHint: true,
@@ -256,6 +273,7 @@ function handleCoverageMode(
       passed: 0,
       failed: 0,
       skipped: 0,
+      errored: 0,
       total: 0,
       results: [],
       coverage: coverageData,
@@ -340,10 +358,13 @@ function handleTestRecordsMode(
   }
 
   // OPA does NOT emit `pass: true` for passing tests; only `fail: true` for
-  // failures and `skip: true` for todo_* tests. Derive passed count from total.
+  // failures, `skip: true` for todo_* tests, and `error` for a test that could
+  // not be evaluated. Passing is what is left after all three: subtracting only
+  // failures and skips counted an errored test as a pass.
   const failed = records.filter((r) => r.fail).length;
   const skipped = records.filter((r) => r.skip).length;
-  const passed = records.length - failed - skipped;
+  const errored = records.filter(isErrored).length;
+  const passed = records.length - failed - skipped - errored;
 
   // Group parametrized test cases. OPA names them like `test_X[{"key":"val"}]`;
   // extract the base name and bucket records for at-a-glance failure analysis.
@@ -363,6 +384,7 @@ function handleTestRecordsMode(
     passed,
     failed,
     skipped,
+    errored,
     total: records.length,
     results: records,
     ...(hasGroups ? { parameterizedGroups } : {}),
