@@ -16,7 +16,7 @@
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import type { Config } from '../config.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
@@ -245,6 +245,29 @@ function inlineConfigFilename(parser: string | undefined): string {
  * returned `SpawnResult` is the signal. Inline source is written to temp
  * files/directories because conftest does not read from stdin.
  */
+/**
+ * Split a policy directory into the directory to run from and the name to pass.
+ *
+ * `conftest pull` and `conftest push` resolve `--policy` against the working
+ * directory rather than treating an absolute path as absolute. On Windows pull
+ * fails outright, reporting a path of the form `.\\C:\\...`, and push drops the
+ * volume and reads from the same path on whichever drive it was started on. The
+ * tools resolve the caller's path against the allow-list before handing it over,
+ * so it is always absolute and neither command ever addressed the directory
+ * asked for. Running from the parent and passing the final component is
+ * unambiguous on every platform.
+ */
+function relativeToParent(
+  policy: string | undefined,
+): { parent: string; name: string } | undefined {
+  if (!policy) return undefined;
+  const parent = dirname(policy);
+  const name = basename(policy);
+  // A root such as `C:\\` or `/` has nothing to descend into.
+  if (name.length === 0 || parent === policy) return undefined;
+  return { parent, name };
+}
+
 export class ConftestCli {
   constructor(private readonly config: Config) {}
 
@@ -333,8 +356,9 @@ export class ConftestCli {
    */
   async pull(input: ConftestPullInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['pull', input.url];
-    if (input.policy) args.push('--policy', input.policy);
-    return this.run(args, signal);
+    const target = relativeToParent(input.policy);
+    if (target) args.push('--policy', target.name);
+    return this.run(args, signal, target?.parent);
   }
 
   /**
@@ -343,21 +367,23 @@ export class ConftestCli {
    */
   async push(input: ConftestPushInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['push', input.repository];
-    if (input.policy) args.push('--policy', input.policy);
-    return this.run(args, signal);
+    const target = relativeToParent(input.policy);
+    if (target) args.push('--policy', target.name);
+    return this.run(args, signal, target?.parent);
   }
 
   /**
    * Run `conftest` with the given argv. Tools should prefer the typed
    * methods above; this is the escape hatch for unusual invocations.
    */
-  async run(args: string[], signal?: AbortSignal): Promise<SpawnResult> {
+  async run(args: string[], signal?: AbortSignal, cwd?: string): Promise<SpawnResult> {
     const opts: Parameters<typeof runBinary>[1] = {
       args,
       timeoutMs: this.config.subprocessTimeoutMs,
       maxOutputBytes: this.config.maxSubprocessBytes,
     };
     if (signal !== undefined) opts.signal = signal;
+    if (cwd !== undefined) opts.cwd = cwd;
     return runBinary(this.config.conftestBinary, opts);
   }
 

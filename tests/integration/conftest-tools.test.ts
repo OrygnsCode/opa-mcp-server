@@ -264,3 +264,83 @@ describe('conftest_verify against the real conftest', () => {
     expect(env.error?.code).toBe('NO_TESTS_FOUND');
   });
 });
+
+describe('conftest_pull writes where it was told', () => {
+  // conftest resolves --policy against the working directory instead of
+  // honouring an absolute path. The tools resolve the caller's path against the
+  // allow-list first, so it is always absolute: on Windows the pull failed with
+  // a path of the form `.\\C:\\...`, and push read from the same path on
+  // whichever drive it happened to start on.
+  const URL = 'github.com/open-policy-agent/conftest//examples/kubernetes/policy';
+
+  it('pulls into the directory that was asked for', async (ctx) => {
+    if (!available) ctx.skip('conftest not available');
+    const dest = join(workDir, 'pulled');
+    const env = await callTool<{ policyDir: string }>(server, 'conftest_pull', {
+      url: URL,
+      policy: dest,
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.policyDir).toBe(dest);
+
+    const files = await readdir(dest);
+    expect(files.some((f) => f.endsWith('.rego'))).toBe(true);
+  }, 120_000);
+
+  it('creates a missing parent rather than failing', async (ctx) => {
+    if (!available) ctx.skip('conftest not available');
+    const dest = join(workDir, 'nested', 'deeper', 'pulled');
+    const env = await callTool<{ policyDir: string }>(server, 'conftest_pull', {
+      url: URL,
+      policy: dest,
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect((await readdir(dest)).some((f) => f.endsWith('.rego'))).toBe(true);
+  }, 120_000);
+
+  it('refuses a destination outside the allowed roots', async (ctx) => {
+    if (!available) ctx.skip('conftest not available');
+    const env = await callTool(server, 'conftest_pull', {
+      url: URL,
+      policy: join(tmpdir(), 'orygn-not-allowed'),
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  }, 60_000);
+
+  it('refuses the implicit default when it is outside the allowed roots', async (ctx) => {
+    if (!available) ctx.skip('conftest not available');
+    // Omitting `policy` used to mean conftest's own default, resolved against
+    // the server's working directory, and the pull wrote there unchecked. The
+    // tool documents that the policy directory must sit inside an allowed root;
+    // that has to hold for the implicit one too.
+    const env = await callTool(server, 'conftest_pull', { url: URL });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(env.error?.hint).toContain('OPA_MCP_ALLOWED_PATHS');
+  }, 60_000);
+});
+
+describe('conftest_push resolves its policy directory', () => {
+  it('refuses the implicit default when it is outside the allowed roots', async (ctx) => {
+    if (!available) ctx.skip('conftest not available');
+    const env = await callTool(server, 'conftest_push', { repository: '127.0.0.1:1/nope:v1' });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+  }, 60_000);
+
+  it('reads the directory it was given, not one on the current drive', async (ctx) => {
+    if (!available) ctx.skip('conftest not available');
+    // No registry is reachable, so this fails at the network. Reaching the
+    // network at all proves the policy directory was found and packaged; a
+    // mangled path fails earlier with a load error naming the wrong location.
+    const env = await callTool(server, 'conftest_push', {
+      repository: '127.0.0.1:1/nope:v1',
+      policy: passingPolicyDir,
+    });
+    expect(env.ok).toBe(false);
+    const detail = JSON.stringify(env.error);
+    expect(detail).not.toContain('loading policies');
+    expect(detail).toMatch(/dial tcp|connect|refused|no such host/i);
+  }, 60_000);
+});
