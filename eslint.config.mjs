@@ -15,6 +15,12 @@ export default [
       // Manual smoke / debug scripts — gitignored, never committed,
       // intentionally console-heavy for human-readable output.
       'smoke-*.mjs',
+      // Soundness fuzzer: an opt-in developer tool, console-heavy by design.
+      'scripts/verify-soundness-fuzz.mjs',
+      // Scratch directory. Already gitignored, but eslint does not read
+      // .gitignore, so a debugging session left here made `npm run lint` fail
+      // on an otherwise clean checkout.
+      '.tmp/**',
       // Cloudflare Worker -- uses Worker globals (URL, Response, fetch)
       // that are not Node globals; linting it as Node code produces false positives.
       'workers/**',

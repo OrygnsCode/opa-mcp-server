@@ -55,6 +55,52 @@ describe('opa_list_policies', () => {
     expect(init.method).toBe('GET');
   });
 
+  it('leaves out source and AST unless asked, and reports the count', async () => {
+    // OPA answers with the parsed AST alongside the source, and it dwarfs the
+    // text it came from, so a list of any real size hit the response cap and
+    // returned nothing but a notice telling the caller to narrow a scope this
+    // tool has no argument for.
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        result: [
+          { id: 'rbac', raw: 'package rbac', ast: { package: {}, rules: [] } },
+          { id: 'auth', raw: 'package auth', ast: { package: {}, rules: [] } },
+        ],
+      }),
+    );
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ policies: Array<Record<string, unknown>>; count: number }>(
+      server,
+      'opa_list_policies',
+      {},
+    );
+    expect(env.ok).toBe(true);
+    expect(env.data?.count).toBe(2);
+    expect(env.data?.policies).toEqual([{ id: 'rbac' }, { id: 'auth' }]);
+  });
+
+  it('includes source and AST when asked', async () => {
+    const result = [{ id: 'rbac', raw: 'package rbac', ast: { rules: [] } }];
+    fetchMock.mockResolvedValueOnce(okResponse({ result }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const withBoth = await callTool<{ policies: Array<Record<string, unknown>> }>(
+      server,
+      'opa_list_policies',
+      { includeSource: true, includeAst: true },
+    );
+    expect(withBoth.data?.policies[0]).toEqual(result[0]);
+
+    fetchMock.mockResolvedValueOnce(okResponse({ result }));
+    const sourceOnly = await callTool<{ policies: Array<Record<string, unknown>> }>(
+      server,
+      'opa_list_policies',
+      { includeSource: true },
+    );
+    expect(sourceOnly.data?.policies[0]).toEqual({ id: 'rbac', raw: 'package rbac' });
+  });
+
   it('maps connection failure to OPA_UNREACHABLE', async () => {
     fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     const server = makeServer();
@@ -87,6 +133,24 @@ describe('opa_get_policy', () => {
 
     const { url } = lastFetchCall();
     expect(url).toBe('http://localhost:8181/v1/policies/auth%2Fmain');
+  });
+
+  it('returns the source without the AST unless asked', async () => {
+    const record = { id: 'rbac', raw: 'package rbac', ast: { rules: [{ head: {} }] } };
+    fetchMock.mockResolvedValueOnce(okResponse({ result: record }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ policy: Record<string, unknown> }>(server, 'opa_get_policy', {
+      id: 'rbac',
+    });
+    expect(env.data?.policy).toEqual({ id: 'rbac', raw: 'package rbac' });
+
+    fetchMock.mockResolvedValueOnce(okResponse({ result: record }));
+    const withAst = await callTool<{ policy: Record<string, unknown> }>(server, 'opa_get_policy', {
+      id: 'rbac',
+      includeAst: true,
+    });
+    expect(withAst.data?.policy).toEqual(record);
   });
 
   it('maps 404 to POLICY_NOT_FOUND', async () => {
