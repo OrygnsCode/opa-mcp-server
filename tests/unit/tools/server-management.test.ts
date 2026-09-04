@@ -659,17 +659,46 @@ describe('opa_health', () => {
     expect(env.error?.code).toBe('OPA_UNREACHABLE');
   });
 
-  it('reports unhealthy with a non-Unreachable error (e.g. /health 503)', async () => {
-    // /health responses below 2xx are propagated as OpaHttpError, which
-    // is NOT OpaUnreachableError — opa_health has a special branch that
-    // maps these to OPA_UNREACHABLE with an "OPA reported unhealthy"
-    // message rather than the generic mapping.
-    fetchMock.mockResolvedValueOnce(okResponse({ status: 'unhealthy' }, { status: 503 }));
+  it('reports a reachable but unhealthy server as a result, not an error', async () => {
+    // A server that answers is reachable. Reporting an unactivated bundle as
+    // OPA_UNREACHABLE told the caller to go start a server already running,
+    // and the `healthy: false` the output type allows was unreachable.
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ error: 'one or more bundles are not activated' }, { status: 500 }),
+    );
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ healthy: boolean; reason?: string }>(server, 'opa_health', {
+      bundles: true,
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.healthy).toBe(false);
+    expect(env.data?.reason).toBe('one or more bundles are not activated');
+  });
+
+  it('still reports an unreachable server as OPA_UNREACHABLE', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const env = await callTool(server, 'opa_health', {});
     expect(env.error?.code).toBe('OPA_UNREACHABLE');
-    expect(env.error?.message).toMatch(/unhealthy/i);
+  });
+
+  it('reports a 401 as an authentication failure, not a health result', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ error: 'unauthorized' }, { status: 401 }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_health', {});
+    expect(env.error?.code).toBe('OPA_AUTH_FAILED');
+  });
+
+  it('reports unhealthy without a reason when OPA gives no body', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({}, { status: 503 }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ healthy: boolean; reason?: string }>(server, 'opa_health', {});
+    expect(env.ok).toBe(true);
+    expect(env.data?.healthy).toBe(false);
   });
 
   it('forwards both bundles and plugins when both are set', async () => {
@@ -683,6 +712,47 @@ describe('opa_health', () => {
   });
 });
 
+describe('service header redaction', () => {
+  // OPA drops the `credentials` block from GET /v1/config but returns
+  // `headers` verbatim, and a header is the ordinary place to put an API key.
+  const configDoc = {
+    result: {
+      services: {
+        s1: {
+          url: 'https://bundles.example.com',
+          headers: { Authorization: 'Bearer live-token', 'X-Api-Key': 'live-key' },
+        },
+        s2: { url: 'https://other.example.com' },
+      },
+      bundles: { authz: { service: 's1' } },
+    },
+  };
+
+  for (const tool of ['opa_config', 'opa_status'] as const) {
+    it(`${tool} redacts header values and keeps the names`, async () => {
+      fetchMock.mockResolvedValueOnce(okResponse(configDoc));
+      const server = makeServer();
+      registerServerManagementTools(server, baseConfig);
+      const env = await callTool<Record<string, unknown>>(server, tool, {});
+      const text = JSON.stringify(env.data);
+      expect(text).not.toContain('live-token');
+      expect(text).not.toContain('live-key');
+      expect(text).toContain('Authorization');
+      expect(text).toContain('X-Api-Key');
+      expect(text).toContain('https://bundles.example.com');
+      expect(text).toContain('https://other.example.com');
+      expect(text).toContain('authz');
+    });
+  }
+
+  it('leaves a document with no services alone', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ result: { labels: { id: 'x' } } }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ config: unknown }>(server, 'opa_config', {});
+    expect(env.data?.config).toEqual({ labels: { id: 'x' } });
+  });
+});
 describe('opa_status and opa_config', () => {
   it('opa_status fetches /v1/config and returns the result under the status key', async () => {
     const configBody = {

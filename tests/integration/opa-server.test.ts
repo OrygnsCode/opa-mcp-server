@@ -575,3 +575,32 @@ allow if {
     await call('opa_delete_policy', { id });
   });
 });
+
+// ─── Health and config truthfulness ───────────────────────────────────
+
+describe('opa_health against a reachable server', () => {
+  it('reports healthy for the running server', async () => {
+    const { call } = await setup();
+    const env = await call<{ healthy: boolean }>('opa_health', {});
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.healthy).toBe(true);
+  });
+
+  it('reports OPA_UNREACHABLE only when the server really is unreachable', async () => {
+    const { call } = await setup({ opaUrl: 'http://127.0.0.1:1' });
+    const env = await call('opa_health', {});
+    expect(env.error?.code).toBe('OPA_UNREACHABLE');
+  });
+});
+
+describe('opa_config redaction', () => {
+  it('keeps the rest of the document intact', async () => {
+    // The seeded server configures no services, so this checks the redaction
+    // leaves an ordinary config alone. The header case is covered by unit
+    // tests, which can supply a config without restarting OPA.
+    const { call } = await setup();
+    const env = await call<{ config: { labels?: { version?: string } } }>('opa_config', {});
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.config.labels?.version).toBeTruthy();
+  });
+});
