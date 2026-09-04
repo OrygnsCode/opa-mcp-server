@@ -13,6 +13,15 @@ import { z } from 'zod';
 import { resolveOpaBinary } from './lib/resolve-binary.js';
 import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
 
+/**
+ * Node clamps a timer of 2^31 ms or more to 1 ms, with only a process warning.
+ * A large value reads as "effectively no timeout" and produced the opposite:
+ * every subprocess and every HTTP call timed out immediately.
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+const TIMER_TOO_LARGE =
+  'Timeout must be below 2147483647 ms (about 24 days). Node clamps anything larger to 1 ms, which times out every call immediately.';
+
 const ConfigSchema = z.object({
   /** Base URL of a running OPA server (used by `opa_*` runtime tools). */
   opaUrl: z
@@ -36,10 +45,20 @@ const ConfigSchema = z.object({
   conftestBinary: z.string().default('conftest'),
 
   /** Hard timeout in ms for any spawned subprocess (opa, regal). */
-  subprocessTimeoutMs: z.coerce.number().int().positive().default(30_000),
+  subprocessTimeoutMs: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_TIMER_MS, TIMER_TOO_LARGE)
+    .default(30_000),
 
   /** HTTP request timeout for OPA REST API calls. */
-  httpTimeoutMs: z.coerce.number().int().positive().default(15_000),
+  httpTimeoutMs: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_TIMER_MS, TIMER_TOO_LARGE)
+    .default(15_000),
 
   /**
    * Allow-listed root directories for file path inputs. Tools that accept
@@ -119,22 +138,37 @@ const ENV_VAR_NAMES: Record<string, string> = {
   maxSubprocessBytes: 'OPA_MCP_MAX_SUBPROCESS_BYTES',
 };
 
+/**
+ * Read an environment variable, treating an empty or blank value as unset.
+ *
+ * A shell that expands an unset variable leaves an empty string behind, and
+ * `OPA_BINARY=""` was taken as a real path: it is not the literal default
+ * `opa`, so binary resolution skipped the bundled build and every tool call
+ * tried to spawn nothing. Blank means "not configured" for every variable here.
+ */
+function env(name: string): string | undefined {
+  const raw = process.env[name];
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function loadConfig(): Config {
   const allowedPaths = parseAllowedPaths(process.env['OPA_MCP_ALLOWED_PATHS']);
 
   const parsed = ConfigSchema.safeParse({
-    opaUrl: process.env['OPA_URL'],
-    opaToken: process.env['OPA_TOKEN'],
-    opaBinary: process.env['OPA_BINARY'],
-    regalBinary: process.env['REGAL_BINARY'],
-    conftestBinary: process.env['CONFTEST_BINARY'],
-    subprocessTimeoutMs: process.env['OPA_MCP_TIMEOUT_MS'],
-    httpTimeoutMs: process.env['OPA_MCP_HTTP_TIMEOUT_MS'],
+    opaUrl: env('OPA_URL'),
+    opaToken: env('OPA_TOKEN'),
+    opaBinary: env('OPA_BINARY'),
+    regalBinary: env('REGAL_BINARY'),
+    conftestBinary: env('CONFTEST_BINARY'),
+    subprocessTimeoutMs: env('OPA_MCP_TIMEOUT_MS'),
+    httpTimeoutMs: env('OPA_MCP_HTTP_TIMEOUT_MS'),
     allowedPaths,
-    logFile: process.env['OPA_MCP_LOG_FILE'],
-    logLevel: process.env['OPA_MCP_LOG_LEVEL'],
-    maxResponseBytes: process.env['OPA_MCP_MAX_RESPONSE_BYTES'],
-    maxSubprocessBytes: process.env['OPA_MCP_MAX_SUBPROCESS_BYTES'],
+    logFile: env('OPA_MCP_LOG_FILE'),
+    logLevel: env('OPA_MCP_LOG_LEVEL'),
+    maxResponseBytes: env('OPA_MCP_MAX_RESPONSE_BYTES'),
+    maxSubprocessBytes: env('OPA_MCP_MAX_SUBPROCESS_BYTES'),
   });
 
   if (!parsed.success) {

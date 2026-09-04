@@ -184,6 +184,17 @@ not part of the public surface and may change in minor releases.
   `opa_undefined_error`, which under a `deny`-style policy reads as a clean
   pass. Both spellings are now converted to the path OPA expects, and a
   reference with nothing left to name is rejected as `INVALID_INPUT`.
+- An empty or blank environment variable was treated as a real value.
+  `OPA_BINARY=""`, which is what a shell leaves behind when it expands an
+  unset variable, is not the literal default `opa`, so binary resolution
+  skipped the bundled build and every `rego_*` call tried to spawn nothing.
+  Blank now means unset for every variable the server reads, and values are
+  trimmed.
+- `OPA_MCP_TIMEOUT_MS` and `OPA_MCP_HTTP_TIMEOUT_MS` accepted values Node
+  cannot represent. A timer of 2147483648 ms or more is clamped to 1 ms with
+  only a process warning, so a large value set to mean "effectively no
+  timeout" timed out every subprocess and every HTTP call immediately. Values
+  above 2147483647 are now refused at startup with a message saying why.
 
 ### Added
 

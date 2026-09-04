@@ -162,6 +162,62 @@ describe('loadConfig — OPA_MCP_ALLOWED_PATHS parsing', () => {
   });
 });
 
+describe('loadConfig - blank environment values mean unset', () => {
+  it('falls back to the default binary when the variable is empty', () => {
+    // A shell expanding an unset variable leaves an empty string. It is not
+    // the literal default `opa`, so binary resolution skipped the bundled
+    // build and every tool call tried to spawn nothing.
+    process.env['OPA_BINARY'] = '';
+    process.env['REGAL_BINARY'] = '   ';
+    const config = loadConfig();
+    expect(config.opaBinary).toBe('opa');
+    expect(config.regalBinary).toBe('regal');
+  });
+
+  it('falls back to default timeouts and URL when the variables are blank', () => {
+    process.env['OPA_MCP_TIMEOUT_MS'] = '';
+    process.env['OPA_MCP_HTTP_TIMEOUT_MS'] = '  ';
+    process.env['OPA_URL'] = '';
+    const config = loadConfig();
+    expect(config.subprocessTimeoutMs).toBe(30_000);
+    expect(config.httpTimeoutMs).toBe(15_000);
+    expect(config.opaUrl).toBe('http://localhost:8181');
+  });
+
+  it('trims a value that is otherwise real', () => {
+    process.env['OPA_MCP_TIMEOUT_MS'] = '  5000  ';
+    expect(loadConfig().subprocessTimeoutMs).toBe(5_000);
+  });
+});
+
+describe('loadConfig - a timeout Node cannot represent', () => {
+  const expectExit = (): void => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      throw new Error('process.exit called');
+    }) as never);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => loadConfig()).toThrow('process.exit called');
+    expect(exitSpy).toHaveBeenCalledWith(2);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('2147483647'));
+  };
+
+  it('refuses a subprocess timeout of 2^31 ms or more', () => {
+    // Node clamps such a timer to 1 ms with only a process warning, so a value
+    // meant as `effectively no timeout` timed out every call immediately.
+    process.env['OPA_MCP_TIMEOUT_MS'] = '2147483648';
+    expectExit();
+  });
+
+  it('refuses an HTTP timeout of 2^31 ms or more', () => {
+    process.env['OPA_MCP_HTTP_TIMEOUT_MS'] = '99999999999';
+    expectExit();
+  });
+
+  it('accepts the largest timer Node can represent', () => {
+    process.env['OPA_MCP_TIMEOUT_MS'] = '2147483647';
+    expect(loadConfig().subprocessTimeoutMs).toBe(2_147_483_647);
+  });
+});
 describe('loadConfig — validation failures', () => {
   it('exits with code 2 when OPA_URL is not a valid URL', () => {
     process.env['OPA_URL'] = 'not-a-url';
