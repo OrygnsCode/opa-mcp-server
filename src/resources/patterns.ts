@@ -103,10 +103,24 @@ import rego.v1
 
 default allow := false
 
+# Don't show "secret" resources to anyone outside the owner's
+# organization, even admins.
+#
+# Written as a guard the permissive rules consult. A second rule
+# assigning \`allow := false\` is a conflict in Rego, not an override:
+# both rules produce a value for the same document and evaluation
+# fails with eval_conflict_error. Deny wins by being a precondition,
+# not by being written last.
+hidden_from_other_org if {
+    input.resource.classification == "secret"
+    input.resource.org_id != input.user.org_id
+}
+
 # A user can read any resource they own.
 allow if {
     input.action == "read"
     input.resource.owner_id == input.user.id
+    not hidden_from_other_org
 }
 
 # A user can read shared resources at their organization.
@@ -114,19 +128,14 @@ allow if {
     input.action == "read"
     input.resource.shared
     input.resource.org_id == input.user.org_id
+    not hidden_from_other_org
 }
 
 # Admins can do anything within their organization.
 allow if {
     "admin" in input.user.roles
     input.resource.org_id == input.user.org_id
-}
-
-# Don't show "secret" resources to anyone outside the owner's
-# organization, even admins.
-allow := false if {
-    input.resource.classification == "secret"
-    input.resource.org_id != input.user.org_id
+    not hidden_from_other_org
 }
 \`\`\`
 
@@ -160,8 +169,12 @@ test_admin_blocked_from_secret_in_other_org if {
 \`\`\`
 
 **Pitfalls:**
-- Multiple \`allow\` rules combine with logical OR. Use explicit
-  \`allow := false if ...\` to *override* an allow.
+- Multiple \`allow\` rules combine with logical OR. A later rule
+  cannot override an earlier one by assigning a different value:
+  two rules producing different values for the same document is an
+  \`eval_conflict_error\` and evaluation fails. Express a denial as a
+  condition the permissive rules must pass, as \`hidden_from_other_org\`
+  does above.
 - Don't compute attributes inside the policy; compute them at the
   boundary and pass via \`input\`.
 

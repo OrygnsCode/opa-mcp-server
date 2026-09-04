@@ -19,6 +19,13 @@ not part of the public surface and may change in minor releases.
 
 ### Fixed
 
+- The ABAC example in the `opa://patterns` resource failed to evaluate on the
+  case it exists to handle. It expressed "hide secret resources from other
+  organizations" as a second rule assigning `allow := false`, which in Rego is a
+  conflict rather than an override: a user reading their own secret resource
+  from another organization got `eval_conflict_error` instead of a denial. The
+  denial is now a condition the permissive rules consult. The pitfalls list,
+  which recommended the broken form, says why it does not work.
 - The Terraform example in the `opa://patterns` resource did not reject a
   full-admin IAM policy. It tested `"*" in statement.Action`, which requires
   `Action` to be a collection, and AWS accepts a bare string there, in

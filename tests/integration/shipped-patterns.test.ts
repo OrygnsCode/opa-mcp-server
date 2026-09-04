@@ -76,6 +76,30 @@ async function denialsFor(policyDocument: unknown): Promise<string[]> {
   return parsed.result?.[0]?.expressions?.[0]?.value ?? [];
 }
 
+/** Evaluate one shipped package against an input document. */
+async function evaluate(packageName: string, query: string, input: unknown): Promise<unknown> {
+  const block = regoBlocks(PATTERNS).find((b) => b.includes(`package ${packageName}\n`));
+  expect(block, `the ${packageName} example must be present`).toBeDefined();
+  const policyFile = join(workDir, `${packageName}.rego`);
+  await writeFile(policyFile, block!);
+  const inputFile = join(workDir, `${packageName}-input.json`);
+  await writeFile(inputFile, JSON.stringify(input));
+
+  const r = spawnSync(OPA, ['eval', '-d', policyFile, '-i', inputFile, '--format', 'json', query], {
+    cwd: workDir,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const parsed = JSON.parse(r.stdout) as {
+    errors?: Array<{ code?: string; message?: string }>;
+    result?: Array<{ expressions?: Array<{ value?: unknown }> }>;
+  };
+  if (parsed.errors?.length) {
+    throw new Error(`${parsed.errors[0]!.code}: ${parsed.errors[0]!.message}`);
+  }
+  return parsed.result?.[0]?.expressions?.[0]?.value;
+}
+
 const admin = (action: unknown, resource: unknown) => ({
   Version: '2012-10-17',
   Statement: [{ Effect: 'Allow', Action: action, Resource: resource }],
@@ -144,5 +168,65 @@ describe('the Terraform IAM example rejects a full-admin policy', () => {
       Statement: [{ Effect: 'Deny', Action: '*', Resource: '*' }],
     });
     expect(denials).toEqual([]);
+  }, 30_000);
+});
+
+describe('the ABAC example denies rather than failing to evaluate', () => {
+  // The example carries a rule meant to hide "secret" resources from anyone
+  // outside the owning organization. Expressed as a second rule assigning
+  // `allow := false`, it was a conflict rather than an override: reading your
+  // own secret resource from another organization produced
+  // eval_conflict_error instead of a denial, which is exactly the case the
+  // comment says the rule exists for.
+  const evalAllow = (input: unknown) => evaluate('abac', 'data.abac.allow', input);
+
+  it('denies the owner of a secret resource in another organization', async () => {
+    await expect(
+      evalAllow({
+        action: 'read',
+        user: { id: 'u1', org_id: 'o1', roles: [] },
+        resource: { owner_id: 'u1', org_id: 'o2', classification: 'secret' },
+      }),
+    ).resolves.toBe(false);
+  }, 30_000);
+
+  it('denies an admin looking at a secret resource in another organization', async () => {
+    await expect(
+      evalAllow({
+        action: 'read',
+        user: { id: 'u2', org_id: 'o1', roles: ['admin'] },
+        resource: { owner_id: 'u1', org_id: 'o2', classification: 'secret' },
+      }),
+    ).resolves.toBe(false);
+  }, 30_000);
+
+  it('still allows an owner reading their own resource', async () => {
+    await expect(
+      evalAllow({
+        action: 'read',
+        user: { id: 'u1', org_id: 'o1', roles: [] },
+        resource: { owner_id: 'u1', org_id: 'o1' },
+      }),
+    ).resolves.toBe(true);
+  }, 30_000);
+
+  it('still allows an admin within their own organization, secret included', async () => {
+    await expect(
+      evalAllow({
+        action: 'read',
+        user: { id: 'u2', org_id: 'o1', roles: ['admin'] },
+        resource: { owner_id: 'u1', org_id: 'o1', classification: 'secret' },
+      }),
+    ).resolves.toBe(true);
+  }, 30_000);
+
+  it('still allows a shared resource within the organization', async () => {
+    await expect(
+      evalAllow({
+        action: 'read',
+        user: { id: 'u2', org_id: 'o1', roles: [] },
+        resource: { owner_id: 'u1', org_id: 'o1', shared: true },
+      }),
+    ).resolves.toBe(true);
   }, 30_000);
 });
