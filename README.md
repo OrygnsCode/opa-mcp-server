@@ -444,8 +444,8 @@ YAML/JSON/HCL/TOML/INI against Rego policies using
 
 | Tool              | What it does                                                                                                                                                                                                                              |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `conftest_test`   | Evaluate configuration files against policies with `conftest test`. Accepts file paths or `inlineConfig` (inline YAML/JSON/HCL/etc) and `policy` path or `inlinePolicy` source. Returns per-file pass/fail/warn results and a summary.    |
-| `conftest_verify` | Run `test_*` rules inside `*_test.rego` files to verify the policies themselves are correct. Equivalent to `opa test` but using conftest's policy-loading machinery.                                                                      |
+| `conftest_test`   | Evaluate config files or an inline document against Rego policies with `conftest test`. Per-file, per-namespace results with arrays always present, and a summary that counts files by name. Parser names are a closed set.               |
+| `conftest_verify` | Run the `test_*` rules in a conftest policy directory with `conftest verify`. Reports per-rule results and `NO_TESTS_FOUND` when there are none.                                                                                          |
 | `conftest_pull`   | Pull a policy bundle from an OCI registry or Git repo into a local directory with `conftest pull`. The target directory need not exist; conftest creates it.                                                                              |
 | `conftest_push`   | Package a local policy directory as an OCI artifact and push to a registry with `conftest push`. Registry credentials come from the host environment (`docker login`, ORAS keychain, etc.) -- credentials are never passed through tools. |
 

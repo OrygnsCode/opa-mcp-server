@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 
 import type { Config } from '../../src/config.js';
-import { ConftestCli } from '../../src/lib/conftest-cli.js';
+import { ConftestCli, parseConftestResults } from '../../src/lib/conftest-cli.js';
 
 const CONFTEST_BINARY = process.env['CONFTEST_BINARY'] ?? 'conftest';
 const FIXTURES = join(__dirname, '..', 'fixtures', 'conftest');
@@ -73,9 +73,12 @@ describe('ConftestCli integration', () => {
       });
 
       expect(result.exitCode).toBe(0);
-      const parsed = JSON.parse(result.stdout) as Array<{ failures: unknown[] }>;
-      expect(Array.isArray(parsed)).toBe(true);
-      for (const r of parsed) {
+      // conftest omits every empty array, so the raw JSON has no `failures`
+      // key here; parseConftestResults restores the arrays.
+      const parsed = parseConftestResults(result.stdout);
+      expect(parsed).not.toBeNull();
+      expect(parsed!.length).toBeGreaterThan(0);
+      for (const r of parsed!) {
         expect(r.failures).toHaveLength(0);
       }
     }, 15_000);
@@ -199,9 +202,9 @@ spec:
       const result = await cli.verify({ policy: POLICY_DIR });
 
       expect(result.exitCode).toBe(0);
-      const parsed = JSON.parse(result.stdout) as Array<{ failures: unknown[] }>;
-      expect(Array.isArray(parsed)).toBe(true);
-      for (const r of parsed) {
+      const parsed = parseConftestResults(result.stdout);
+      expect(parsed).not.toBeNull();
+      for (const r of parsed!) {
         expect(r.failures).toHaveLength(0);
       }
     }, 15_000);
@@ -214,13 +217,16 @@ spec:
       // Output should be parseable JSON array
       const parsed = JSON.parse(result.stdout);
       expect(Array.isArray(parsed)).toBe(true);
-      // Each entry should have the standard conftest result shape
+      // Each entry has the conftest result shape. The arrays are omitempty:
+      // a passing entry carries no `failures` key, which is exactly why the
+      // tools normalise the output before reading it.
       if (parsed.length > 0) {
         const entry = parsed[0] as Record<string, unknown>;
         expect(entry).toHaveProperty('filename');
         expect(entry).toHaveProperty('namespace');
         expect(entry).toHaveProperty('successes');
-        expect(entry).toHaveProperty('failures');
+        const normalised = parseConftestResults(result.stdout)!;
+        expect(Array.isArray(normalised[0]!.failures)).toBe(true);
       }
     }, 15_000);
   });
