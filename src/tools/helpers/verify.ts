@@ -44,7 +44,11 @@ export function registerRegoVerify(server: McpServer, config: Config): void {
         'Supports equality, comparison, startswith, endswith, contains, and simple regex.match patterns ' +
         '(prefix: ^lit.*, suffix: .*lit$, exact: ^lit$, contains: .*lit.*, wildcard: .*). ' +
         'Complex regex patterns (character classes, quantifiers, alternation) return INCONCLUSIVE. ' +
-        'Also reports INCONCLUSIVE for negation-as-failure (not), comprehensions, and other unsupported constructs.',
+        'Also reports INCONCLUSIVE for negation-as-failure (not), comprehensions, partial set and ' +
+        'object rules (deny contains msg), functions, else chains, and any operand it cannot encode. ' +
+        'A body that reads an absent field is undefined rather than true, so always_true holds only ' +
+        'if the rule is also true for an empty input: a rule requiring input.x will be answered with ' +
+        'the counterexample {}.',
       inputSchema: RegoVerifyInput,
       annotations: {
         readOnlyHint: true,

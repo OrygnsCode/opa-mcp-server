@@ -85,6 +85,47 @@ describe('getInstallId()', () => {
     expect(result).toBeNull();
   });
 
+  it('creates a brand-new file exclusively, so two first runs cannot both claim it', async () => {
+    const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    mockFs.readFile.mockRejectedValueOnce(enoent);
+    mockFs.mkdir.mockResolvedValueOnce(undefined);
+    mockFs.writeFile.mockResolvedValueOnce(undefined);
+
+    const getInstallId = await load();
+    await getInstallId();
+
+    expect(mockFs.writeFile).toHaveBeenCalledWith(FAKE_ID_FILE, expect.any(String), { flag: 'wx' });
+  });
+
+  it('repairs an empty file instead of failing forever on the exclusive flag', async () => {
+    // A zero-byte file (crash or full disk during first run) used to be a
+    // permanent trap: `wx` failed because the file existed, the fallback read
+    // found no id, and the install pinged without one on every start.
+    mockFs.readFile.mockResolvedValueOnce('');
+    mockFs.mkdir.mockResolvedValueOnce(undefined);
+    mockFs.writeFile.mockResolvedValueOnce(undefined);
+
+    const getInstallId = await load();
+    const result = await getInstallId();
+
+    expect(result).toMatch(UUID_RE);
+    expect(mockFs.writeFile).toHaveBeenCalledWith(FAKE_ID_FILE, expect.any(String), { flag: 'w' });
+    // The id it returns is the one it wrote. Call history is shared across
+    // tests in this file, so take this test's own call.
+    const written = mockFs.writeFile.mock.calls.at(-1)![1] as string;
+    expect(written).toContain(result!);
+  });
+
+  it('repairs a file that holds only comments', async () => {
+    mockFs.readFile.mockResolvedValueOnce('# opa-mcp install ID\n#\n');
+    mockFs.mkdir.mockResolvedValueOnce(undefined);
+    mockFs.writeFile.mockResolvedValueOnce(undefined);
+
+    const getInstallId = await load();
+    expect(await getInstallId()).toMatch(UUID_RE);
+    expect(mockFs.writeFile).toHaveBeenCalledWith(FAKE_ID_FILE, expect.any(String), { flag: 'w' });
+  });
+
   it('ignores lines that are not valid UUIDs and returns null for a corrupt file', async () => {
     mockFs.readFile.mockResolvedValueOnce('# comment\nnot-a-uuid\n');
     // writeFile will succeed for the re-creation attempt

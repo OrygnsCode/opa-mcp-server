@@ -23,6 +23,7 @@ import {
   fixturePath,
   fixturesDir,
   makeServer,
+  resolvedArgs,
   spawnFailure,
   spawnSuccess,
   spawnTimedOut,
@@ -217,12 +218,14 @@ describe('rego_test_multiroot (explicit mode)', () => {
       roots: [{ path: root1(), include: [sharedLib()] }],
     });
 
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args.indexOf('test')).toBeGreaterThanOrEqual(0);
-    expect(args).toContain(root1());
-    expect(args).toContain(sharedLib());
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args.indexOf('test')).toBeGreaterThanOrEqual(0);
+    // A load path may be spelled relative to the call's working directory.
+    const resolved = resolvedArgs(call);
+    expect(resolved).toContain(root1());
+    expect(resolved).toContain(sharedLib());
     // root path must appear before include path.
-    expect(args.indexOf(root1())).toBeLessThan(args.indexOf(sharedLib()));
+    expect(resolved.indexOf(root1())).toBeLessThan(resolved.indexOf(sharedLib()));
     // include paths propagate to the result.
     expect(env.data?.roots[0]!.include).toContain(sharedLib());
   });
@@ -411,9 +414,9 @@ describe('rego_test_multiroot (scan mode)', () => {
     // Only subA is a discovered root (realShared is excluded from discovery).
     expect(env.data?.rootsRun).toBe(1);
     // realShared is included in the opa test invocation for subA.
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).toContain(subA);
-    expect(args).toContain(realShared);
+    const resolvedShared = resolvedArgs(mockRun.mock.calls[0]![1]);
+    expect(resolvedShared).toContain(subA);
+    expect(resolvedShared).toContain(realShared);
   });
 
   it('skips directories that resolve outside scanDir via symlink', async () => {
@@ -578,5 +581,34 @@ describe('rego_test_multiroot (scan mode)', () => {
     // node_modules should never have been read.
     const readdirPaths = mockReaddir.mock.calls.map((c) => c[0] as string);
     expect(readdirPaths).not.toContain(nodeModules);
+  });
+});
+
+describe('rego_test_multiroot errored records', () => {
+  it('aggregates errored separately from passed', async () => {
+    // One root, two tests: one passes, one carries `error` and no `fail`.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        2,
+        '',
+        JSON.stringify([
+          { name: 'test_ok', duration: 1 },
+          { name: 'test_conflict', error: { code: 'eval_conflict_error', message: 'x' } },
+        ]),
+      ),
+    );
+    const server = makeServer();
+    registerRegoTestMultiroot(server, baseConfig);
+    const env = await callTool<{
+      totalPassed: number;
+      totalErrored: number;
+      totalTests: number;
+      roots: Array<{ passed: number; errored: number }>;
+    }>(server, 'rego_test_multiroot', { roots: [{ path: root1() }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.totalPassed).toBe(1);
+    expect(env.data?.totalErrored).toBe(1);
+    expect(env.data?.totalTests).toBe(2);
+    expect(env.data?.roots[0]).toMatchObject({ passed: 1, errored: 1 });
   });
 });
