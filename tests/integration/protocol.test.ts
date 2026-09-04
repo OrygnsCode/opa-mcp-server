@@ -256,6 +256,19 @@ describe('tools/call', () => {
     expect(text?.text).toMatch(/(Invalid|expected|string)/i);
   });
 
+  it('rejects a conftest parser name outside the closed set via the SDK Zod layer', async () => {
+    // The parser name chooses a temp file name, so the schema must not
+    // accept free text for it.
+    const { client } = await buildServerAndClient();
+    const result = await client.callTool({
+      name: 'conftest_test',
+      arguments: { inlineConfig: 'kind: Good', inlineConfigParser: '../../../escaped' },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ type: string; text?: string }>)[0];
+    expect(text?.text).toMatch(/(Invalid|expected|enum)/i);
+  });
+
   it('rejects empty source via Zod min-length validation', async () => {
     const { client } = await buildServerAndClient();
     const result = await client.callTool({

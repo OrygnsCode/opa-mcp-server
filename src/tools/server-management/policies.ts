@@ -18,6 +18,26 @@ interface OpaPolicyRecord {
   ast?: unknown;
 }
 
+/**
+ * Drop the parts of a policy record the caller did not ask for.
+ *
+ * OPA answers the policy endpoints with the parsed AST alongside the source,
+ * and the AST is far larger than the text it came from: a 477-byte policy comes
+ * back as a 19 KB response once the envelope is indented. Returning it by
+ * default pushed a list of any real size past the response cap, and the cap's
+ * advice to narrow the scope was unfollowable because the list tool takes no
+ * arguments.
+ */
+function trimPolicy(
+  record: OpaPolicyRecord,
+  opts: { source: boolean; ast: boolean },
+): OpaPolicyRecord {
+  const trimmed: OpaPolicyRecord = { id: record.id };
+  if (opts.source && record.raw !== undefined) trimmed.raw = record.raw;
+  if (opts.ast && record.ast !== undefined) trimmed.ast = record.ast;
+  return trimmed;
+}
+
 export function registerPolicyTools(server: McpServer, config: Config): void {
   const opa = new OpaClient(config);
 
@@ -26,8 +46,21 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
     {
       title: 'List OPA policies',
       description:
-        'List policies registered on the running OPA server. Returns an array of `{ id, raw, ast }` records.',
-      inputSchema: {},
+        'List policies registered on the running OPA server. Returns the policy IDs and a count. Set `includeSource` for the Rego text of every policy, or `includeAst` for the parsed AST of every policy; both are off by default because either one pushes a list of any real size past the response cap.',
+      inputSchema: {
+        includeSource: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include each policy's Rego source. Off by default: fetch one policy with `opa_get_policy` rather than every policy at once.",
+          ),
+        includeAst: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include each policy's parsed AST. Off by default; it is roughly forty times the size of the source and will exceed the response cap on all but the smallest servers.",
+          ),
+      },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -35,15 +68,21 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async (_input, { signal }) => {
-      return withToolEnvelope<{ policies: OpaPolicyRecord[] }>(config, async () => {
+    async ({ includeSource, includeAst }, { signal }) => {
+      return withToolEnvelope<{ policies: OpaPolicyRecord[]; count: number }>(config, async () => {
         try {
           const data = await opa.request<{ result: OpaPolicyRecord[] }>({
             method: 'GET',
             path: '/v1/policies',
             signal,
           });
-          return ok({ policies: data.result ?? [] });
+          const records = data.result ?? [];
+          return ok({
+            policies: records.map((r) =>
+              trimPolicy(r, { source: includeSource === true, ast: includeAst === true }),
+            ),
+            count: records.length,
+          });
         } catch (e) {
           return mapOpaClientError(e);
         }
@@ -55,9 +94,14 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
     'opa_get_policy',
     {
       title: 'Get OPA policy by ID',
-      description: 'Fetch a single policy by ID from the running OPA server.',
+      description:
+        "Fetch a single policy by ID from the running OPA server. Returns the Rego source; the parsed AST is omitted unless asked for, since it is roughly forty times the size of the source it came from. Use `rego_parse_ast` on the source when an AST is what's wanted.",
       inputSchema: {
         id: z.string().min(1).describe('Policy ID, e.g. "rbac" or "policies/auth/main".'),
+        includeAst: z
+          .boolean()
+          .optional()
+          .describe("Include OPA's parsed AST alongside the source. Off by default."),
       },
       annotations: {
         readOnlyHint: true,
@@ -66,7 +110,7 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ id }, { signal }) => {
+    async ({ id, includeAst }, { signal }) => {
       return withToolEnvelope<{ policy: OpaPolicyRecord }>(config, async () => {
         try {
           const data = await opa.request<{ result: OpaPolicyRecord }>({
@@ -74,7 +118,9 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
             path: `/v1/policies/${encodeURIComponent(id)}`,
             signal,
           });
-          return ok({ policy: data.result });
+          return ok({
+            policy: trimPolicy(data.result, { source: true, ast: includeAst === true }),
+          });
         } catch (e) {
           return mapOpaClientError(e, 'POLICY_NOT_FOUND');
         }
