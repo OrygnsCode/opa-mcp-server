@@ -33,10 +33,23 @@ export function extractCounterexample(
   model: Z3Model,
   inputVars: Map<string, Z3AnyExpr>,
   sorts: Map<string, Z3Sort>,
+  presenceVars?: Map<string, Z3AnyExpr>,
 ): CounterexampleInput {
   const flat: Record<string, unknown> = {};
 
   for (const [path, varExpr] of inputVars) {
+    // A field the model chose to leave ABSENT must be omitted, not given a
+    // value. Emitting one produced witnesses that did not reproduce: the tool
+    // said "here is an input where the rule is false" while handing back an
+    // input on which the rule was true, because the real reason it was false
+    // was that the field was missing.
+    const presence = presenceVars?.get(path);
+    if (presence !== undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string
+      const isPresent = model.eval(presence, true).toString() === 'true';
+      if (!isPresent) continue;
+    }
+
     const sort = sorts.get(path) ?? 'string';
     const evaluated = model.eval(varExpr, true); // true = model completion
 
@@ -50,11 +63,16 @@ export function extractCounterexample(
           value = evaluated.toString().replace(/^"|"$/g, '');
         }
         break;
-      case 'int': {
-        // Z3 formats negative integers as "(- N)" in SMT notation.
+      case 'real': {
+        // Z3 prints negatives as "(- N)" and non-integers as "(/ p q)".
         // eslint-disable-next-line @typescript-eslint/no-base-to-string
-        const intStr = evaluated.toString().replace(/\(-\s+(\d+)\)/, '-$1');
-        value = Number(intStr);
+        const raw = evaluated.toString();
+        const frac = /^\(\/\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\)$/.exec(raw);
+        if (frac) {
+          value = Number(frac[1]) / Number(frac[2]);
+        } else {
+          value = Number(raw.replace(/\(-\s+([\d.]+)\)/, '-$1'));
+        }
         break;
       }
       case 'bool':

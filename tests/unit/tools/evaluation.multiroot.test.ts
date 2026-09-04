@@ -583,3 +583,32 @@ describe('rego_test_multiroot (scan mode)', () => {
     expect(readdirPaths).not.toContain(nodeModules);
   });
 });
+
+describe('rego_test_multiroot errored records', () => {
+  it('aggregates errored separately from passed', async () => {
+    // One root, two tests: one passes, one carries `error` and no `fail`.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        2,
+        '',
+        JSON.stringify([
+          { name: 'test_ok', duration: 1 },
+          { name: 'test_conflict', error: { code: 'eval_conflict_error', message: 'x' } },
+        ]),
+      ),
+    );
+    const server = makeServer();
+    registerRegoTestMultiroot(server, baseConfig);
+    const env = await callTool<{
+      totalPassed: number;
+      totalErrored: number;
+      totalTests: number;
+      roots: Array<{ passed: number; errored: number }>;
+    }>(server, 'rego_test_multiroot', { roots: [{ path: root1() }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.totalPassed).toBe(1);
+    expect(env.data?.totalErrored).toBe(1);
+    expect(env.data?.totalTests).toBe(2);
+    expect(env.data?.roots[0]).toMatchObject({ passed: 1, errored: 1 });
+  });
+});

@@ -17,8 +17,81 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Security
+
+- `opa_bundle_sign` wrote `.signatures.json` into the server's working directory,
+  outside `OPA_MCP_ALLOWED_PATHS`, and reported `signed: true` while the bundle it
+  was asked to sign stayed unsigned. `opa sign` puts the file wherever
+  `--output-file-path` says, that flag defaults to the process cwd, and it was
+  not being passed. A directory bundle is now signed in place and an archive
+  beside itself (or in `outputDir`), both validated like every other path the
+  server writes, and success is reported only after the file is observed on
+  disk. A `.signatures.json` already present as a symbolic link is refused
+  rather than written through. The response carries the path written, the
+  algorithm, and the number of files covered.
+- Path validation followed links only for paths that already existed, so a
+  write destination that did not exist yet, such as an `opa_bundle_build` output
+  or a `conftest_pull` policy directory, was accepted on its spelling alone. A
+  junction or symbolic link inside an allowed root that pointed outside it made
+  such a write land outside the roots. A path is now judged by the real location
+  of its nearest existing ancestor with the missing segments re-attached, a
+  dangling link is refused, and roots and paths are compared in canonical form,
+  which also ends false rejections for a root spelled through a link (macOS
+  `/var`), a Windows short name, or a different letter case.
+- `conftest_test` joined the `inlineConfigParser` value into the temp file name
+  for inline config without checking it, so a value carrying `../` segments
+  placed the inline config, whose content the caller also chooses, at any path
+  the server could write. Parser names are now a closed set (conftest 0.69's
+  nineteen), enforced in the schema and again in the handler, and the parser is
+  passed to conftest explicitly rather than through the file name.
+
 ### Fixed
 
+- `opa_bundle_verify` passed `--verification-key` to `opa eval`, which has no
+  such flag, so verification always failed with "unknown flag" and was reported
+  as `INVALID_BUNDLE`, signed or not. Verification now runs through
+  `opa build --verification-key` into a discarded temp file, which is the path
+  OPA provides. Failures carry `details.reason`: `signature_invalid`,
+  `scope_mismatch`, `file_modified`, `file_added`, `file_missing`,
+  `file_unparseable`, `unsigned`, `signatures_malformed`, `not_a_bundle`,
+  `bundle_load_error`, or `unknown` when OPA's message is not recognised. A key
+  or algorithm OPA cannot use is reported as `INVALID_INPUT` by both tools.
+- Directory bundles are signed and verified by name from the parent directory,
+  the way `opa sign --bundle <name>` records them, so a signed directory stays
+  valid wherever it is placed under that name and a directory signed with the
+  OPA CLI verifies. A symbolic link or junction given as the bundle is resolved
+  first; OPA does not descend a linked root and would sign an empty file list.
+- `opa_bundle_build` passed `--signing-key` and `--verification-key` without
+  `--bundle`, which `opa build` refuses, so neither option worked unless
+  `bundle: true` was also set. Either option now implies bundle mode.
+- `opa_bundle_sign` returned an empty `stderr` on failure because `opa sign`
+  prints its errors on stdout. `details` now carries both streams.
+- `conftest_test` and `conftest_verify` threw `UNKNOWN_ERROR` on every clean run.
+  conftest omits every empty array from its JSON, so a passing file arrives with
+  no `failures` key and the summary code dereferenced it. Results now always
+  carry their arrays, `conftest_verify` reports `NO_TESTS_FOUND` for a policy
+  directory with no test rules (conftest prints `null` there), and both
+  summaries count files by name, since conftest emits one entry per namespace
+  or per test rule. `summary.successes` and `summary.failures` are added to
+  `conftest_test`. `exceptions` are messages, not strings, matching conftest.
+- CI installs conftest for the integration job, so the real-binary conftest
+  tests run there instead of skipping.
+- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
+  a passing test. OPA marks such a record with an `error` object and does not set
+  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
+  and a suite whose tests all raised (a rule conflict, for instance) was reported
+  as fully passing with zero failures. Both tools now report `errored`
+  separately, and the multiroot aggregate carries `totalErrored`.
+- An `install-id` file that existed but held no id was a permanent trap. The
+  read found no id, the exclusive create failed because the file was there, and
+  the fallback read found no id again, on every run for the life of the machine.
+  Such an install pinged anonymously forever and was never counted. The file is
+  now rewritten when it holds no usable id; a brand-new file is still created
+  exclusively so two first runs cannot both claim it. A file can end up empty
+  after a crash or a full disk during the first run.
+- CI no longer reports itself as an install. The suites start the real server,
+  which pings on startup, and every runner has a fresh home directory, so each
+  job minted a new install id.
 - Windows: a data document passed by absolute path was loaded under its drive
   letter instead of where the policy expected it. OPA reads every load path as
   an optional `prefix:path` pair and splits on the first colon, so
@@ -32,6 +105,19 @@ not part of the public surface and may change in minor releases.
   absolute paths carry no drive letter. Load paths spanning two drives are now
   reported as an error, since OPA cannot load documents from two drives in one
   invocation.
+
+### Added
+
+- `opa_bundle_sign` accepts `outputDir` for archives, the directory that
+  receives `.signatures.json`. A directory bundle is always signed in place,
+  since OPA only reads the signature from inside the bundle.
+- `opa_bundle_verify` accepts `v0Compatible` for bundles written in Rego v0,
+  which otherwise fail to load after the signature has been checked.
+
+### Changed
+
+- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
+  root and `totalErrored` overall.
 
 ## [0.4.0] - 2026-09-03
 
