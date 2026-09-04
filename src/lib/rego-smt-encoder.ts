@@ -7,8 +7,13 @@
  * Design:
  *   - One Z3 constant per input path, typed by the type inferencer.
  *   - One Z3 constant per local variable, scoped per clause.
- *   - Each clause body becomes an AND of its expression formulas.
- *   - The full rule formula is an OR of all its clause formulas.
+ *   - Each clause body becomes an AND of its expression formulas, plus a
+ *     presence guard for every input path the clause reads.
+ *   - "the rule is TRUE" is the OR of the bodies of clauses whose head value is
+ *     literally true, OR'd with the default when no clause body holds. Encoding
+ *     the OR of all clause bodies instead conflated "the rule is defined" with
+ *     "the rule is true", which made `default allow := true` and non-boolean
+ *     heads silently wrong.
  *   - Uninterpreted sorts get a dedicated Z3 uninterpreted sort and
  *     can only participate in equality/inequality constraints.
  */
@@ -25,6 +30,16 @@ type Z3AnyExpr =
 export interface EncoderContext {
   Z3: Z3Context;
   inputVars: Map<string, Z3AnyExpr>;
+  /**
+   * One Bool per input path, true when that field is present in the input.
+   *
+   * Rego evaluates a body to undefined when it reads a missing field, and an
+   * undefined body does not make the rule true. Modelling every path as a
+   * total, always-present constant made vacuous predicates look like
+   * tautologies, so always_true could be PROVEN for a rule that is merely
+   * undefined when a field is absent.
+   */
+  presenceVars: Map<string, Z3Bool>;
   sorts: Map<string, Z3Sort>;
   /** Per-call unique prefix for all Z3 constant names. Prevents sort conflicts
    *  when the same input path is inferred as different sorts across calls in the
@@ -36,6 +51,16 @@ export interface EncoderContext {
 export interface EncodedRule {
   formula: Z3Bool;
   warnings: string[];
+  /**
+   * True when at least one clause could not be encoded.
+   *
+   * The caller MUST treat the formula as meaningless in that case. Skipping the
+   * clause and solving the rest is what turned an unencodable operand into a
+   * confident PROVEN: dropping a clause makes the rule strictly easier to
+   * satisfy in one direction and strictly harder in the other, and both
+   * directions produce a wrong verdict.
+   */
+  unencodable: boolean;
 }
 
 /**
@@ -48,19 +73,24 @@ export function createInputVars(
   inputPaths: Map<string, string[]>,
   sorts: Map<string, Z3Sort>,
   callId: string,
-): Map<string, Z3AnyExpr> {
+): { vars: Map<string, Z3AnyExpr>; presence: Map<string, Z3Bool> } {
   const vars = new Map<string, Z3AnyExpr>();
+  const presence = new Map<string, Z3Bool>();
 
   for (const path of inputPaths.keys()) {
     const sort = sorts.get(path) ?? 'string';
     const varName = `${callId}_${pathToVarName(path)}`;
+    presence.set(path, Z3.Bool.const(`${varName}__present`));
 
     switch (sort) {
       case 'string':
         vars.set(path, Z3.String.const(varName));
         break;
-      case 'int':
-        vars.set(path, Z3.Int.const(varName));
+      case 'real':
+        // Rego numbers are JSON numbers, not integers. Encoding them as Z3 Ints
+        // proved fractional ranges empty: `input.n > 0; input.n < 1` came back
+        // UNSATISFIABLE even though 0.5 satisfies it.
+        vars.set(path, Z3.Real.const(varName));
         break;
       case 'bool':
         vars.set(path, Z3.Bool.const(varName));
@@ -74,36 +104,117 @@ export function createInputVars(
     }
   }
 
-  return vars;
+  return { vars, presence };
+}
+
+/** Every input path an expression reads. Used to build the presence guard. */
+function inputPathsOf(expr: VerifyExpr, out: Set<string>): void {
+  const take = (v: VerifyValue | undefined): void => {
+    if (v && v.kind === 'input_ref') out.add(v.path);
+  };
+  switch (expr.kind) {
+    case 'eq':
+    case 'neq':
+    case 'lt':
+    case 'lte':
+    case 'gt':
+    case 'gte':
+      take(expr.left);
+      take(expr.right);
+      break;
+    case 'startswith':
+      take(expr.str);
+      take(expr.prefix);
+      break;
+    case 'endswith':
+      take(expr.str);
+      take(expr.suffix);
+      break;
+    case 'contains':
+      take(expr.str);
+      take(expr.sub);
+      break;
+    case 'regex_match':
+      take(expr.pattern);
+      take(expr.str);
+      break;
+    case 'bool_check':
+      take(expr.ref);
+      break;
+    case 'assign':
+      take(expr.value);
+      break;
+    case 'negation':
+      // Deliberately NOT recursed into. A negated body is SATISFIED by a missing
+      // field, so requiring presence at the clause level would be wrong.
+      break;
+    default:
+      break;
+  }
 }
 
 /**
  * Encode a complete rule as a Z3 Bool formula.
  * rule_formula = clause_0 OR clause_1 OR ... OR clause_n
  */
-export function encodeRule(clauses: VerifyRuleClause[], ctx: EncoderContext): EncodedRule {
+/**
+ * Encode "the rule evaluates to true".
+ *
+ * Rego semantics, and why the previous OR-of-all-clauses was wrong:
+ *   - a clause whose body holds gives the rule that clause's HEAD value
+ *   - the rule is DEFINED when any clause body holds
+ *   - when no body holds the rule takes its `default`, or stays undefined
+ *
+ * So `rule == true` is the OR of the bodies of clauses whose head is literally
+ * true, plus the default case when nothing else fired. Treating every satisfied
+ * body as "true" made `allow := false if {...}` prove always-true, and ignoring
+ * the default made `default allow := true` prove never-true.
+ */
+export function encodeRule(
+  clauses: VerifyRuleClause[],
+  ctx: EncoderContext,
+  defaultValue?: boolean | number | string | null,
+): EncodedRule {
   const { Z3 } = ctx;
   const warnings: string[] = [];
 
-  const clauseFormulas: Z3Bool[] = [];
+  const bodyFormulas: Z3Bool[] = [];
+  const trueBodyFormulas: Z3Bool[] = [];
+
   for (const clause of clauses) {
     const localVars = new Map<string, Z3AnyExpr>();
     const localSorts = new Map<string, Z3Sort>();
     const clauseResult = encodeClause(clause, ctx, localVars, localSorts);
-    if (clauseResult.formula !== null) {
-      clauseFormulas.push(clauseResult.formula);
-    }
     warnings.push(...clauseResult.warnings);
+    if (clauseResult.formula === null) {
+      // Refuse the whole rule. Continuing here would silently solve a rule with
+      // one of its clauses missing.
+      return { formula: Z3.Bool.val(false), warnings, unencodable: true };
+    }
+    bodyFormulas.push(clauseResult.formula);
+    if (clause.headValue === true) trueBodyFormulas.push(clauseResult.formula);
   }
 
-  if (clauseFormulas.length === 0) {
-    return { formula: Z3.Bool.val(false), warnings };
-  }
-  if (clauseFormulas.length === 1) {
-    return { formula: clauseFormulas[0]!, warnings };
+  const anyBody =
+    bodyFormulas.length === 0
+      ? Z3.Bool.val(false)
+      : bodyFormulas.length === 1
+        ? bodyFormulas[0]!
+        : Z3.Or(...bodyFormulas);
+
+  let ruleTrue =
+    trueBodyFormulas.length === 0
+      ? Z3.Bool.val(false)
+      : trueBodyFormulas.length === 1
+        ? trueBodyFormulas[0]!
+        : Z3.Or(...trueBodyFormulas);
+
+  // A default applies only when no clause body holds.
+  if (defaultValue === true) {
+    ruleTrue = Z3.Or(ruleTrue, Z3.Not(anyBody));
   }
 
-  return { formula: Z3.Or(...clauseFormulas), warnings };
+  return { formula: ruleTrue, warnings, unencodable: false };
 }
 
 interface ClauseResult {
@@ -120,14 +231,33 @@ function encodeClause(
   const { Z3 } = ctx;
   const warnings: string[] = [];
   const conjuncts: Z3Bool[] = [];
+  const readPaths = new Set<string>();
 
   for (const expr of clause.expressions) {
-    if (expr.kind === 'unsupported') continue; // engine skips these clauses already
+    if (expr.kind === 'unsupported') {
+      // The engine refuses the rule before reaching here, so this is a
+      // defensive fail-closed rather than a reachable path.
+      return { formula: null, warnings };
+    }
+
+    inputPathsOf(expr, readPaths);
 
     const encoded = encodeExpr(expr, ctx, localVars, localSorts, warnings);
-    if (encoded !== null) {
-      conjuncts.push(encoded);
+    if (encoded === null) {
+      // An expression the encoder could not translate. Dropping it made the
+      // clause strictly easier to satisfy, which is how an unencodable operand
+      // such as a null literal turned into a false PROVEN.
+      warnings.push('A body expression could not be encoded; the clause is not verifiable.');
+      return { formula: null, warnings };
     }
+    conjuncts.push(encoded);
+  }
+
+  // Rego needs every field the body reads to exist. Without this guard a rule
+  // that merely goes undefined on a missing field looked like a tautology.
+  for (const path of readPaths) {
+    const present = ctx.presenceVars.get(path);
+    if (present !== undefined) conjuncts.push(present);
   }
 
   if (conjuncts.length === 0) {
@@ -151,6 +281,28 @@ function encodeExpr(
   const { Z3 } = ctx;
 
   switch (expr.kind) {
+    case 'contradiction':
+      // A body term that can never hold, such as a literal `false`.
+      return Z3.Bool.val(false);
+    case 'negation': {
+      // NOT (AND of inner). The presence guards belong INSIDE the negation: a
+      // body that reads a missing field is undefined, so it does not hold, so
+      // its negation does.
+      const inner: Z3Bool[] = [];
+      const innerPaths = new Set<string>();
+      for (const e of expr.inner) {
+        inputPathsOf(e, innerPaths);
+        const enc = encodeExpr(e, ctx, localVars, localSorts, warnings);
+        if (enc === null) return null;
+        inner.push(enc);
+      }
+      for (const path of innerPaths) {
+        const present = ctx.presenceVars.get(path);
+        if (present !== undefined) inner.push(present);
+      }
+      if (inner.length === 0) return Z3.Bool.val(false);
+      return Z3.Not(inner.length === 1 ? inner[0]! : Z3.And(...inner));
+    }
     case 'eq': {
       const l = resolveValue(expr.left, ctx, localVars, localSorts, warnings);
       const r = resolveValue(expr.right, ctx, localVars, localSorts, warnings);
@@ -274,7 +426,7 @@ function sortOfVerifyValue(
     case 'literal_string':
       return 'string';
     case 'literal_number':
-      return 'int';
+      return 'real';
     case 'literal_bool':
       return 'bool';
     case 'literal_null':
@@ -318,11 +470,16 @@ function resolveValue(
     case 'literal_string':
       return Z3.String.val(value.value);
     case 'literal_number':
-      return Z3.Int.val(value.value);
+      // Real, not Int: a fractional literal and a fractional witness inside an
+      // integer-looking range must both be representable.
+      return Z3.Real.val(value.value);
     case 'literal_bool':
       return Z3.Bool.val(value.value);
     case 'literal_null':
-      warnings.push('null literal encoded as uninterpreted constant.');
+      // The sort model has no null. Returning null now aborts the clause rather
+      // than silently dropping the comparison, which used to leave an empty,
+      // always-true body behind.
+      warnings.push('null is not representable in the current sort model.');
       return null;
   }
 }
@@ -348,8 +505,10 @@ function createLocalVar(
     case 'string':
       c = Z3.String.const(z3Name);
       break;
-    case 'int':
-      c = Z3.Int.const(z3Name);
+    case 'real':
+      // Must match the input-path sort. Creating an Int here while input paths
+      // are Real made Z3 refuse the comparison with "Can't cast Real to IntSort".
+      c = Z3.Real.const(z3Name);
       break;
     case 'bool':
       c = Z3.Bool.const(z3Name);
@@ -366,14 +525,29 @@ function createLocalVar(
   return c;
 }
 
-/** Convert an input path like "input.user.role" to a valid Z3 var name. */
+/**
+ * Convert an input path like "input.user.role" to a valid Z3 constant name.
+ *
+ * Must be INJECTIVE. Replacing "." with "__" was not: a quoted key holding a
+ * dot or an underscore pair, ordinary in Kubernetes and cloud policies such as
+ * `input.labels["app.kubernetes.io/name"]`, collided with a different path and
+ * two distinct fields became a single SMT variable.
+ */
 export function pathToVarName(path: string): string {
-  return path.replace(/\./g, '__');
+  let out = '';
+  for (const ch of path) {
+    if (/[A-Za-z0-9]/.test(ch)) out += ch;
+    else if (ch === '.') out += '__';
+    else out += `_x${ch.codePointAt(0)!.toString(16)}_`;
+  }
+  return out;
 }
 
 /** Reconstruct a nested JSON object from flat Z3 var name → value pairs. */
 export function varNameToPath(varName: string): string {
-  return varName.replace(/__/g, '.');
+  return varName
+    .replace(/_x([0-9a-f]+)_/g, (_m, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/__/g, '.');
 }
 
 // ─── Regex simplifier ────────────────────────────────────────────────────────
@@ -408,6 +582,9 @@ export function isSimpleRegexPattern(pattern: string): boolean {
 
   if (core === '.*') return true;
   if (hasStart && hasEnd && isRegexLiteral(core)) return true;
+  if (hasStart && !hasEnd && isRegexLiteral(core)) return true;
+  if (hasEnd && !hasStart && isRegexLiteral(core)) return true;
+  if (!hasStart && !hasEnd && isRegexLiteral(core) && core.length > 0) return true;
   if (hasStart && core.endsWith('.*') && isRegexLiteral(core.slice(0, -2))) return true;
   if (hasEnd && core.startsWith('.*') && isRegexLiteral(core.slice(2))) return true;
   if (core.startsWith('.*') && core.endsWith('.*') && isRegexLiteral(core.slice(2, -2)))
@@ -456,6 +633,24 @@ function tryRegexAsStringConstraint(
     if (isRegexLiteral(suffix)) {
       return Z3.String.val(suffix).suffixOf(str);
     }
+  }
+
+  // ^lit → startswith. An unanchored tail matches anything, so "starts with
+  // lit" is exactly prefixOf. Previously only ^lit.* was recognised, so the
+  // commoner form fell through to unsupported.
+  if (hasStart && !hasEnd && isRegexLiteral(core)) {
+    return Z3.String.val(core).prefixOf(str);
+  }
+
+  // lit$ → endswith, by the same argument at the other end.
+  if (hasEnd && !hasStart && isRegexLiteral(core)) {
+    return Z3.String.val(core).suffixOf(str);
+  }
+
+  // lit (no anchors) → contains. An unanchored literal matches when it occurs
+  // anywhere in the string.
+  if (!hasStart && !hasEnd && isRegexLiteral(core) && core.length > 0) {
+    return str.contains(Z3.String.val(core));
   }
 
   // .*lit.* → contains

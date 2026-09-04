@@ -5,9 +5,10 @@
  * tools work without Regal installed. If absent, `rego_lint` returns a
  * structured `REGAL_NOT_FOUND` error with an install hint.
  */
+import { statSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import type { Config } from '../config.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
@@ -88,6 +89,32 @@ export class RegalCli {
   constructor(private readonly config: Config) {}
 
   /**
+   * The directory regal should run in for a given set of targets.
+   *
+   * Regal finds `.regal/config.yaml` by walking up from its own working
+   * directory, never from the files it is asked to lint. Spawned without one
+   * it inherited this server's, which for a stdio server is wherever the
+   * client happened to launch it: a project's own configuration was ignored,
+   * and any configuration above the server's directory was applied to every
+   * call, including inline source. Running in the target's directory is what
+   * a person typing `regal lint` in their project gets.
+   *
+   * Undefined when the targets do not share a directory, in which case regal
+   * keeps the inherited one and behaves as it did before.
+   */
+  private configDiscoveryDir(targets: readonly string[]): string | undefined {
+    const dirs = new Set<string>();
+    for (const target of targets) {
+      try {
+        dirs.add(statSync(target).isDirectory() ? target : dirname(target));
+      } catch {
+        return undefined;
+      }
+    }
+    return dirs.size === 1 ? [...dirs][0] : undefined;
+  }
+
+  /**
    * Verify the binary is present and report its version. Returns null
    * if the binary is unreachable or output is malformed.
    */
@@ -141,10 +168,16 @@ export class RegalCli {
     for (const pattern of input.ignoreFiles ?? []) args.push('--ignore-files', pattern);
 
     if (input.source !== undefined) {
-      return this.withTempSource(input.source, (path) => this.run([...args, path], signal));
+      // Inline source has no project, so regal runs in its private temp
+      // directory: config discovery walks up from there and finds nothing,
+      // rather than picking up whatever sits above the server's directory.
+      return this.withTempSource(input.source, (path) =>
+        this.run([...args, path], signal, dirname(path)),
+      );
     }
-    args.push(...(input.paths ?? []));
-    return this.run(args, signal);
+    const paths = input.paths ?? [];
+    args.push(...paths);
+    return this.run(args, signal, this.configDiscoveryDir(paths));
   }
 
   /**
@@ -168,20 +201,22 @@ export class RegalCli {
     for (const cat of input.enableCategory ?? []) args.push('--enable-category', cat);
     for (const pattern of input.ignoreFiles ?? []) args.push('--ignore-files', pattern);
     args.push(...input.paths);
-    return this.run(args, signal);
+    return this.run(args, signal, this.configDiscoveryDir(input.paths));
   }
 
   /**
    * Run `regal` with the given argv. Tools should prefer the typed
    * methods above; this is the escape hatch.
    */
-  async run(args: string[], signal?: AbortSignal): Promise<SpawnResult> {
+  async run(args: string[], signal?: AbortSignal, cwd?: string): Promise<SpawnResult> {
     const opts: Parameters<typeof runBinary>[1] = {
       args,
       timeoutMs: this.config.subprocessTimeoutMs,
       maxOutputBytes: this.config.maxSubprocessBytes,
     };
     if (signal !== undefined) opts.signal = signal;
+    // Regal discovers its configuration by walking up from here.
+    if (cwd !== undefined) opts.cwd = cwd;
     return runBinary(this.config.regalBinary, opts);
   }
 

@@ -57,13 +57,18 @@ export function formatHelp(col: boolean): string {
     ['OPA_MCP_LOG_FILE', 'log file path', '<tmpdir>/orygn-opa-mcp.log'],
     ['OPA_MCP_LOG_LEVEL', 'log level  (debug|info|warn|error)', 'info'],
     ['OPA_MCP_MAX_RESPONSE_BYTES', 'max response size in bytes', '100000'],
+    ['OPA_MCP_MAX_SUBPROCESS_BYTES', 'max bytes captured per stream', '33554432'],
+    ['OPA_MCP_PASSTHROUGH_ENV', 'extra env names to pass to child processes', ''],
+    ['OPA_MCP_NO_TELEMETRY', 'set to 1 to disable the anonymous startup ping', ''],
   ];
 
-  // Pad name to 28 and description to 38 so the default column lines up.
+  // Pad the name to 30 and the description to 40 so the default column lines
+  // up. The widest entries are OPA_MCP_MAX_SUBPROCESS_BYTES (28) and its
+  // description (39).
   const envLines = rows
     .map(([name, desc, def]) => {
-      const namePad = name.padEnd(28);
-      const descPad = desc.padEnd(38);
+      const namePad = name.padEnd(30);
+      const descPad = desc.padEnd(40);
       const defStr = def ? `${d('default: ' + def)}` : '';
       return `  ${namePad}${descPad}${defStr}`;
     })
