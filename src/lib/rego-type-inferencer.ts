@@ -15,14 +15,14 @@
  */
 import type { VerifyExpr, VerifyRuleClause, VerifyValue } from './rego-ir.js';
 
-export type Z3Sort = 'bool' | 'int' | 'string' | 'uninterpreted';
+export type Z3Sort = 'bool' | 'real' | 'string' | 'uninterpreted';
 
 export interface TypeInferenceResult {
   sorts: Map<string, Z3Sort>;
   conflicts: Array<{ path: string; reason: string }>;
 }
 
-type SortEvidence = 'string' | 'int' | 'bool';
+type SortEvidence = 'string' | 'real' | 'bool';
 
 export function inferTypes(
   clauses: VerifyRuleClause[][],
@@ -97,8 +97,8 @@ function collectEvidence(
     case 'gte':
     case 'lt':
     case 'lte':
-      addSortEvidence(expr.left, 'int', evidence, localAssignments);
-      addSortEvidence(expr.right, 'int', evidence, localAssignments);
+      addSortEvidence(expr.left, 'real', evidence, localAssignments);
+      addSortEvidence(expr.right, 'real', evidence, localAssignments);
       break;
     case 'startswith':
     case 'endswith':
@@ -158,7 +158,7 @@ function addLiteralEvidence(
       addPathEvidence(path, 'string', evidence);
       break;
     case 'literal_number':
-      addPathEvidence(path, 'int', evidence);
+      addPathEvidence(path, 'real', evidence);
       break;
     case 'literal_bool':
       addPathEvidence(path, 'bool', evidence);
