@@ -385,13 +385,13 @@ Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 
 ### Category C: Bundle operations
 
-Package and sign deployable bundles. Wrap `opa build` and `opa sign`.
+Package, sign, and verify deployable bundles. Wrap `opa build`, `opa sign`, and `opa build --verification-key`.
 
-| Tool                | What it does                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------- |
-| `opa_bundle_build`  | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`.             |
-| `opa_bundle_sign`   | Sign a bundle with a private key. Returns `.signatures.json` content.                             |
-| `opa_bundle_verify` | Verify the signature of a signed bundle using a public key. Returns `{ bundle, verified: true }`. |
+| Tool                | What it does                                                                                                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `opa_bundle_build`  | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`.                                                                                                                                   |
+| `opa_bundle_sign`   | Sign a bundle directory in place, or an archive beside itself, with a private key. A directory signature stays valid wherever the directory is placed under the same name. Returns the path, algorithm, and file count. |
+| `opa_bundle_verify` | Verify a signed bundle with a public key through `opa build --verification-key`. Failures name the reason: wrong key, scope, modified, added, missing or unparseable file, unsigned, or a bundle that does not load.    |
 
 ### Category D: OPA server management
 
