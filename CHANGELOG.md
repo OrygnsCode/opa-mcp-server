@@ -222,6 +222,18 @@ not part of the public surface and may change in minor releases.
   coverage mode, so the three counts could never be anything else, and three
   zeros read as "no tests ran" rather than "not reported". They are now
   omitted unless OPA supplied records.
+- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
+  a passing test. OPA marks such a record with an `error` object and does not set
+  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
+  and a suite whose tests all raised (a rule conflict, for instance) was reported
+  as fully passing with zero failures. Both tools now report `errored`
+  separately, and the multiroot aggregate carries `totalErrored`.
+- `rego_test` with `count` above 1 reported the suite as having no tests. OPA
+  prints one pretty-printed JSON array per repetition, back to back, which is
+  neither a single JSON value nor one record per line, so nothing parsed and the
+  tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
+  are now read and collapsed to one record per test carrying its worst outcome,
+  so a test that fails intermittently is reported as failing.
 
 ### Added
 
@@ -255,6 +267,11 @@ not part of the public surface and may change in minor releases.
   is populated for it. On a query that is genuinely defined the tool now also
   runs `opa parse`, which is how it tells a default apart from a rule that
   matched.
+- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
+  root and `totalErrored` overall.
+- `rego_test` output gains `repetitions`, present only when more than one
+  repetition ran. OPA stops repeating at the first run that fails, so this can be
+  lower than the requested `count`.
 
 ### Documentation
 

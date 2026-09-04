@@ -161,3 +161,47 @@ describe('rego_test_multiroot counts errored tests across roots', () => {
     expect(broken?.passed).toBe(1);
   }, 60_000);
 });
+
+describe('rego_test repeats the suite when count is set', () => {
+  it('reports results rather than finding no tests', async () => {
+    // opa test --count N prints one array per repetition; reading only a
+    // single JSON value made every repeated run look like an empty suite.
+    const dir = join(workDir, 'repeat');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'r_test.rego'), 'package r\n\ntest_a if true\n\ntest_b if true\n');
+
+    for (const count of [2, 3]) {
+      const env = await runTest({ paths: [dir], count });
+      expect(env.ok, `count=${count}: ${JSON.stringify(env.error)}`).toBe(true);
+      expect(env.data).toMatchObject({ total: 2, passed: 2, failed: 0, repetitions: count });
+    }
+  }, 60_000);
+
+  it('reports the failure when opa stops repeating after a failed run', async () => {
+    // OPA does not keep repeating past a run that fails, so a failing suite
+    // emits a single array however high the count is. The failure still has to
+    // come through as a failure rather than as a load error.
+    const dir = join(workDir, 'repeat-fail');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'r_test.rego'),
+      'package rf\n\ntest_ok if true\n\ntest_no if false\n',
+    );
+    const env = await runTest({ paths: [dir], count: 3 });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    // Two distinct tests, not six records.
+    expect(env.data).toMatchObject({ total: 2, passed: 1, failed: 1 });
+    // Only one repetition ran, so the field is left off.
+    expect(env.data?.repetitions).toBeUndefined();
+  }, 60_000);
+
+  it('omits repetitions when count is 1', async () => {
+    const dir = join(workDir, 'repeat-one');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'r_test.rego'), 'package r1\n\ntest_a if true\n');
+    const env = await runTest({ paths: [dir], count: 1 });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.repetitions).toBeUndefined();
+    expect(env.data?.total).toBe(1);
+  }, 60_000);
+});
