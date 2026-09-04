@@ -17,6 +17,20 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
+  a passing test. OPA marks such a record with an `error` object and does not set
+  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
+  and a suite whose tests all raised (a rule conflict, for instance) was reported
+  as fully passing with zero failures. Both tools now report `errored`
+  separately, and the multiroot aggregate carries `totalErrored`.
+
+### Changed
+
+- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
+  root and `totalErrored` overall.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
