@@ -253,6 +253,28 @@ not part of the public surface and may change in minor releases.
   tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
   are now read and collapsed to one record per test carrying its worst outcome,
   so a test that fails intermittently is reported as failing.
+- `rego_bench` failed with `UNKNOWN_ERROR` for any `count` above 1. OPA prints
+  one JSON document per repetition, back to back, which is not a single JSON
+  value, so nothing parsed. Every repetition is now returned in `runs`, and the
+  top-level figures come from the fastest of them per iteration.
+- `rego_bench` reported a failed benchmark with an empty error. `opa bench
+  --format=json` writes its diagnostics to stdout as an `errors` array and
+  leaves stderr empty, and the tool reported only stderr, so a query with a
+  syntax error came back as `EVAL_ERROR` with nothing in it. The diagnostics
+  are now included.
+
+- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
+  a passing test. OPA marks such a record with an `error` object and does not set
+  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
+  and a suite whose tests all raised (a rule conflict, for instance) was reported
+  as fully passing with zero failures. Both tools now report `errored`
+  separately, and the multiroot aggregate carries `totalErrored`.
+- `rego_test` with `count` above 1 reported the suite as having no tests. OPA
+  prints one pretty-printed JSON array per repetition, back to back, which is
+  neither a single JSON value nor one record per line, so nothing parsed and the
+  tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
+  are now read and collapsed to one record per test carrying its worst outcome,
+  so a test that fails intermittently is reported as failing.
 
 ### Added
 
@@ -294,6 +316,11 @@ not part of the public surface and may change in minor releases.
 - `rego_test` output gains `caseCounts`, present only when the run had a
   parameterized test. The top-level counts still follow OPA and treat such a
   rule as one test however many cases it holds.
+- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
+  root and `totalErrored` overall.
+- `rego_test` output gains `repetitions`, present only when more than one
+  repetition ran. OPA stops repeating at the first run that fails, so this can be
+  lower than the requested `count`.
 - `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
   root and `totalErrored` overall.
 - `rego_test` output gains `repetitions`, present only when more than one

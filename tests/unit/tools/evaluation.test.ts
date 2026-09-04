@@ -957,6 +957,56 @@ describe('rego_bench', () => {
     expect(args).toContain('1000');
   });
 
+  it('reads every repetition opa prints for count > 1', async () => {
+    // opa bench prints one JSON document per repetition, back to back, which
+    // JSON.parse rejects outright: any count above 1 failed as unparseable.
+    const run = (n: number, t: number) => JSON.stringify({ N: n, T: t }, null, 2);
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess([run(100, 2000), run(100, 1000), run(100, 3000)].join('\n')),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      N?: number;
+      T?: number;
+      runs?: Array<{ T?: number }>;
+      repetitions?: number;
+    }>(server, 'rego_bench', { query: 'data.x', paths: [validRegoPath()], count: 3 });
+
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.repetitions).toBe(3);
+    expect(env.data?.runs).toHaveLength(3);
+    // The top-level figures come from the fastest run by ns per iteration.
+    expect(env.data?.T).toBe(1000);
+  });
+
+  it('omits runs and repetitions for a single document', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ N: 10, T: 100 })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ runs?: unknown; repetitions?: number }>(server, 'rego_bench', {
+      query: 'data.x',
+      paths: [validRegoPath()],
+    });
+    expect(env.data?.runs).toBeUndefined();
+    expect(env.data?.repetitions).toBeUndefined();
+  });
+
+  it('surfaces the diagnostics opa writes to stdout on failure', async () => {
+    // `opa bench --format=json` puts its errors on stdout and leaves stderr
+    // empty, so reporting stderr alone returned a failure with nothing in it.
+    const errors = [{ message: 'unexpected eof token', code: 'rego_parse_error' }];
+    mockRun.mockResolvedValueOnce(spawnFailure(1, '', JSON.stringify({ errors })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_bench', {
+      query: 'data.x ==',
+      paths: [validRegoPath()],
+    });
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(JSON.stringify(env.error?.details)).toContain('rego_parse_error');
+  });
+
   it('rejects calls with both input and inputPath', async () => {
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
