@@ -205,3 +205,51 @@ describe('rego_test repeats the suite when count is set', () => {
     expect(env.data?.total).toBe(1);
   }, 60_000);
 });
+
+describe('rego_test surfaces the cases of a parameterized rule', () => {
+  it('reports which case failed, not just that the rule did', async () => {
+    // OPA counts a `test_x[case]` rule as one test and puts the per-case
+    // outcomes in `sub_results`. Without reading those, a caller sees a single
+    // failing test and has to go back to the raw record to find out why.
+    const dir = join(workDir, 'parameterized');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'p_test.rego'),
+      [
+        'package param',
+        '',
+        'import rego.v1',
+        '',
+        'cases := {',
+        '\t"admin": {"role": "admin", "want": true},',
+        '\t"viewer": {"role": "viewer", "want": false},',
+        '\t"wrong": {"role": "admin", "want": false},',
+        '}',
+        '',
+        'allow if input.role == "admin"',
+        '',
+        'is_allowed(role) if allow with input as {"role": role}',
+        '',
+        'test_allow[name] if {',
+        '\tsome name, tc in cases',
+        '\tis_allowed(tc.role) == tc.want',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    const env = await runTest({ paths: [dir] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    // OPA treats the rule as one test, and so does the summary.
+    expect(env.data?.total).toBe(1);
+    expect(env.data?.failed).toBe(1);
+
+    expect(env.data?.caseCounts?.total).toBe(3);
+    expect(env.data?.caseCounts?.failed).toBeGreaterThan(0);
+
+    const group = env.data?.parameterizedGroups?.['test_allow'];
+    expect(group, 'parameterizedGroups should name the rule').toBeDefined();
+    expect(group).toHaveLength(3);
+    expect(group?.find((c) => c.name === 'wrong')?.fail).toBe(true);
+  }, 60_000);
+});
