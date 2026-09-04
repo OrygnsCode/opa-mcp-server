@@ -17,6 +17,31 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The five OPA data tools read a key containing a dot as two path segments and
+  returned a different document than the one asked for, with nothing to signal
+  the substitution. `opa_get_data` on `hosts/example.com` fetched
+  `/v1/data/hosts/example/com`; the same substitution applied to
+  `opa_put_data`, `opa_patch_data`, `opa_delete_data` and `opa_query_decision`,
+  so a write or a delete could land on the wrong document. A path containing a
+  slash now treats slash as its only separator, and a path without one is read
+  as dotted.
+- Path segments are now percent-encoded. A key holding `?` or `#` truncated the
+  request URL at that character and read the parent document; keys holding a
+  space, a percent sign or non-ASCII characters were unreachable.
+- `opa_patch_data` documented an empty path for patching the root of the data
+  hierarchy, but the schema required at least one character and the path it
+  built for the root is one OPA answers with a redirect. Omitting both `path`
+  and `segments` now patches the root.
+
+### Added
+
+- The five OPA data tools accept `segments`, an array of literal key segments,
+  for keys that contain both a dot and a slash and so cannot be written as a
+  path string. `opa_put_data`, `opa_patch_data` and `opa_delete_data` return the
+  resolved `segments` alongside the `path` that was supplied.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
