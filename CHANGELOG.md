@@ -131,6 +131,13 @@ not part of the public surface and may change in minor releases.
   to a set before the wildcard test. Scoped policies and `Deny` statements are
   still allowed, so the rule has not become indiscriminate. These snippets are
   documentation users copy, so the mistake shipped as advice.
+- The server did nothing when it was reached through a symbolic link. Its
+  entry-point check compared `import.meta.url` with `process.argv[1]` as
+  strings, and Node resolves symlinks for a module's own URL while leaving
+  `argv[1]` as it was invoked, so the two differed and neither the CLI flags nor
+  the transport ran: the process started and exited in silence. npm's `bin`
+  entry is a symlink on macOS and Linux. The comparison is now between real
+  paths, so how the file was reached no longer matters.
 
 ### Added
 
