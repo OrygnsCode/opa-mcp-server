@@ -17,8 +17,165 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Security
+
+- `opa_bundle_sign` wrote `.signatures.json` into the server's working directory,
+  outside `OPA_MCP_ALLOWED_PATHS`, and reported `signed: true` while the bundle it
+  was asked to sign stayed unsigned. `opa sign` puts the file wherever
+  `--output-file-path` says, that flag defaults to the process cwd, and it was
+  not being passed. A directory bundle is now signed in place and an archive
+  beside itself (or in `outputDir`), both validated like every other path the
+  server writes, and success is reported only after the file is observed on
+  disk. A `.signatures.json` already present as a symbolic link is refused
+  rather than written through. The response carries the path written, the
+  algorithm, and the number of files covered.
+- Path validation followed links only for paths that already existed, so a
+  write destination that did not exist yet, such as an `opa_bundle_build` output
+  or a `conftest_pull` policy directory, was accepted on its spelling alone. A
+  junction or symbolic link inside an allowed root that pointed outside it made
+  such a write land outside the roots. A path is now judged by the real location
+  of its nearest existing ancestor with the missing segments re-attached, a
+  dangling link is refused, and roots and paths are compared in canonical form,
+  which also ends false rejections for a root spelled through a link (macOS
+  `/var`), a Windows short name, or a different letter case.
+- `conftest_test` joined the `inlineConfigParser` value into the temp file name
+  for inline config without checking it, so a value carrying `../` segments
+  placed the inline config, whose content the caller also chooses, at any path
+  the server could write. Parser names are now a closed set (conftest 0.69's
+  nineteen), enforced in the schema and again in the handler, and the parser is
+  passed to conftest explicitly rather than through the file name.
+
 ### Fixed
 
+- `opa_bundle_verify` passed `--verification-key` to `opa eval`, which has no
+  such flag, so verification always failed with "unknown flag" and was reported
+  as `INVALID_BUNDLE`, signed or not. Verification now runs through
+  `opa build --verification-key` into a discarded temp file, which is the path
+  OPA provides. Failures carry `details.reason`: `signature_invalid`,
+  `scope_mismatch`, `file_modified`, `file_added`, `file_missing`,
+  `file_unparseable`, `unsigned`, `signatures_malformed`, `not_a_bundle`,
+  `bundle_load_error`, or `unknown` when OPA's message is not recognised. A key
+  or algorithm OPA cannot use is reported as `INVALID_INPUT` by both tools.
+- Directory bundles are signed and verified by name from the parent directory,
+  the way `opa sign --bundle <name>` records them, so a signed directory stays
+  valid wherever it is placed under that name and a directory signed with the
+  OPA CLI verifies. A symbolic link or junction given as the bundle is resolved
+  first; OPA does not descend a linked root and would sign an empty file list.
+- `opa_bundle_build` passed `--signing-key` and `--verification-key` without
+  `--bundle`, which `opa build` refuses, so neither option worked unless
+  `bundle: true` was also set. Either option now implies bundle mode.
+- `opa_bundle_sign` returned an empty `stderr` on failure because `opa sign`
+  prints its errors on stdout. `details` now carries both streams.
+- `conftest_test` and `conftest_verify` threw `UNKNOWN_ERROR` on every clean run.
+  conftest omits every empty array from its JSON, so a passing file arrives with
+  no `failures` key and the summary code dereferenced it. Results now always
+  carry their arrays, `conftest_verify` reports `NO_TESTS_FOUND` for a policy
+  directory with no test rules (conftest prints `null` there), and both
+  summaries count files by name, since conftest emits one entry per namespace
+  or per test rule. `summary.successes` and `summary.failures` are added to
+  `conftest_test`. `exceptions` are messages, not strings, matching conftest.
+- CI installs conftest for the integration job, so the real-binary conftest
+  tests run there instead of skipping.
+- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
+  a passing test. OPA marks such a record with an `error` object and does not set
+  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
+  and a suite whose tests all raised (a rule conflict, for instance) was reported
+  as fully passing with zero failures. Both tools now report `errored`
+  separately, and the multiroot aggregate carries `totalErrored`.
+- An `install-id` file that existed but held no id was a permanent trap. The
+  read found no id, the exclusive create failed because the file was there, and
+  the fallback read found no id again, on every run for the life of the machine.
+  Such an install pinged anonymously forever and was never counted. The file is
+  now rewritten when it holds no usable id; a brand-new file is still created
+  exclusively so two first runs cannot both claim it. A file can end up empty
+  after a crash or a full disk during the first run.
+- CI no longer reports itself as an install. The suites start the real server,
+  which pings on startup, and every runner has a fresh home directory, so each
+  job minted a new install id.
+- Windows: a data document passed by absolute path was loaded under its drive
+  letter instead of where the policy expected it. OPA reads every load path as
+  an optional `prefix:path` pair and splits on the first colon, so
+  `C:\policies\data.json` mounted at `data.C` and a rule reading `data.tier`
+  found nothing, while the tool reported success. `opa test` on a suite whose
+  tests read data reported those tests as failing. Load paths are now passed
+  relative to a directory the `opa` process runs in, which is the only spelling
+  OPA reads correctly. Rego modules are unaffected either way, because a module
+  mounts at its own `package` rather than at its path, which is why policies
+  worked and only their data did not. Nothing changes on macOS or Linux, whose
+  absolute paths carry no drive letter. Load paths spanning two drives are now
+  reported as an error, since OPA cannot load documents from two drives in one
+  invocation.
+- `rego_lint`, `rego_fix` and `rego_security_audit` ignored the linted project's
+  own `.regal/config.yaml`, and applied any configuration sitting above the
+  server's working directory to every call instead. Regal discovers its
+  configuration by walking up from its own working directory rather than from
+  the files it is given, and it was spawned without one, so it inherited the
+  server's, which for a stdio server is wherever the client launched it. Rules a
+  project had turned off were reported anyway, and inline source, which belongs
+  to no project, picked up whatever happened to be above the server. Regal now
+  runs in the directory of what it is linting, and inline source runs in its own
+  temp directory. An explicit `configFile` still takes precedence.
+- The ABAC example in the `opa://patterns` resource failed to evaluate on the
+  case it exists to handle. It expressed "hide secret resources from other
+  organizations" as a second rule assigning `allow := false`, which in Rego is a
+  conflict rather than an override: a user reading their own secret resource
+  from another organization got `eval_conflict_error` instead of a denial. The
+  denial is now a condition the permissive rules consult. The pitfalls list,
+  which recommended the broken form, says why it does not work.
+- The Terraform example in the `opa://patterns` resource did not reject a
+  full-admin IAM policy. It tested `"*" in statement.Action`, which requires
+  `Action` to be a collection, and AWS accepts a bare string there, in
+  `Resource`, and for `Statement` itself. Of the four ways to spell
+  `Allow * on *`, the rule caught one; the most common form,
+  `{"Action": "*", "Resource": "*"}`, was allowed. Each position is now widened
+  to a set before the wildcard test. Scoped policies and `Deny` statements are
+  still allowed, so the rule has not become indiscriminate. These snippets are
+  documentation users copy, so the mistake shipped as advice.
+- The server did nothing when it was reached through a symbolic link. Its
+  entry-point check compared `import.meta.url` with `process.argv[1]` as
+  strings, and Node resolves symlinks for a module's own URL while leaving
+  `argv[1]` as it was invoked, so the two differed and neither the CLI flags nor
+  the transport ran: the process started and exited in silence. npm's `bin`
+  entry is a symlink on macOS and Linux. The comparison is now between real
+  paths, so how the file was reached no longer matters.
+- The five OPA data tools read a key containing a dot as two path segments and
+  returned a different document than the one asked for, with nothing to signal
+  the substitution. `opa_get_data` on `hosts/example.com` fetched
+  `/v1/data/hosts/example/com`; the same substitution applied to
+  `opa_put_data`, `opa_patch_data`, `opa_delete_data` and `opa_query_decision`,
+  so a write or a delete could land on the wrong document. A path containing a
+  slash now treats slash as its only separator, and a path without one is read
+  as dotted.
+- Path segments are now percent-encoded. A key holding `?` or `#` truncated the
+  request URL at that character and read the parent document; keys holding a
+  space, a percent sign or non-ASCII characters were unreachable.
+- `opa_patch_data` documented an empty path for patching the root of the data
+  hierarchy, but the schema required at least one character and the path it
+  built for the root is one OPA answers with a redirect. Omitting both `path`
+  and `segments` now patches the root.
+- `opa_list_policies` returned nothing but a truncation notice on a server
+  holding more than a couple of dozen policies. OPA answers the policy
+  endpoints with each policy's parsed AST alongside its source, and the AST is
+  far larger than the text it came from, so the response passed
+  `OPA_MCP_MAX_RESPONSE_BYTES` and the payload was replaced with advice to
+  narrow the scope. The tool took no arguments, so there was no scope to
+  narrow. It now returns the policy IDs and a count, with `includeSource` and
+  `includeAst` to ask for more.
+- `opa_get_policy` returned the AST alongside the source, which nothing had
+  asked for: a 477-byte policy came back as a 19 KB response. The AST is now
+  behind `includeAst`.
+- `rego_explain_undefined` had nothing to say about a policy written with
+  `default allow := false`. A default gives the query a value, so it is never
+  undefined and the tool returned that value and stopped, skipping the
+  per-clause analysis it exists for. A query whose value came from a default
+  and from nothing else is now analysed, and `queryResult` reports `default`.
+- Clauses of a multi-clause rule were not told apart in the trace. OPA leaves
+  `Node.location` unset on trace events, so the row comparison meant to
+  distinguish them always fell through to matching on the rule name, and every
+  clause looked present in the trace as soon as one was. Those clauses were
+  never evaluated standalone: each came back with every condition
+  `unevaluable` and no blocking condition. The event's own location is now
+  used.
 - `opa_exec` never evaluated the rule it was asked for. Its `decision`
   description told callers to pass a fully-qualified Rego reference such as
   `data.authz.allow`, but `opa exec --decision` names a decision by
@@ -30,10 +187,58 @@ not part of the public surface and may change in minor releases.
 
 ### Added
 
+- `opa_bundle_sign` accepts `outputDir` for archives, the directory that
+  receives `.signatures.json`. A directory bundle is always signed in place,
+  since OPA only reads the signature from inside the bundle.
+- `opa_bundle_verify` accepts `v0Compatible` for bundles written in Rego v0,
+  which otherwise fail to load after the signature has been checked.
+- The five OPA data tools accept `segments`, an array of literal key segments,
+  for keys that contain both a dot and a slash and so cannot be written as a
+  path string. `opa_put_data`, `opa_patch_data` and `opa_delete_data` return the
+  resolved `segments` alongside the `path` that was supplied.
 - `opa_exec` output gains `hint`, present when every input left the decision
   undefined. That is the expected outcome when no rule matched and also what a
   decision naming nothing looks like, and the per-file results do not
   distinguish them.
+
+### Changed
+
+- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
+  root and `totalErrored` overall.
+- `OPA_MCP_ALLOWED_PATHS` now refuses a relative entry, which the documentation
+  has always said it did. A relative root was resolved against the server's
+  working directory, so for a stdio server the same configuration permitted
+  different directories depending on how the client launched it.
+- `opa-mcp --help` lists `OPA_MCP_MAX_SUBPROCESS_BYTES`,
+  `OPA_MCP_PASSTHROUGH_ENV` and `OPA_MCP_NO_TELEMETRY`, which were documented
+  but absent from the output an invalid-configuration message points at.
+- `opa_list_policies` output gains `count`.
+- `rego_explain_undefined` output: `queryResult` gains `default`, and `value`
+  is populated for it. On a query that is genuinely defined the tool now also
+  runs `opa parse`, which is how it tells a default apart from a rule that
+  matched.
+
+### Documentation
+
+- The child-process environment allow-list is described accurately. It carries
+  no cloud or repository credential, but it does carry the proxy and TLS-trust
+  variables, so a proxy URL that embeds credentials is readable by evaluated
+  policy. The README previously said it contained no secret.
+- Corrected: `opa_status` returns `GET /v1/config`, not bundle or decision-log
+  status; `rego_describe_policy` does not report input references, so the two
+  prompts that told the model to use it for that now name
+  `rego_infer_input_schema`; `rego_lint` returns a flat list of violations
+  rather than findings grouped by category; `rego_capabilities` reflects the
+  resolved `opa` binary rather than the bundled one; `rego_explain_decision`
+  returns a structured summary rather than a natural-language explanation, and
+  the extension manifest no longer says the helper tools use AI; the MCPB
+  bundle has no bundled-binary fallback; unit tests run on macOS only on Node
+  22.
+- Four error codes that nothing returns are no longer listed as codes a caller
+  can expect: `REGAL_VERSION_TOO_OLD`, `DEPENDENCY_CONFLICT`,
+  `VERIFY_INCONCLUSIVE` and `Z3_INIT_ERROR`. They remain reserved in the type.
+  The troubleshooting entry for a Regal minimum-version check that does not
+  exist is removed.
 
 ## [0.4.0] - 2026-09-03
 

@@ -130,9 +130,15 @@ export interface RuleAnalysis {
 }
 
 export interface RegoExplainUndefinedOutput {
-  /** Whether the query produced a value or not. */
-  queryResult: 'undefined' | 'defined';
-  /** Present only when queryResult is "defined". */
+  /**
+   * Whether the query produced a value.
+   *
+   * `default` means it produced one only because a `default` rule supplied it:
+   * no other definition of the rule matched. The per-rule breakdown says why,
+   * which is the same question `undefined` asks.
+   */
+  queryResult: 'undefined' | 'defined' | 'default';
+  /** Present when queryResult is "defined" or "default". */
   value?: unknown;
   /** Human-readable explanation. */
   summary: string;
@@ -178,21 +184,37 @@ function queryToPackageAndRule(query: string): { packagePath: string; ruleName: 
   };
 }
 
+/**
+ * The source row a trace event refers to.
+ *
+ * OPA does not populate `Node.location` on trace events; the row lives on the
+ * event's own `Location`. Reading only the node meant every row comparison fell
+ * through to matching on the rule name alone, so all clauses of a multi-clause
+ * rule looked present in the trace as soon as any one of them was, and the ones
+ * the indexer had eliminated were never evaluated standalone. They came back as
+ * `unevaluable` with no blocking condition, which is the answer this tool
+ * exists to give.
+ */
+function traceEventRow(ev: TraceEvent): number | undefined {
+  return ev.Node?.location?.row ?? ev.Location?.row;
+}
+
+function matchesRule(ev: TraceEvent, ruleName: string, ruleRow: number | undefined): boolean {
+  if (ev.Op?.toLowerCase() !== 'enter') return false;
+  if (!ev.Node) return false;
+  if (extractRuleHeadName(ev.Node.head) !== ruleName) return false;
+  const row = traceEventRow(ev);
+  // Disambiguate the clauses of an incremental rule by source row.
+  if (ruleRow !== undefined && row !== undefined) return row === ruleRow;
+  return true;
+}
+
 function ruleAppearsInTrace(
   ruleName: string,
   ruleRow: number | undefined,
   trace: TraceEvent[],
 ): boolean {
-  return trace.some((ev) => {
-    if (ev.Op?.toLowerCase() !== 'enter') return false;
-    if (!ev.Node) return false;
-    if (extractRuleHeadName(ev.Node.head) !== ruleName) return false;
-    // When we have source row information, use it to disambiguate incremental rules.
-    if (ruleRow !== undefined && ev.Node.location?.row !== undefined) {
-      return ev.Node.location.row === ruleRow;
-    }
-    return true;
-  });
+  return trace.some((ev) => matchesRule(ev, ruleName, ruleRow));
 }
 
 function findBlockingRowFromTrace(rule: AstRule, trace: TraceEvent[]): number | undefined {
@@ -204,14 +226,7 @@ function findBlockingRowFromTrace(rule: AstRule, trace: TraceEvent[]): number | 
   if (bodyRows.size === 0) return undefined;
 
   // Locate the Enter event for this specific rule definition.
-  const enterIdx = trace.findIndex((ev) => {
-    if (ev.Op?.toLowerCase() !== 'enter') return false;
-    if (extractRuleHeadName(ev.Node?.head) !== ruleName) return false;
-    if (ruleRow !== undefined && ev.Node?.location?.row !== undefined) {
-      return ev.Node.location.row === ruleRow;
-    }
-    return true;
-  });
+  const enterIdx = trace.findIndex((ev) => matchesRule(ev, ruleName ?? '', ruleRow));
   if (enterIdx < 0) return undefined;
 
   // Find the first Fail event after the Enter that falls on a body expression row.
@@ -277,16 +292,29 @@ async function evalConditionStandalone(
   return satisfied ? { result: 'true' } : { result: 'false' };
 }
 
-function buildSummary(query: string, rules: RuleAnalysis[], defaultValue: unknown): string {
+/** Structural equality, enough for the scalars and small literals a default holds. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function buildSummary(
+  query: string,
+  rules: RuleAnalysis[],
+  defaultValue: unknown,
+  viaDefault: boolean,
+): string {
   const lines: string[] = [];
+  const state = viaDefault
+    ? `falls back to its default value ${JSON.stringify(defaultValue)} because no other definition matched`
+    : 'is undefined';
 
   if (rules.length === 0) {
-    lines.push(`${query} is undefined: no matching rules found in the analysed source.`);
+    lines.push(`${query} ${state}: no matching rules found in the analysed source.`);
   } else {
     const count = rules.length;
-    lines.push(
-      `${query} is undefined. ${count} rule definition${count !== 1 ? 's' : ''} analysed:`,
-    );
+    lines.push(`${query} ${state}. ${count} rule definition${count !== 1 ? 's' : ''} analysed:`);
     for (const r of rules) {
       const loc = r.location.row > 0 ? ` (row ${r.location.row})` : '';
       const bc = r.blockingCondition;
@@ -308,7 +336,7 @@ function buildSummary(query: string, rules: RuleAnalysis[], defaultValue: unknow
     }
   }
 
-  if (defaultValue !== undefined) {
+  if (!viaDefault && defaultValue !== undefined) {
     lines.push(`Default value: ${JSON.stringify(defaultValue)}.`);
   }
 
@@ -326,9 +354,12 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
       title: 'Explain why a Rego query is undefined',
       description:
         'Diagnose why a fully-qualified Rego query (e.g. "data.authz.allow") produces no ' +
-        'value. Combines a plain eval, a full-trace eval, and per-condition AST analysis to ' +
-        'identify the exact body expression blocking each rule. Handles both runtime failures ' +
-        '(trace-based) and indexer elimination (standalone condition eval). Returns a structured ' +
+        'value, or falls back to its default. Combines a plain eval, a full-trace eval, and ' +
+        'per-condition AST analysis to identify the exact body expression blocking each rule. ' +
+        'Handles both runtime failures (trace-based) and indexer elimination (standalone ' +
+        'condition eval). A rule written with `default allow := false` always has a value, so ' +
+        '`queryResult` reports `default` for it and the same per-rule breakdown follows: the ' +
+        'question "why is allow false" is the question this answers. Returns a structured ' +
         'breakdown of which conditions blocked each rule plus a human-readable summary.',
       inputSchema: RegoExplainUndefinedInput,
       annotations: {
@@ -378,29 +409,12 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
 
         const plainJson = tryParseJson<{ result?: unknown[] }>(plainResult.stdout);
         const isDefined = (plainJson?.result?.length ?? 0) > 0;
+        const definedValue = isDefined
+          ? (plainJson!.result as Array<{ expressions?: Array<{ value?: unknown }> }>)[0]
+              ?.expressions?.[0]?.value
+          : undefined;
 
-        if (isDefined) {
-          const value = (
-            plainJson!.result as Array<{ expressions?: Array<{ value?: unknown }> }>
-          )[0]?.expressions?.[0]?.value;
-          return ok<RegoExplainUndefinedOutput>({
-            queryResult: 'defined',
-            value,
-            summary: `${args.query} is defined with value: ${JSON.stringify(value)}.`,
-            rulesFound: 0,
-            rules: [],
-          });
-        }
-
-        // ── Step 2: eval with --explain=full ──────────────────────────────
-        const traceResult = await opa.eval({ ...evalBase, explain: 'full' }, signal);
-        const traceSpawnErr = mapSubprocessFailure(traceResult, 'opa');
-        if (traceSpawnErr) return traceSpawnErr;
-
-        const traceJson = tryParseJson<{ explanation?: TraceEvent[] }>(traceResult.stdout);
-        const trace = traceJson?.explanation ?? [];
-
-        // ── Step 3: parse AST(s) ──────────────────────────────────────────
+        // ── Step 2: parse AST(s) ──────────────────────────────────────────
         const asts: OpaAst[] = [];
 
         if (args.source) {
@@ -425,7 +439,7 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
           }
         }
 
-        // ── Step 4: find matching rules ───────────────────────────────────
+        // ── Step 3: find matching rules ───────────────────────────────────
         const queryParsed = queryToPackageAndRule(args.query);
         const matchedRules: AstRule[] = [];
 
@@ -439,6 +453,34 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             }
           }
         }
+
+        // A rule written with `default allow := false` always has a value, so the
+        // query is never undefined and the analysis below used to be skipped for
+        // the shape most policies are written in. When the value came from the
+        // default and nothing else matched, the interesting question is unchanged.
+        const defaultRule = matchedRules.find((r) => r.default === true);
+        const viaDefault =
+          isDefined &&
+          defaultRule !== undefined &&
+          deepEqual(defaultRule.head?.value?.value, definedValue);
+
+        if (isDefined && !viaDefault) {
+          return ok<RegoExplainUndefinedOutput>({
+            queryResult: 'defined',
+            value: definedValue,
+            summary: `${args.query} is defined with value: ${JSON.stringify(definedValue)}.`,
+            rulesFound: 0,
+            rules: [],
+          });
+        }
+
+        // ── Step 4: eval with --explain=full ──────────────────────────────
+        const traceResult = await opa.eval({ ...evalBase, explain: 'full' }, signal);
+        const traceSpawnErr = mapSubprocessFailure(traceResult, 'opa');
+        if (traceSpawnErr) return traceSpawnErr;
+
+        const traceJson = tryParseJson<{ explanation?: TraceEvent[] }>(traceResult.stdout);
+        const trace = traceJson?.explanation ?? [];
 
         // ── Step 5: analyse each rule ─────────────────────────────────────
         let defaultValue: unknown;
@@ -525,10 +567,11 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         }
 
         const nonDefaultRules = rules.filter((r) => !r.isDefault);
-        const summary = buildSummary(args.query, nonDefaultRules, defaultValue);
+        const summary = buildSummary(args.query, nonDefaultRules, defaultValue, viaDefault);
 
         return ok<RegoExplainUndefinedOutput>({
-          queryResult: 'undefined',
+          queryResult: viaDefault ? 'default' : 'undefined',
+          ...(viaDefault ? { value: definedValue } : {}),
           summary,
           rulesFound: nonDefaultRules.length,
           defaultValue,
