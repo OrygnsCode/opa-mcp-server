@@ -6,7 +6,7 @@
  * Cursor, VS Code) pass config via the `env` object in their JSON.
  */
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 import { z } from 'zod';
 
@@ -47,7 +47,18 @@ const ConfigSchema = z.object({
    * default -- file-based tools refuse to read from disk until the
    * operator explicitly opts in via `OPA_MCP_ALLOWED_PATHS`.
    */
-  allowedPaths: z.array(z.string()).default([]),
+  allowedPaths: z
+    .array(
+      // A relative root is resolved against the server's working directory,
+      // which for a stdio server is wherever the client happened to launch it.
+      // The same configuration would then permit different directories on
+      // different machines, so it is refused rather than guessed at, which is
+      // what the documentation has always said happens.
+      z.string().refine(isAbsolute, {
+        message: 'must be an absolute path',
+      }),
+    )
+    .default([]),
 
   /** Path to the log file. Defaults to OS tmpdir + orygn-opa-mcp.log. */
   logFile: z.string().default(join(tmpdir(), 'orygn-opa-mcp.log')),

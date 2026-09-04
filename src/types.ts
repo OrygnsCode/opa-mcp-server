@@ -3,6 +3,15 @@
  */
 
 /** Standard error codes returned by tools. */
+/**
+ * Codes a tool can return.
+ *
+ * Four names are reserved and currently unused: REGAL_VERSION_TOO_OLD (no
+ * minimum-version check exists), DEPENDENCY_CONFLICT, VERIFY_INCONCLUSIVE
+ * (rego_verify reports an inconclusive result as a verdict, not an error) and
+ * Z3_INIT_ERROR. They are kept so the union stays stable for consumers, and
+ * are no longer listed in the README as codes a caller can expect.
+ */
 export type ToolErrorCode =
   | 'INVALID_INPUT'
   | 'OPA_BINARY_NOT_FOUND'
