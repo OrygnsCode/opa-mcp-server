@@ -323,6 +323,70 @@ describe('rego_test', () => {
     expect(env.data).toMatchObject({ passed: 0, errored: 2, total: 2 });
   });
 
+  it('reads the repeated arrays opa prints for count > 1', async () => {
+    // opa test --count N prints one pretty-printed array per repetition, back
+    // to back. That is neither one JSON value nor NDJSON, and reading only the
+    // first form reported a repeated run as no tests at all.
+    // Pretty-printed, as opa prints it: the arrays span many lines, so neither
+    // JSON.parse nor a line-by-line read finds a complete value.
+    const run = (fail: boolean) =>
+      JSON.stringify(
+        [
+          { name: 'test_steady', duration: 10 },
+          { name: 'test_flaky', duration: 10, ...(fail ? { fail: true } : {}) },
+        ],
+        null,
+        2,
+      );
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', `${run(false)}\n${run(true)}\n`));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      total: number;
+      passed: number;
+      failed: number;
+      repetitions?: number;
+      results: Array<{ name?: string; fail?: boolean }>;
+    }>(server, 'rego_test', { paths: [validRegoPath()], count: 2 });
+
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    // One record per test, not one per repetition.
+    expect(env.data?.total).toBe(2);
+    expect(env.data?.repetitions).toBe(2);
+    // A test that failed in any repetition is reported as failing.
+    expect(env.data?.failed).toBe(1);
+    expect(env.data?.passed).toBe(1);
+    expect(env.data?.results.find((r) => r.name === 'test_flaky')?.fail).toBe(true);
+    expect(env.data?.results.find((r) => r.name === 'test_steady')?.fail).toBeUndefined();
+  });
+
+  it('does not report repetitions for a single run', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ repetitions?: number }>(server, 'rego_test', {
+      paths: [validRegoPath()],
+    });
+    expect(env.data?.repetitions).toBeUndefined();
+  });
+
+  it('keeps an error from any repetition ahead of a pass', async () => {
+    const clean = JSON.stringify([{ name: 'test_x', duration: 5 }], null, 2);
+    const broken = JSON.stringify(
+      [{ name: 'test_x', error: { code: 'eval_conflict_error', message: 'x' }, duration: 5 }],
+      null,
+      2,
+    );
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', `${clean}\n${broken}\n`));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ errored: number; passed: number }>(server, 'rego_test', {
+      paths: [validRegoPath()],
+      count: 2,
+    });
+    expect(env.data).toMatchObject({ errored: 1, passed: 0 });
+  });
+
   it('parses NDJSON output as a fallback', async () => {
     // Older OPA versions emit one JSON object per line rather than a wrapped array.
     const ndjson =

@@ -13,6 +13,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
+import { parseJsonValues } from '../../lib/json-stream.js';
 import {
   mapSubprocessFailure,
   tryParseJson,
@@ -70,7 +71,7 @@ const RegoTestInput = {
     .min(1)
     .optional()
     .describe(
-      'Number of times to repeat each test (`--count N`). Default is 1. Useful for measuring repeatability or catching flaky tests under load.',
+      'Number of times to repeat the suite (`--count N`). Default is 1. Useful for catching flaky tests. OPA stops at the first repetition that fails, so `repetitions` in the output reports how many actually ran, and each test is listed once carrying its worst outcome across them.',
     ),
   timeout: z
     .string()
@@ -152,6 +153,14 @@ export interface RegoTestOutput {
   errored: number;
   /** Total test records. Always 0 in coverage mode. */
   total: number;
+  /**
+   * How many repetitions of the suite actually ran, present only when more than
+   * one did. OPA stops repeating at the first run with a failure, so this can be
+   * lower than the requested `count`. Each test appears once in `results`,
+   * carrying its worst outcome across the repetitions that ran, so a test that
+   * fails intermittently is reported as failing.
+   */
+  repetitions?: number;
   /** Per-test records. Empty in coverage mode. */
   results: TestRecord[];
   /** Per-file coverage report. Present when `coverage: true` or `threshold` is set and threshold is met. */
@@ -326,6 +335,45 @@ function handleCoverageMode(
 }
 
 /**
+ * Collapse the repetitions of `opa test --count N` into one record per test.
+ *
+ * The flag exists to surface tests that do not behave the same way every time,
+ * so a test keeps its worst outcome across the runs: an error beats a failure,
+ * a failure beats a pass, and a test skipped in every run stays skipped. The
+ * longest duration is kept, since that is the one a timeout would hit.
+ *
+ * OPA stops repeating once a run fails, so `runs` can be shorter than the
+ * requested count; the caller reports the length rather than the request.
+ */
+function mergeRepetitions(runs: TestRecord[][]): TestRecord[] {
+  const worst = new Map<string, TestRecord>();
+  const order: string[] = [];
+
+  for (const run of runs) {
+    for (const record of run) {
+      const key = `${record.package ?? ''}.${record.name ?? ''}`;
+      const seen = worst.get(key);
+      if (seen === undefined) {
+        worst.set(key, { ...record });
+        order.push(key);
+        continue;
+      }
+      const merged: TestRecord = { ...seen };
+      if (record.error !== undefined) merged.error = record.error;
+      if (record.fail === true) merged.fail = true;
+      // A test skipped in one run but executed in another is not skipped.
+      if (record.skip !== true) delete merged.skip;
+      if ((record.duration ?? 0) > (merged.duration ?? 0)) merged.duration = record.duration;
+      // An errored record is neither passed nor failed, so drop the weaker mark.
+      if (merged.error !== undefined) delete merged.fail;
+      worst.set(key, merged);
+    }
+  }
+
+  return order.map((key) => worst.get(key)!);
+}
+
+/**
  * Handle output from `opa test` without coverage or threshold.
  *
  * OPA emits a JSON array of test records. Passing tests have no `pass` field;
@@ -343,17 +391,29 @@ function handleTestRecordsMode(
   runPattern?: string,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
   let records: TestRecord[] = [];
+  let repetitions = 1;
 
-  // OPA emits a JSON array. Older versions may emit NDJSON (one object per line).
+  // OPA emits a JSON array. With `--count N` it emits one such array per
+  // repetition, back to back, which is neither a single JSON value nor NDJSON;
+  // reading only the first form reported a repeated run as no tests at all.
+  // Older versions may emit NDJSON (one object per line).
   const arrayParsed = tryParseJson<TestRecord[]>(stdout);
   if (Array.isArray(arrayParsed)) {
     records = arrayParsed;
   } else {
-    for (const line of stdout.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      const parsed = tryParseJson<TestRecord>(trimmed);
-      if (parsed) records.push(parsed);
+    const runs = parseJsonValues<TestRecord[] | TestRecord>(stdout).filter((v): v is TestRecord[] =>
+      Array.isArray(v),
+    );
+    if (runs.length > 0) {
+      repetitions = runs.length;
+      records = mergeRepetitions(runs);
+    } else {
+      for (const line of stdout.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        const parsed = tryParseJson<TestRecord>(trimmed);
+        if (parsed) records.push(parsed);
+      }
     }
   }
 
@@ -410,6 +470,7 @@ function handleTestRecordsMode(
     errored,
     total: records.length,
     results: records,
+    ...(repetitions > 1 ? { repetitions } : {}),
     ...(hasGroups ? { parameterizedGroups } : {}),
   });
 }
