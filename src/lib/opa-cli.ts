@@ -15,12 +15,14 @@
  * would force conversions both ways. Stdout is JSON whenever
  * `--format=json` is set, and tools call `JSON.parse` on it themselves.
  */
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Config } from '../config.js';
 import { coerceJsonArg } from './json-coerce.js';
+import { rewriteLoadPaths } from './opa-paths.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
 
 /** Input for the formatter. */
@@ -247,12 +249,29 @@ export interface BuildInput {
 export interface SignInput {
   /** Path to a bundle directory or archive. */
   bundle: string;
-  /** Path to the signing key. */
+  /**
+   * Path to the PEM private key (RSA or ECDSA). For HMAC algorithms OPA
+   * accepts either the raw secret or a path to a file holding it; the tool
+   * layer only ever passes a validated path.
+   */
   signingKey: string;
   /** Signing algorithm (e.g. `RS256`). Defaults to `RS256` in OPA. */
   signingAlg?: string;
-  /** Path to a claims file (extra signed claims). */
+  /** Path to a claims file. `keyid` and `scope` are set this way; `opa sign` has no flags for them. */
   claimsFile?: string;
+  /**
+   * Directory that receives `.signatures.json` (`--output-file-path`).
+   * OPA defaults this to the process working directory, which for a
+   * long-running server is never where the caller wants the file.
+   */
+  outputDir: string;
+  /**
+   * Working directory for opa. OPA records each signed file under the bundle
+   * path exactly as given, so for a directory the tool passes the parent here
+   * and the directory name as `bundle`; the signature then names files as
+   * `<name>/<file>` and stays valid wherever the directory sits under that name.
+   */
+  cwd?: string;
 }
 
 /** Input for `opa exec` -- batch evaluation against multiple input files. */
@@ -280,27 +299,32 @@ export interface ExecInput {
   v1Compatible?: boolean;
 }
 
-/** Input for bundle signature verification via `opa eval --bundle`. */
+/** Input for bundle signature verification via `opa build --verification-key`. */
 export interface BundleVerifyInput {
   /** Path to the signed bundle directory or `.tar.gz` archive. */
   bundle: string;
   /**
-   * Path to the PEM file containing the public key (RSA/ECDSA) or the
-   * HMAC secret file used to verify the bundle signature.
+   * Path to the PEM file containing the public key (RSA/ECDSA), or for
+   * HMAC algorithms a file holding the secret.
    */
   verificationKey: string;
   /**
-   * Key ID that must match the `keyid` claim in the bundle signature.
-   * Required when the bundle was signed with `--public-key-id`.
+   * Name the key is registered under (`--verification-key-id`, default
+   * `default`). With a single key OPA does not check it against the
+   * signature's `keyid` claim; only `scope` is enforced.
    */
   verificationKeyId?: string;
   /** Signing algorithm used when the bundle was signed (e.g. `RS256`, `HS256`). */
   signingAlg?: string;
   /**
    * Expected `scope` value in the bundle signature. Required when the
-   * bundle was signed with `--scope`.
+   * bundle was signed with a claims file that sets `scope`.
    */
   scope?: string;
+  /** Load the bundle as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
+  /** Working directory for opa; see `SignInput.cwd`. */
+  cwd?: string;
 }
 
 /**
@@ -405,7 +429,7 @@ export class OpaCli {
     }
     if (input.bundle) args.push('--bundle');
     args.push(...(input.paths ?? []));
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths ?? []);
   }
 
   /**
@@ -456,7 +480,7 @@ export class OpaCli {
       args.push('--data', path);
     }
     args.push(input.ref);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   // ─── Evaluation ──────────────────────────────────────────────────────
@@ -505,7 +529,7 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin, signal);
+    return this.run(args, stdin, signal, input.paths ?? []);
   }
 
   /**
@@ -529,7 +553,7 @@ export class OpaCli {
     if (input.explain) args.push('--explain', input.explain);
     if (input.v1Compatible) args.push('--v1-compatible');
     args.push(...input.paths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   /**
@@ -550,7 +574,7 @@ export class OpaCli {
     }
 
     args.push(input.query);
-    return this.run(args, stdin, signal);
+    return this.run(args, stdin, signal, input.paths ?? []);
   }
 
   // ─── Bundles ─────────────────────────────────────────────────────────
@@ -576,35 +600,48 @@ export class OpaCli {
     if (input.verificationKey) args.push('--verification-key', input.verificationKey);
     if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
     args.push(...input.paths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, input.paths);
   }
 
   /**
-   * Sign a bundle. Writes a `.signatures.json` next to the bundle
-   * directory.
+   * Sign a bundle with `opa sign`, writing `.signatures.json` into
+   * `input.outputDir`.
+   *
+   * `--bundle` is a boolean flag on `opa sign`; the bundle path is positional
+   * and goes after `--` so it can never be parsed as a flag.
    */
   async sign(input: SignInput, signal?: AbortSignal): Promise<SpawnResult> {
-    const args = ['sign', '--signing-key', input.signingKey];
+    const args = ['sign', '--bundle', '--signing-key', input.signingKey];
     if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
     if (input.claimsFile) args.push('--claims-file', input.claimsFile);
-    args.push('--bundle', input.bundle);
-    return this.run(args, undefined, signal);
+    args.push('--output-file-path', input.outputDir, '--', input.bundle);
+    return this.run(args, undefined, signal, [], input.cwd);
   }
 
   /**
-   * Verify a signed bundle using `opa eval --bundle --verification-key`.
-   * OPA verifies the bundle signature before loading any policies; a
-   * failed signature produces a non-zero exit and the error message on
-   * stderr. The trivial query `true` is used so the process exits
-   * immediately after verification without entering a REPL.
+   * Verify a signed bundle.
+   *
+   * OPA has no standalone verify command, and `opa eval` accepts no
+   * `--verification-key` at all. The flag lives on `opa build` and `opa run`.
+   * Build reads the key, checks the JWT against it, compares the scope claim,
+   * then checks every file, then parses, and exits non-zero at the first
+   * failure with the reason on stdout. The rebuilt archive goes to a private
+   * temp directory and is discarded: it is a side effect of the only
+   * verification path OPA offers, not a result.
    */
   async bundleVerify(input: BundleVerifyInput, signal?: AbortSignal): Promise<SpawnResult> {
-    const args = ['eval', '--bundle', input.bundle, '--verification-key', input.verificationKey];
-    if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
-    if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
-    if (input.scope) args.push('--scope', input.scope);
-    args.push('true');
-    return this.run(args, undefined, signal);
+    const tmpDir = await mkdtemp(join(tmpdir(), 'orygn-opa-mcp-verify-'));
+    try {
+      const args = ['build', '--bundle', '--verification-key', input.verificationKey];
+      if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
+      if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
+      if (input.scope) args.push('--scope', input.scope);
+      if (input.v0Compatible) args.push('--v0-compatible');
+      args.push('-o', join(tmpDir, 'verified.tar.gz'), '--', input.bundle);
+      return await this.run(args, undefined, signal, [], input.cwd);
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
   }
 
   /**
@@ -627,8 +664,12 @@ export class OpaCli {
     if (input.failNonEmpty) args.push('--fail-non-empty');
     if (input.timeout) args.push('--timeout', input.timeout);
     if (input.v1Compatible) args.push('--v1-compatible');
+    // The --bundle roots are mounted. The positional input files are read as
+    // the input document for each evaluation, not mounted, so they are left
+    // exactly as given.
+    const execLoadPaths = [...(input.bundle ? [input.bundle] : []), ...(input.dataPaths ?? [])];
     args.push(...input.inputPaths);
-    return this.run(args, undefined, signal);
+    return this.run(args, undefined, signal, execLoadPaths);
   }
 
   // ─── Low-level escape hatch ──────────────────────────────────────────
@@ -637,15 +678,70 @@ export class OpaCli {
    * Run `opa` with the given argv and optional stdin. Tools should
    * prefer the typed methods above, but this exists for the rare cases
    * the typed surface does not yet cover.
+   *
+   * `cwd` is for commands whose output location defaults to the working
+   * directory; the server's own cwd is never a place a tool should write.
    */
-  async run(args: string[], stdin?: string, signal?: AbortSignal): Promise<SpawnResult> {
+  async run(
+    args: string[],
+    stdin?: string,
+    signal?: AbortSignal,
+    /**
+     * The arguments OPA will mount as documents. On Windows an absolute one
+     * mounts under its drive letter, so these are rewritten relative to a
+     * working directory the child then runs in. Files OPA merely opens
+     * (`--input`, `--signing-key`, `--capabilities`, `-o`) must NOT be listed:
+     * they work absolute, and rewriting them risks a spurious drive conflict.
+     * See lib/opa-paths.ts.
+     */
+    loadPaths: readonly string[] = [],
+    /**
+     * Run the child here. Used where OPA binds behaviour to the path it is
+     * given rather than to the file it opens, as `opa sign` does for a
+     * directory bundle. A rewritten load path derives its own working
+     * directory, and the two are never needed by the same command.
+     */
+    cwd?: string,
+  ): Promise<SpawnResult> {
+    const rewritten = rewriteLoadPaths(args, loadPaths);
+    if (rewritten.conflict) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr:
+          `load paths span more than one drive (${rewritten.conflict.drives.join(', ')}). ` +
+          'opa reads an absolute path as prefix:path, so on Windows it can load documents ' +
+          'from only one drive at a time. Use paths on a single drive.',
+        timedOut: false,
+        aborted: false,
+        durationMs: 0,
+      };
+    }
+
     const opts: Parameters<typeof runBinary>[1] = {
-      args,
+      args: rewritten.args,
       timeoutMs: this.config.subprocessTimeoutMs,
       maxOutputBytes: this.config.maxSubprocessBytes,
     };
     if (stdin !== undefined) opts.stdin = stdin;
     if (signal !== undefined) opts.signal = signal;
+    const runCwd = cwd ?? rewritten.cwd;
+    if (runCwd !== undefined) {
+      // A working directory that vanished after validation makes spawn fail
+      // with the same ENOENT a missing binary produces, which would be
+      // reported as OPA_BINARY_NOT_FOUND. Name the real cause instead.
+      if (!existsSync(runCwd)) {
+        return {
+          exitCode: 1,
+          stdout: '',
+          stderr: `working directory does not exist: ${runCwd}`,
+          timedOut: false,
+          aborted: false,
+          durationMs: 0,
+        };
+      }
+      opts.cwd = runCwd;
+    }
     return runBinary(this.config.opaBinary, opts);
   }
 

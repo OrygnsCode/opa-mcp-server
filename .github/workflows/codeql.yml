@@ -3,8 +3,10 @@ name: CodeQL
 on:
   push:
     branches: [main]
+  # No base-branch filter: a pull request stacked on another feature branch
+  # is still a change that has to pass before it merges, and it retargets main
+  # only once its base lands, which is after review.
   pull_request:
-    branches: [main]
   schedule:
     - cron: '23 4 * * 2'
 
