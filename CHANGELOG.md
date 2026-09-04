@@ -17,6 +17,27 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Security
+
+- `opa_config` described its output as sanitized with secrets excluded. OPA
+  drops the `credentials` block from `GET /v1/config` but returns
+  `services.*.headers` verbatim, and a header is the ordinary place to put an
+  API key or a bearer token for a bundle service, so a live credential was
+  handed to whatever agent called the tool. `opa_status` returns the same
+  document and had the same exposure. Header values are now replaced with a
+  marker and the header names kept, so the document still says what the server
+  is configured to send.
+
+### Fixed
+
+- `opa_health` reported a reachable server as `OPA_UNREACHABLE`. A server that
+  answers `/health?bundles=true` with `one or more bundles are not activated`
+  is running; the caller was told no server was found and to go start one, and
+  OPA's own reason was buried in a stringified error. Such a response is now a
+  result: `healthy: false` with `reason`, which is what the output type always
+  allowed and never produced. A 401 maps to `OPA_AUTH_FAILED`, and
+  `OPA_UNREACHABLE` is left for a server that could not be reached.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
