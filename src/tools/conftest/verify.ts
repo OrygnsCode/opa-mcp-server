@@ -18,14 +18,13 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
-import { ConftestCli, type ConftestFileResult } from '../../lib/conftest-cli.js';
-import { err, ok } from '../../lib/errors.js';
 import {
-  mapSubprocessFailure,
-  tryParseJson,
-  validatePaths,
-  withToolEnvelope,
-} from '../../lib/tool-helpers.js';
+  ConftestCli,
+  parseConftestResults,
+  type ConftestFileResult,
+} from '../../lib/conftest-cli.js';
+import { err, ok } from '../../lib/errors.js';
+import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
 
 const ConftestVerifyInput = {
   policy: z
@@ -49,18 +48,22 @@ const ConftestVerifyInput = {
 };
 
 export interface ConftestVerifyOutput {
-  /** `true` when all `test_*` rules in all test files pass. */
+  /** `true` when every `test_*` rule passed. */
   passed: boolean;
-  /** Per-test-file results. */
+  /**
+   * One entry per test outcome as conftest reports them: a test file
+   * produces one entry per passing rule (`successes: 1`) and one per
+   * failing rule (`failures: [{msg}]`), with `namespace` empty.
+   */
   results: ConftestFileResult[];
   summary: {
-    /** Number of test files with zero failures. */
+    /** Distinct test files with no failing rule. */
     passed: number;
-    /** Number of test files with at least one failure. */
+    /** Distinct test files with at least one failing rule. */
     failed: number;
-    /** Total test cases that passed (sum of `successes` across all files). */
+    /** Test rules that passed, across all files. */
     totalPassed: number;
-    /** Total test cases that failed (sum of `failures` across all files). */
+    /** Test rules that failed, across all files. */
     totalFailed: number;
   };
 }
@@ -75,14 +78,15 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
       description:
         'Run the `test_*` rules inside `*_test.rego` files within a conftest policy directory, ' +
         'verifying that the policies themselves are correct. Equivalent to `opa test` but using ' +
-        "conftest's policy-loading machinery. Returns per-file pass/fail results. " +
+        "conftest's policy-loading machinery. Returns per-file pass/fail results, and " +
+        'NO_TESTS_FOUND when the directory holds no test rules. ' +
         'Requires `conftest` on PATH or `CONFTEST_BINARY` set; returns CONFTEST_NOT_FOUND otherwise.',
       inputSchema: ConftestVerifyInput,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        openWorldHint: true,
       },
     },
     async (input, { signal }) => {
@@ -114,18 +118,29 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
         if (subprocessFailure) return subprocessFailure;
 
         if (result.exitCode === 0 || result.exitCode === 1) {
-          const parsed = tryParseJson<ConftestFileResult[]>(result.stdout);
-          if (!parsed || !Array.isArray(parsed)) {
+          const results = parseConftestResults(result.stdout);
+          if (results === null) {
             return err('UNKNOWN_ERROR', 'conftest verify produced no parseable JSON output.', {
               details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
             });
           }
 
-          const summary = buildVerifySummary(parsed);
+          // conftest prints `null` and exits 0 when it finds no test rules.
+          // A clean pass over nothing is not a pass.
+          if (results.length === 0) {
+            return err(
+              'NO_TESTS_FOUND',
+              'conftest verify found no test rules in the policy directory.',
+              {
+                hint: 'Tests live in *_test.rego files inside the policy directory, with rules named test_*.',
+              },
+            );
+          }
+
           return ok<ConftestVerifyOutput>({
             passed: result.exitCode === 0,
-            results: parsed,
-            summary,
+            results,
+            summary: buildVerifySummary(results),
           });
         }
 
@@ -143,20 +158,25 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildVerifySummary(results: ConftestFileResult[]): ConftestVerifyOutput['summary'] {
-  let passed = 0;
-  let failed = 0;
+  // conftest verify reports one entry per test rule, all carrying the test
+  // file's name, so a file with one pass and one failure arrives as two
+  // entries. Files are counted by name, rules by entry.
+  const allFiles = new Set<string>();
+  const failedFiles = new Set<string>();
   let totalPassed = 0;
   let totalFailed = 0;
 
   for (const r of results) {
-    if (r.failures.length > 0) {
-      failed++;
-    } else {
-      passed++;
-    }
+    allFiles.add(r.filename);
+    if (r.failures.length > 0) failedFiles.add(r.filename);
     totalPassed += r.successes;
     totalFailed += r.failures.length;
   }
 
-  return { passed, failed, totalPassed, totalFailed };
+  return {
+    passed: allFiles.size - failedFiles.size,
+    failed: failedFiles.size,
+    totalPassed,
+    totalFailed,
+  };
 }

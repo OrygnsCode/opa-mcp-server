@@ -68,6 +68,8 @@ export interface RootTestResult {
   passed: number;
   failed: number;
   skipped: number;
+  /** Tests OPA could not evaluate. Neither passed nor failed. */
+  errored: number;
   total: number;
   results: TestRecord[];
   coverage?: CoverageReport;
@@ -82,6 +84,8 @@ export interface MultiRootTestOutput {
   totalPassed: number;
   totalFailed: number;
   totalSkipped: number;
+  /** Tests OPA could not evaluate, across every root. */
+  totalErrored: number;
   totalTests: number;
   rootsRun: number;
   rootsWithErrors: number;
@@ -100,6 +104,7 @@ interface RootOutcome {
   passed: number;
   failed: number;
   skipped: number;
+  errored: number;
   total: number;
   results: TestRecord[];
   coverage?: CoverageReport;
@@ -327,6 +332,7 @@ function processRootOutput(
         passed: 0,
         failed: 0,
         skipped: 0,
+        errored: 0,
         total: 0,
         results: [],
         coverage: coverageData,
@@ -344,6 +350,7 @@ function processRootOutput(
         passed: 0,
         failed: 0,
         skipped: 0,
+        errored: 0,
         total: 0,
         results: [],
         coveragePct: actualCoverage,
@@ -360,6 +367,7 @@ function processRootOutput(
       passed: 0,
       failed: 0,
       skipped: 0,
+      errored: 0,
       total: 0,
       results: [],
       error: {
@@ -390,6 +398,7 @@ function processRootOutput(
         passed: 0,
         failed: 0,
         skipped: 0,
+        errored: 0,
         total: 0,
         results: [],
         error: {
@@ -404,6 +413,7 @@ function processRootOutput(
       passed: 0,
       failed: 0,
       skipped: 0,
+      errored: 0,
       total: 0,
       results: [],
       error: {
@@ -414,10 +424,13 @@ function processRootOutput(
     };
   }
 
+  // `error` marks a test OPA could not evaluate; OPA sets it instead of
+  // `fail`, so it has to come out of the total alongside failures and skips.
   const failed = records.filter((r) => r.fail).length;
   const skipped = records.filter((r) => r.skip).length;
-  const passed = records.length - failed - skipped;
-  return { passed, failed, skipped, total: records.length, results: records };
+  const errored = records.filter((r) => r.error !== undefined && r.error !== null).length;
+  const passed = records.length - failed - skipped - errored;
+  return { passed, failed, skipped, errored, total: records.length, results: records };
 }
 
 function computeOverallCoveragePct(roots: RootTestResult[]): number | undefined {
@@ -609,6 +622,7 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
         const totalPassed = rootResults.reduce((s, r) => s + (r.error ? 0 : r.passed), 0);
         const totalFailed = rootResults.reduce((s, r) => s + (r.error ? 0 : r.failed), 0);
         const totalSkipped = rootResults.reduce((s, r) => s + (r.error ? 0 : r.skipped), 0);
+        const totalErrored = rootResults.reduce((s, r) => s + (r.error ? 0 : r.errored), 0);
         const totalTests = rootResults.reduce((s, r) => s + (r.error ? 0 : r.total), 0);
         const rootsWithErrors = rootResults.filter((r) => r.error !== undefined).length;
         const rootsWithFailures = rootResults.filter(
@@ -621,6 +635,7 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
           totalPassed,
           totalFailed,
           totalSkipped,
+          totalErrored,
           totalTests,
           rootsRun: rootResults.length,
           rootsWithErrors,

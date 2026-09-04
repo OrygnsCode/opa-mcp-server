@@ -276,6 +276,52 @@ describe('rego_test', () => {
     expect(env.data?.total).toBe(4);
   });
 
+  it('counts a record carrying `error` as errored, not as passed', async () => {
+    // OPA 1.19 shape for a test it could not evaluate: an `error` object and
+    // NO `fail`, so `total - failed - skipped` used to absorb it into passed.
+    const records = [
+      { name: 'test_ok', duration: 100 },
+      {
+        name: 'test_conflict',
+        error: {
+          code: 'eval_conflict_error',
+          message: 'complete rules must not produce multiple outputs',
+        },
+        duration: 0,
+      },
+      { name: 'test_broken', fail: true, duration: 5 },
+      { name: 'todo_pending', skip: true, duration: 0 },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      passed: number;
+      failed: number;
+      skipped: number;
+      errored: number;
+      total: number;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ passed: 1, failed: 1, skipped: 1, errored: 1, total: 4 });
+  });
+
+  it('does not report a suite of only errored tests as passing', async () => {
+    const records = [
+      { name: 'test_a', error: { code: 'eval_conflict_error', message: 'x' } },
+      { name: 'test_b', error: { code: 'eval_type_error', message: 'y' } },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ passed: number; errored: number; total: number }>(
+      server,
+      'rego_test',
+      { paths: [validRegoPath()] },
+    );
+    expect(env.data).toMatchObject({ passed: 0, errored: 2, total: 2 });
+  });
+
   it('parses NDJSON output as a fallback', async () => {
     // Older OPA versions emit one JSON object per line rather than a wrapped array.
     const ndjson =

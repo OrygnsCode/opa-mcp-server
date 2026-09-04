@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Config } from '../../../src/config.js';
@@ -465,16 +468,111 @@ describe('OpaCli', () => {
   });
 
   describe('sign()', () => {
-    it('emits sign argv with the bundle as a flag (not positional)', async () => {
-      await opa.sign({ bundle: '/abs/bundle.tar.gz', signingKey: '/abs/key.pem' });
-      const args = mockRun.mock.calls[0]![1].args;
-      expect(args).toEqual([
+    it('emits --bundle as a flag, an explicit output path, and the bundle after --', async () => {
+      await opa.sign({
+        bundle: 'bundle',
+        signingKey: '/abs/key.pem',
+        outputDir: '/abs/parent/bundle',
+        cwd: tmpdir(),
+      });
+      const call = mockRun.mock.calls[0]![1];
+      expect(call.args).toEqual([
         'sign',
+        '--bundle',
         '--signing-key',
         '/abs/key.pem',
-        '--bundle',
-        '/abs/bundle.tar.gz',
+        '--output-file-path',
+        '/abs/parent/bundle',
+        '--',
+        'bundle',
       ]);
+      expect(call.cwd).toBe(tmpdir());
+    });
+
+    it('runs without a working directory when none is given', async () => {
+      await opa.sign({ bundle: '/abs/b.tar.gz', signingKey: '/abs/k', outputDir: '/abs' });
+      expect(mockRun.mock.calls[0]![1].cwd).toBeUndefined();
+    });
+
+    it('places signingAlg and claimsFile before the output path', async () => {
+      await opa.sign({
+        bundle: '/abs/b',
+        signingKey: '/abs/k',
+        signingAlg: 'ES256',
+        claimsFile: '/abs/c.json',
+        outputDir: '/abs/out',
+      });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args.slice(0, 8)).toEqual([
+        'sign',
+        '--bundle',
+        '--signing-key',
+        '/abs/k',
+        '--signing-alg',
+        'ES256',
+        '--claims-file',
+        '/abs/c.json',
+      ]);
+      expect(args.slice(-4)).toEqual(['--output-file-path', '/abs/out', '--', '/abs/b']);
+    });
+  });
+
+  describe('bundleVerify()', () => {
+    it('verifies through opa build into a temp output that is removed afterwards', async () => {
+      await opa.bundleVerify({ bundle: '/abs/signed', verificationKey: '/abs/pub.pem' });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args[0]).toBe('build');
+      expect(args[1]).toBe('--bundle');
+      expect(args).not.toContain('eval');
+      expect(args[args.indexOf('--verification-key') + 1]).toBe('/abs/pub.pem');
+      const out = args[args.indexOf('-o') + 1]!;
+      expect(out.startsWith(tmpdir())).toBe(true);
+      expect(out.endsWith('verified.tar.gz')).toBe(true);
+      expect(existsSync(dirname(out))).toBe(false);
+      expect(args.slice(-2)).toEqual(['--', '/abs/signed']);
+    });
+
+    it('forwards the working directory and --v0-compatible', async () => {
+      await opa.bundleVerify({
+        bundle: 'signed',
+        verificationKey: '/abs/k',
+        cwd: tmpdir(),
+        v0Compatible: true,
+      });
+      const call = mockRun.mock.calls[0]![1];
+      expect(call.cwd).toBe(tmpdir());
+      expect(call.args).toContain('--v0-compatible');
+      expect(call.args.slice(-2)).toEqual(['--', 'signed']);
+    });
+
+    it('passes verificationKeyId, signingAlg and scope', async () => {
+      await opa.bundleVerify({
+        bundle: '/abs/s',
+        verificationKey: '/abs/k',
+        verificationKeyId: 'k1',
+        signingAlg: 'HS256',
+        scope: 'w',
+      });
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args[args.indexOf('--verification-key-id') + 1]).toBe('k1');
+      expect(args[args.indexOf('--signing-alg') + 1]).toBe('HS256');
+      expect(args[args.indexOf('--scope') + 1]).toBe('w');
+      expect(args).not.toContain('--v0-compatible');
+    });
+
+    it('removes the temp directory when opa fails', async () => {
+      mockRun.mockResolvedValueOnce({
+        exitCode: 1,
+        stdout: 'error: load error',
+        stderr: '',
+        timedOut: false,
+        aborted: false,
+        durationMs: 1,
+      });
+      const result = await opa.bundleVerify({ bundle: '/abs/s', verificationKey: '/abs/k' });
+      expect(result.exitCode).toBe(1);
+      const out = mockRun.mock.calls[0]![1].args.at(-3)!;
+      expect(existsSync(dirname(out))).toBe(false);
     });
   });
 
@@ -496,6 +594,23 @@ describe('OpaCli', () => {
         timeoutMs: 30_000,
         maxOutputBytes: 32 * 1024 * 1024,
       });
+    });
+
+    it('forwards cwd when provided', async () => {
+      await opa.run(['sign'], undefined, undefined, tmpdir());
+      expect(mockRun).toHaveBeenCalledWith(
+        'opa',
+        expect.objectContaining({ args: ['sign'], cwd: tmpdir() }),
+      );
+    });
+
+    it('names a missing working directory instead of spawning into it', async () => {
+      // spawn would fail with the same ENOENT a missing binary produces, which
+      // the tool layer reports as OPA_BINARY_NOT_FOUND.
+      const result = await opa.run(['sign'], undefined, undefined, '/definitely/not/here');
+      expect(mockRun).not.toHaveBeenCalled();
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toMatch(/working directory does not exist/);
     });
 
     it('uses the configured opa binary path', async () => {
