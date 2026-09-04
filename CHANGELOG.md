@@ -17,6 +17,28 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- `rego_explain_undefined` had nothing to say about a policy written with
+  `default allow := false`. A default gives the query a value, so it is never
+  undefined and the tool returned that value and stopped, skipping the
+  per-clause analysis it exists for. A query whose value came from a default
+  and from nothing else is now analysed, and `queryResult` reports `default`.
+- Clauses of a multi-clause rule were not told apart in the trace. OPA leaves
+  `Node.location` unset on trace events, so the row comparison meant to
+  distinguish them always fell through to matching on the rule name, and every
+  clause looked present in the trace as soon as one was. Those clauses were
+  never evaluated standalone: each came back with every condition
+  `unevaluable` and no blocking condition. The event's own location is now
+  used.
+
+### Changed
+
+- `rego_explain_undefined` output: `queryResult` gains `default`, and `value`
+  is populated for it. On a query that is genuinely defined the tool now also
+  runs `opa parse`, which is how it tells a default apart from a rule that
+  matched.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
