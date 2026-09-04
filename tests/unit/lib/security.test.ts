@@ -6,12 +6,26 @@
  * traversal attacks, edge-case input shapes, and platform-specific
  * resolution rules that the function has to get right.
  */
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { isDirectory, validatePath } from '../../../src/lib/security.js';
+
+/**
+ * Directory link: a junction on Windows, which needs no privilege, a symlink
+ * elsewhere. Node creates a junction natively, so no shell is involved.
+ * Returns false when neither can be created.
+ */
+async function linkDir(link: string, target: string): Promise<boolean> {
+  try {
+    await symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 let workDir: string;
 let allowedRoot: string;
@@ -19,7 +33,9 @@ let realFile: string;
 let realSubDir: string;
 
 beforeAll(async () => {
-  workDir = join(tmpdir(), `orygn-sec-test-${Date.now()}`);
+  // mkdtemp, not a predictable name under tmpdir: a fixed name is a
+  // squattable path, and CodeQL flags writes to one.
+  workDir = await mkdtemp(join(tmpdir(), 'orygn-sec-test-'));
   allowedRoot = join(workDir, 'policies');
   realSubDir = join(allowedRoot, 'sub');
   realFile = join(allowedRoot, 'main.rego');
@@ -167,21 +183,23 @@ describe('validatePath — symlink traversal', () => {
     },
   );
 
-  it.skipIf(process.platform === 'win32')(
-    'blocks a symlink to a directory outside the allowed root',
-    async () => {
-      const outsideDir = join(workDir, 'outside-dir');
-      await mkdir(outsideDir, { recursive: true });
-      await writeFile(join(outsideDir, 'data.json'), '{}', 'utf8');
+  it('blocks a directory link (symlink or junction) to a directory outside the allowed root', async (ctx) => {
+    const outsideDir = join(workDir, 'outside-dir');
+    await mkdir(outsideDir, { recursive: true });
+    await writeFile(join(outsideDir, 'data.json'), '{}', 'utf8');
 
-      const linkPath = join(allowedRoot, 'evil-dir-link');
-      await symlink(outsideDir, linkPath);
+    const linkPath = join(allowedRoot, 'evil-dir-link');
+    if (!(await linkDir(linkPath, outsideDir))) ctx.skip('cannot create directory links here');
 
-      const result = validatePath(linkPath, [allowedRoot], { mustExist: true });
-      expect(result.ok).toBe(false);
-      expect(result.error?.error?.code).toBe('PATH_NOT_ALLOWED');
-    },
-  );
+    const result = validatePath(linkPath, [allowedRoot], { mustExist: true });
+    expect(result.ok).toBe(false);
+    expect(result.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+
+    // A file that already exists behind the link is caught the same way.
+    const behind = validatePath(join(linkPath, 'data.json'), [allowedRoot], { mustExist: true });
+    expect(behind.ok).toBe(false);
+    expect(behind.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
 
   it.skipIf(process.platform === 'win32')(
     'allows a symlink that points to a file still inside the allowed root',
@@ -226,4 +244,93 @@ describe('isDirectory', () => {
   it('returns false for a missing path (does not throw)', () => {
     expect(isDirectory(join(allowedRoot, 'missing'))).toBe(false);
   });
+});
+
+describe('validatePath - write destinations that do not exist yet', () => {
+  // A tool that writes (opa build -o, conftest pull --policy, opa sign) gets
+  // a path that is not on disk. The real location of such a path is the real
+  // location of its nearest existing ancestor plus the missing segments, and
+  // that is what has to be inside a root.
+
+  it('rejects a new file under a directory link that points outside the root', async (ctx) => {
+    const outside = join(workDir, 'wd-outside');
+    await mkdir(outside, { recursive: true });
+    const link = join(allowedRoot, 'wd-link');
+    if (!(await linkDir(link, outside))) ctx.skip('cannot create directory links here');
+
+    const direct = validatePath(join(link, 'bundle.tar.gz'), [allowedRoot]);
+    expect(direct.ok).toBe(false);
+    expect(direct.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+
+    const nested = validatePath(join(link, 'a', 'b', 'c.rego'), [allowedRoot]);
+    expect(nested.ok).toBe(false);
+    expect(nested.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it('accepts a new file under a directory link that stays inside the root', async (ctx) => {
+    const link = join(allowedRoot, 'wd-inside-link');
+    if (!(await linkDir(link, realSubDir))) ctx.skip('cannot create directory links here');
+    const result = validatePath(join(link, 'new.rego'), [allowedRoot]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts a new path with several missing segments under a real directory', () => {
+    const result = validatePath(join(allowedRoot, 'x', 'y', 'z', 'out.tar.gz'), [allowedRoot]);
+    expect(result.ok).toBe(true);
+    expect(result.resolved).toBe(resolve(join(allowedRoot, 'x', 'y', 'z', 'out.tar.gz')));
+  });
+
+  it('rejects a dangling symlink as the target, whether or not it must exist', async (ctx) => {
+    const link = join(allowedRoot, 'dangling.txt');
+    try {
+      await symlink(join(workDir, 'nowhere', 'target.txt'), link, 'file');
+    } catch {
+      ctx.skip('creating file symlinks needs a privilege this account lacks');
+    }
+    const asWrite = validatePath(link, [allowedRoot]);
+    expect(asWrite.ok).toBe(false);
+    expect(asWrite.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(asWrite.error?.error?.message).toMatch(/target does not exist/);
+
+    const asRead = validatePath(link, [allowedRoot], { mustExist: true });
+    expect(asRead.ok).toBe(false);
+  });
+
+  it('accepts a path under a root that is itself a directory link', async (ctx) => {
+    const target = join(workDir, 'linked-root-target');
+    await mkdir(target, { recursive: true });
+    const linkRoot = join(workDir, 'linked-root');
+    if (!(await linkDir(linkRoot, target))) ctx.skip('cannot create directory links here');
+
+    // Spelled through the link and spelled through the target both resolve
+    // to the same real place, which is inside the (real) root.
+    expect(validatePath(join(linkRoot, 'new.rego'), [linkRoot]).ok).toBe(true);
+    expect(validatePath(join(target, 'new.rego'), [linkRoot]).ok).toBe(true);
+    // A missing sub-tree under the linked root is fine too.
+    expect(validatePath(join(linkRoot, 'a', 'b', 'c.rego'), [linkRoot]).ok).toBe(true);
+  });
+
+  it('rejects a path under a root that is a link, when the path escapes through a second link', async (ctx) => {
+    const target = join(workDir, 'lr2-target');
+    const outside = join(workDir, 'lr2-outside');
+    await mkdir(target, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    const linkRoot = join(workDir, 'lr2-root');
+    if (!(await linkDir(linkRoot, target))) ctx.skip('cannot create directory links here');
+    if (!(await linkDir(join(target, 'escape'), outside)))
+      ctx.skip('cannot create directory links here');
+
+    const result = validatePath(join(linkRoot, 'escape', 'new.rego'), [linkRoot]);
+    expect(result.ok).toBe(false);
+    expect(result.error?.error?.code).toBe('PATH_NOT_ALLOWED');
+  });
+
+  it.runIf(process.platform === 'win32')(
+    'compares the root without regard to case on Windows, then exactly in canonical form',
+    () => {
+      const shouted = realFile.toUpperCase();
+      const result = validatePath(shouted, [allowedRoot], { mustExist: true });
+      expect(result.ok).toBe(true);
+    },
+  );
 });

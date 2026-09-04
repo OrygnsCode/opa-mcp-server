@@ -59,6 +59,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --config vitest.coverage.config.ts --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "verify:fuzz": "node scripts/verify-soundness-fuzz.mjs",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build",
     "clean": "rimraf dist coverage .vitest-cache",
     "bundle:fetch": "node scripts/fetch-opa-binaries.mjs",

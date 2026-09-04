@@ -19,6 +19,25 @@ not part of the public surface and may change in minor releases.
 
 ### Security
 
+- `opa_bundle_sign` wrote `.signatures.json` into the server's working directory,
+  outside `OPA_MCP_ALLOWED_PATHS`, and reported `signed: true` while the bundle it
+  was asked to sign stayed unsigned. `opa sign` puts the file wherever
+  `--output-file-path` says, that flag defaults to the process cwd, and it was
+  not being passed. A directory bundle is now signed in place and an archive
+  beside itself (or in `outputDir`), both validated like every other path the
+  server writes, and success is reported only after the file is observed on
+  disk. A `.signatures.json` already present as a symbolic link is refused
+  rather than written through. The response carries the path written, the
+  algorithm, and the number of files covered.
+- Path validation followed links only for paths that already existed, so a
+  write destination that did not exist yet, such as an `opa_bundle_build` output
+  or a `conftest_pull` policy directory, was accepted on its spelling alone. A
+  junction or symbolic link inside an allowed root that pointed outside it made
+  such a write land outside the roots. A path is now judged by the real location
+  of its nearest existing ancestor with the missing segments re-attached, a
+  dangling link is refused, and roots and paths are compared in canonical form,
+  which also ends false rejections for a root spelled through a link (macOS
+  `/var`), a Windows short name, or a different letter case.
 - `conftest_test` joined the `inlineConfigParser` value into the temp file name
   for inline config without checking it, so a value carrying `../` segments
   placed the inline config, whose content the caller also chooses, at any path
@@ -28,6 +47,25 @@ not part of the public surface and may change in minor releases.
 
 ### Fixed
 
+- `opa_bundle_verify` passed `--verification-key` to `opa eval`, which has no
+  such flag, so verification always failed with "unknown flag" and was reported
+  as `INVALID_BUNDLE`, signed or not. Verification now runs through
+  `opa build --verification-key` into a discarded temp file, which is the path
+  OPA provides. Failures carry `details.reason`: `signature_invalid`,
+  `scope_mismatch`, `file_modified`, `file_added`, `file_missing`,
+  `file_unparseable`, `unsigned`, `signatures_malformed`, `not_a_bundle`,
+  `bundle_load_error`, or `unknown` when OPA's message is not recognised. A key
+  or algorithm OPA cannot use is reported as `INVALID_INPUT` by both tools.
+- Directory bundles are signed and verified by name from the parent directory,
+  the way `opa sign --bundle <name>` records them, so a signed directory stays
+  valid wherever it is placed under that name and a directory signed with the
+  OPA CLI verifies. A symbolic link or junction given as the bundle is resolved
+  first; OPA does not descend a linked root and would sign an empty file list.
+- `opa_bundle_build` passed `--signing-key` and `--verification-key` without
+  `--bundle`, which `opa build` refuses, so neither option worked unless
+  `bundle: true` was also set. Either option now implies bundle mode.
+- `opa_bundle_sign` returned an empty `stderr` on failure because `opa sign`
+  prints its errors on stdout. `details` now carries both streams.
 - `conftest_test` and `conftest_verify` threw `UNKNOWN_ERROR` on every clean run.
   conftest omits every empty array from its JSON, so a passing file arrives with
   no `failures` key and the summary code dereferenced it. Results now always
@@ -38,6 +76,14 @@ not part of the public surface and may change in minor releases.
   `conftest_test`. `exceptions` are messages, not strings, matching conftest.
 - CI installs conftest for the integration job, so the real-binary conftest
   tests run there instead of skipping.
+
+### Added
+
+- `opa_bundle_sign` accepts `outputDir` for archives, the directory that
+  receives `.signatures.json`. A directory bundle is always signed in place,
+  since OPA only reads the signature from inside the bundle.
+- `opa_bundle_verify` accepts `v0Compatible` for bundles written in Rego v0,
+  which otherwise fail to load after the signature has been checked.
 
 ## [0.4.0] - 2026-09-03
 
