@@ -105,6 +105,16 @@ not part of the public surface and may change in minor releases.
   absolute paths carry no drive letter. Load paths spanning two drives are now
   reported as an error, since OPA cannot load documents from two drives in one
   invocation.
+- `rego_lint`, `rego_fix` and `rego_security_audit` ignored the linted project's
+  own `.regal/config.yaml`, and applied any configuration sitting above the
+  server's working directory to every call instead. Regal discovers its
+  configuration by walking up from its own working directory rather than from
+  the files it is given, and it was spawned without one, so it inherited the
+  server's, which for a stdio server is wherever the client launched it. Rules a
+  project had turned off were reported anyway, and inline source, which belongs
+  to no project, picked up whatever happened to be above the server. Regal now
+  runs in the directory of what it is linting, and inline source runs in its own
+  temp directory. An explicit `configFile` still takes precedence.
 
 ### Added
 
