@@ -17,6 +17,24 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- `OPA_MCP_BLOCK_ENV` withholds named variables from `opa`, `regal` and
+  `conftest` even when they are on the built-in allow-list. It is applied last,
+  so it also overrides `OPA_MCP_PASSTHROUGH_ENV` and anything a command passes
+  explicitly. It exists so an operator behind an authenticated proxy can choose
+  to lose proxy support rather than expose those credentials to evaluated
+  policy.
+
+### Changed
+
+- The 0.4.0 entry below, the README and the source comment all described the
+  child-process allow-list as containing no secret. That overstated it:
+  `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` are on the list and a proxy URL
+  can embed a username and password, which any evaluated policy can read
+  through `opa.runtime().env`. All three now say so. No behaviour changed; the
+  exposure was there in 0.4.0 as shipped and is unchanged by this correction.
+
 ## [0.4.0] - 2026-09-03
 
 ### Security
@@ -29,9 +47,15 @@ not part of the public surface and may change in minor releases.
   `rego_eval` accepts inline source, so `OPA_MCP_ALLOWED_PATHS` never applied and no
   filesystem access was needed; a policy arriving through a README, an issue, or a
   diff was enough. `conftest_test` was affected the same way, and is the likelier
-  route to third-party policy. Children now get an explicit allow-list containing no
-  secret. `OPA_MCP_PASSTHROUGH_ENV` opts individual variables back in, and anything
-  named there is readable by evaluated policy by design.
+  route to third-party policy. Children now get an explicit allow-list.
+  `OPA_MCP_PASSTHROUGH_ENV` opts individual variables back in, and anything named
+  there is readable by evaluated policy by design.
+
+  The allow-list carries no cloud or repository token, but it is not free of
+  credentials: `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` are on it, and a proxy
+  URL can embed a username and password, so an operator behind an authenticated
+  corporate proxy is still handing those to evaluated policy. They are on the list
+  because dropping them breaks proxied bundle downloads and `http.send`.
 
   On Windows, libuv copies a fixed set of variables to every child regardless of what
   is requested. `USERNAME`, `USERDOMAIN` and `LOGONSERVER` cannot be removed, so they
