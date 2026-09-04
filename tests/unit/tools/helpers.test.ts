@@ -1021,12 +1021,22 @@ function makeAst(opts: {
 }
 
 describe('rego_explain_undefined', () => {
-  it('returns queryResult: defined immediately when OPA produces a value', async () => {
-    mockRun.mockResolvedValueOnce(
-      spawnSuccess(
-        JSON.stringify({ result: [{ expressions: [{ value: true, text: 'data.authz.allow' }] }] }),
-      ),
-    );
+  it('returns queryResult: defined when a rule, not a default, produced the value', async () => {
+    mockRun
+      .mockResolvedValueOnce(
+        spawnSuccess(
+          JSON.stringify({
+            result: [{ expressions: [{ value: true, text: 'data.authz.allow' }] }],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        spawnSuccess(
+          JSON.stringify(
+            makeAst({ pkgName: 'authz', rules: [{ name: 'allow', row: 2, body: [] }] }),
+          ),
+        ),
+      );
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     const env = await callTool<{ queryResult: string; value: unknown; rulesFound: number }>(
@@ -1038,8 +1048,9 @@ describe('rego_explain_undefined', () => {
     expect(env.data?.queryResult).toBe('defined');
     expect(env.data?.value).toBe(true);
     expect(env.data?.rulesFound).toBe(0);
-    // Defined path must short-circuit: only one runBinary call.
-    expect(mockRun).toHaveBeenCalledTimes(1);
+    // No trace eval and no condition evals: the parse is only there to rule
+    // out a default having supplied the value.
+    expect(mockRun).toHaveBeenCalledTimes(2);
   });
 
   it('returns queryResult: undefined with rulesFound: 0 when no source or paths provided', async () => {
@@ -1097,12 +1108,12 @@ describe('rego_explain_undefined', () => {
     expect(mockRun).not.toHaveBeenCalled();
   });
 
-  it('uses --explain=full on the second eval call', async () => {
+  it('uses --explain=full on the trace eval', async () => {
     const ast = makeAst({ pkgName: 'authz', rules: [{ name: 'allow', row: 2, body: [] }] });
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: [] })))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: [] })));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     await callTool(server, 'rego_explain_undefined', {
@@ -1110,7 +1121,8 @@ describe('rego_explain_undefined', () => {
       source: 'package authz\nallow := true',
     });
     // Call index 1 is the trace eval; verify --explain full is in its args.
-    const traceArgs = mockRun.mock.calls[1]![1].args;
+    // eval, parse, then the trace eval.
+    const traceArgs = mockRun.mock.calls[2]![1].args;
     const explainIdx = traceArgs.indexOf('--explain');
     expect(explainIdx).toBeGreaterThan(-1);
     expect(traceArgs[explainIdx + 1]).toBe('full');
@@ -1137,8 +1149,8 @@ describe('rego_explain_undefined', () => {
     ];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     const env = await callTool<{
@@ -1189,8 +1201,8 @@ describe('rego_explain_undefined', () => {
     ];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     const env = await callTool<{ rules: Array<{ source: string; blockingCondition: unknown }> }>(
@@ -1227,8 +1239,8 @@ describe('rego_explain_undefined', () => {
     // call 4: standalone eval cond 1 -> false (undefined result)
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(
         spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: true }] }] })),
       )
@@ -1285,8 +1297,8 @@ describe('rego_explain_undefined', () => {
       JSON.stringify({ result: [{ expressions: [{ value }] }] });
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}')) // plain eval -> undefined
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace }))) // indexed out
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast))) // parse
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(spawnSuccess(row(true))) // cond 0: method == GET -> true
       .mockResolvedValueOnce(spawnSuccess(row(true))) // cond 1: path == /public -> true
       .mockResolvedValueOnce(spawnSuccess(row(false))); // cond 2: tier == premium -> false
@@ -1335,8 +1347,8 @@ describe('rego_explain_undefined', () => {
     const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       // cond 0: input.tags resolves to a non-empty array -> truthy, satisfied
       .mockResolvedValueOnce(
         spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: ['urgent'] }] }] })),
@@ -1377,8 +1389,8 @@ describe('rego_explain_undefined', () => {
     const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(spawnFailure(1, 'var x is unsafe')); // standalone eval fails
     const server = makeServer();
     registerHelperTools(server, baseConfig);
@@ -1416,8 +1428,8 @@ describe('rego_explain_undefined', () => {
     ];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     const env = await callTool<{
@@ -1462,8 +1474,8 @@ describe('rego_explain_undefined', () => {
     // Calls: plain eval, explain=full, parse, standalone rule0 cond0, standalone rule1 cond0
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
       .mockResolvedValueOnce(spawnSuccess('{}')) // rule0 cond0: false
       .mockResolvedValueOnce(spawnSuccess('{}')); // rule1 cond0: false
     const server = makeServer();
@@ -1503,8 +1515,8 @@ describe('rego_explain_undefined', () => {
     const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })));
     // No standalone eval call -- condition has no text so it is skipped.
     const server = makeServer();
     registerHelperTools(server, baseConfig);
@@ -1531,8 +1543,8 @@ describe('rego_explain_undefined', () => {
     const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     const env = await callTool<{ summary: string }>(server, 'rego_explain_undefined', {
@@ -1544,20 +1556,108 @@ describe('rego_explain_undefined', () => {
     expect(env.data?.summary).toContain('undefined');
   });
 
-  it('summary includes defined value when queryResult is defined', async () => {
-    mockRun.mockResolvedValueOnce(
-      spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: false }] }] })),
-    );
+  it('analyses the clauses when only a default supplied the value', async () => {
+    // `default allow := false` gives the query a value, so it is never
+    // undefined and the whole analysis used to be skipped for the shape most
+    // policies are written in. "Why is allow false" is the question this tool
+    // is for, so it answers it.
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        { name: 'allow', row: 2, isDefault: true, defaultVal: false },
+        { name: 'allow', row: 4, body: [{ row: 5, text: 'input.user.role == "admin"' }] },
+      ],
+    });
+    mockRun
+      .mockResolvedValueOnce(
+        spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: false }] }] })),
+      )
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: [] })))
+      .mockResolvedValueOnce(spawnSuccess('{}'));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
-    const env = await callTool<{ summary: string; value: unknown }>(
+    const env = await callTool<{
+      queryResult: string;
+      summary: string;
+      value: unknown;
+      defaultValue: unknown;
+      rulesFound: number;
+      rules: Array<{ blockingCondition: { text: string } | null }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\ndefault allow := false',
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.queryResult).toBe('default');
+    expect(env.data?.value).toBe(false);
+    expect(env.data?.defaultValue).toBe(false);
+    expect(env.data?.rulesFound).toBe(1);
+    expect(env.data?.summary).toContain('falls back to its default');
+    const analysed = env.data?.rules.find((r) => r.blockingCondition !== null);
+    expect(analysed?.blockingCondition?.text).toBe('input.user.role == "admin"');
+  });
+
+  it('stays "defined" when a real clause, not the default, produced the value', async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        { name: 'allow', row: 2, isDefault: true, defaultVal: false },
+        { name: 'allow', row: 4, body: [{ row: 5, text: 'input.user.role == "admin"' }] },
+      ],
+    });
+    mockRun
+      .mockResolvedValueOnce(
+        spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: true }] }] })),
+      )
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ queryResult: string; value: unknown; rulesFound: number }>(
       server,
       'rego_explain_undefined',
       { query: 'data.authz.allow', source: 'package authz\ndefault allow := false' },
     );
-    expect(env.ok).toBe(true);
-    expect(env.data?.summary).toContain('defined');
-    expect(env.data?.value).toBe(false);
+    expect(env.data?.queryResult).toBe('defined');
+    expect(env.data?.value).toBe(true);
+    expect(env.data?.rulesFound).toBe(0);
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not treat a clause as traced because another clause of the same rule was', async () => {
+    // OPA leaves Node.location unset on trace events, so matching on the node
+    // alone fell back to the rule name and every clause looked traced as soon
+    // as one was. Those clauses were never evaluated standalone and came back
+    // unevaluable with no blocking condition.
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [
+        { name: 'allow', row: 2, isDefault: true, defaultVal: false },
+        { name: 'allow', row: 4, body: [{ row: 5, text: 'input.a == 1' }] },
+      ],
+    });
+    // The only Enter carries the default rule's row, not the clause's.
+    const trace = [
+      { Op: 'Enter', Node: { head: { name: 'allow' } }, Location: { file: '<inline>', row: 2 } },
+    ];
+    mockRun
+      .mockResolvedValueOnce(
+        spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: false }] }] })),
+      )
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+      .mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      rules: Array<{ isDefault: boolean; source: string; conditions: Array<{ result: string }> }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\ndefault allow := false',
+    });
+    const clause = env.data?.rules.find((r) => !r.isDefault);
+    expect(clause?.source).toBe('standalone-eval');
+    expect(clause?.conditions[0]?.result).toBe('false');
   });
 
   it('sanitizes temp-file paths in rule locations', async () => {
@@ -1573,8 +1673,8 @@ describe('rego_explain_undefined', () => {
     const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
     mockRun
       .mockResolvedValueOnce(spawnSuccess('{}'))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
-      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(astWithTempPath)));
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(astWithTempPath)))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
     const env = await callTool<{
