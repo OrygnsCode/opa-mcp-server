@@ -12,18 +12,23 @@
  *   - conftest_pull does NOT require policy dir to exist
  *   - conftest_push DOES require policy dir to exist
  */
+import { spawnSync } from 'node:child_process';
+import { mkdir, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   baseConfig,
   callTool,
   fixturePath,
+  fixturesDir,
   makeServer,
+  okSpawn,
   spawnFailure,
   spawnSuccess,
   spawnTimedOut,
   spawnUnreachable,
-  okSpawn,
 } from './_helpers.js';
 
 vi.mock('../../../src/lib/subprocess.js', () => ({
@@ -633,7 +638,45 @@ describe('conftest_verify', () => {
 
 // ─── conftest_pull ────────────────────────────────────────────────────────────
 
+/**
+ * Directory link: a junction on Windows, which needs no privilege, a symlink
+ * elsewhere. Returns false when neither can be created.
+ */
+async function linkDir(link: string, target: string): Promise<boolean> {
+  if (process.platform === 'win32') {
+    const r = spawnSync('cmd', ['/c', 'mklink', '/J', link, target], { encoding: 'utf8' });
+    return r.status === 0;
+  }
+  try {
+    await symlink(target, link, 'dir');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe('conftest_pull', () => {
+  it('refuses a policy directory that goes through a directory link pointing outside the roots', async (ctx) => {
+    const outside = join(tmpdir(), `orygn-outside-${Math.random().toString(36).slice(2)}`);
+    await mkdir(outside, { recursive: true });
+    const link = join(fixturesDir, 'escape-link');
+    try {
+      if (!(await linkDir(link, outside))) ctx.skip('cannot create directory links here');
+      const server = makeServer();
+      registerConftestTools(server, baseConfig);
+      const env = await callTool(server, 'conftest_pull', {
+        url: 'oci://ghcr.io/org/policies:latest',
+        policy: join(link, 'policy'),
+      });
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+      expect(mockRun).not.toHaveBeenCalled();
+    } finally {
+      await rm(link, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   const testUrl = 'oci://ghcr.io/org/policies:latest';
 
   // ── Happy paths ─────────────────────────────────────────────────────────────
