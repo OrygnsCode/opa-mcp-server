@@ -133,7 +133,12 @@ export function registerOpaBundleSign(server: McpServer, config: Config): void {
           }
           outputDir = realBundle;
         } else {
-          const requested = input.outputDir ?? dirname(realBundle);
+          // The archive's own directory is derived from the path as given,
+          // not from the real path: an allowed root that is itself a symlink
+          // or a Windows short name (a macOS /var, an 8.3 temp directory)
+          // would otherwise fail the syntactic containment check against its
+          // own canonical form. Validation resolves the symlink itself.
+          const requested = input.outputDir ?? dirname(resolvedBundle!);
           const outputValidation = validatePaths([requested], config, { mustExist: true });
           if (!outputValidation.ok) return outputValidation.error;
           outputDir = outputValidation.resolved[0]!;

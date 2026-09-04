@@ -1,5 +1,14 @@
-import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,8 +38,7 @@ let workDir: string;
 let outputBundle: string;
 
 beforeAll(async () => {
-  workDir = join(tmpdir(), `orygn-bundle-tests-${Date.now()}`);
-  await mkdir(workDir, { recursive: true });
+  workDir = await mkdtemp(join(tmpdir(), 'orygn-bundle-tests-'));
 });
 
 afterAll(async () => {
@@ -340,7 +348,10 @@ describe('opa_bundle_sign', () => {
     bundleDir = join(workDir, `bundle-dir-${Math.random().toString(36).slice(2)}`);
     await mkdir(bundleDir);
     await writeFile(join(bundleDir, 'policy.rego'), 'package p\n');
-    realBundleDir = realpathSync(bundleDir);
+    // The tool resolves with fs/promises realpath, which expands Windows 8.3
+    // short names; the sync JS implementation does not, and CI temp paths
+    // are short names.
+    realBundleDir = await realpath(bundleDir);
     // A signatures file a previous test left in the shared workDir would
     // satisfy the archive cases below by accident.
     await rm(join(workDir, '.signatures.json'), { force: true });
@@ -374,17 +385,20 @@ describe('opa_bundle_sign', () => {
   it('signs an archive by absolute path, beside itself', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
     await writeFakeSignatures(workDir);
-    const realArchive = realpathSync(outputBundle);
+    const realArchive = await realpath(outputBundle);
     const env = await callTool<{ signaturesPath: string }>(serverWithWorkDir(), 'opa_bundle_sign', {
       bundle: outputBundle,
       signingKey,
     });
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
-    expect(env.data?.signaturesPath).toBe(join(dirname(realArchive), '.signatures.json'));
+    // The output directory is the archive's directory as given, not its real
+    // path, so a temp root that is a symlink or a short name still passes
+    // the allowed-roots check (macOS /var, Windows 8.3 names on CI runners).
+    expect(env.data?.signaturesPath).toBe(join(dirname(outputBundle), '.signatures.json'));
 
     const call = mockRun.mock.calls[0]![1];
     expect(call.args.slice(-2)).toEqual(['--', realArchive]);
-    expect(call.args[call.args.indexOf('--output-file-path') + 1]).toBe(dirname(realArchive));
+    expect(call.args[call.args.indexOf('--output-file-path') + 1]).toBe(dirname(outputBundle));
     expect(call.cwd).toBeUndefined();
   });
 
@@ -403,7 +417,7 @@ describe('opa_bundle_sign', () => {
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data).toEqual({
       signed: true,
-      signaturesPath: realpathSync(file),
+      signaturesPath: await realpath(file),
       algorithm: 'ES256',
       filesSigned: 3,
       keyId: 'k-v1',
@@ -635,7 +649,7 @@ describe('opa_bundle_verify', () => {
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data).toEqual({ bundle: bundleDir, verified: true });
 
-    const real = realpathSync(bundleDir);
+    const real = await realpath(bundleDir);
     const call = mockRun.mock.calls[0]![1];
     const args = call.args;
     expect(args[0]).toBe('build');
@@ -657,7 +671,7 @@ describe('opa_bundle_verify', () => {
       verificationKey: publicKey,
     });
     const call = mockRun.mock.calls[0]![1];
-    expect(call.args.slice(-2)).toEqual(['--', realpathSync(outputBundle)]);
+    expect(call.args.slice(-2)).toEqual(['--', await realpath(outputBundle)]);
     expect(call.cwd).toBeUndefined();
   });
 
