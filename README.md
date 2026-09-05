@@ -263,6 +263,7 @@ variable is optional; defaults are sensible for a local OPA on
 | `OPA_MCP_NO_TELEMETRY`         | _(unset)_                    | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. The install ID is stored at `~/.orygn/opa-mcp/install-id` and is generated once on first run. No policy content or file paths are ever sent.                      |
 | `OPA_MCP_MAX_SUBPROCESS_BYTES` | `33554432` (32 MiB)          | Maximum bytes captured from a subprocess's stdout and stderr, counted separately. On overflow the stream is clamped, the child is stopped, and the tool returns `OUTPUT_TOO_LARGE`. Distinct from `OPA_MCP_MAX_RESPONSE_BYTES`, which trims the reply after the output is already in memory. |
 | `OPA_MCP_PASSTHROUGH_ENV`      | _(unset)_                    | Comma-separated variable names to pass through to `opa`, `regal` and `conftest`. Everything else is withheld. **Anything named here is readable by any policy the server evaluates**, via `opa.runtime().env`, so use it only for values that are safe in that position.                     |
+| `OPA_MCP_BLOCK_ENV`            | _(unset)_                    | Comma-separated variable names to withhold from `opa`, `regal` and `conftest` even when they are on the built-in allow-list. Applied last, so it also overrides `OPA_MCP_PASSTHROUGH_ENV`. Use it to drop the proxy variables, which can carry credentials, at the cost of proxy support.    |
 
 Paths in `OPA_MCP_ALLOWED_PATHS` and the `*_BINARY` variables must be
 absolute. Relative paths and missing binaries are rejected with structured
@@ -601,7 +602,8 @@ Four things worth knowing if you're going to operate this:
 4. **Children do not inherit the server's environment.** `lib/child-env.ts`
    builds an explicit allow-list instead. Rego can read its interpreter's
    environment through `opa.runtime().env`, so anything passed down is
-   readable by any policy the server evaluates.
+   readable by any policy the server evaluates, the proxy variables on the
+   list included.
 
 ## Security
 
@@ -619,13 +621,11 @@ be exposed on the network.
   other variable to any policy it evaluated. Since `rego_eval` accepts inline
   source, no filesystem access is needed to reach that, which puts it one
   prompt injection away from any untrusted Rego an agent reads. Children get an
-  explicit allow-list instead (`lib/child-env.ts`). No cloud or repository
-  credential is in it: `OPA_TOKEN`, `GITHUB_TOKEN` and their like stay behind.
-  The proxy and TLS-trust variables are, because without them `http.send` and
-  remote fetches fail behind a corporate proxy, so a proxy URL that embeds
-  credentials is readable by evaluated policy. Unset those for this server, or
-  use a proxy that does not need credentials in the URL, if that matters more
-  than reaching the network.
+  explicit allow-list instead (`lib/child-env.ts`). The list holds no cloud or
+  repository token, but it is not free of credentials: `HTTP_PROXY` and its
+  siblings are on it, and a proxy URL can embed a username and password.
+  They are there because dropping them breaks everyone behind a corporate
+  proxy. Name them in `OPA_MCP_BLOCK_ENV` to withhold them anyway.
   `OPA_MCP_PASSTHROUGH_ENV` opts individual variables back in.
 - `OPA_TOKEN` is never echoed in tool responses or log entries, and is not
   passed to any child process.

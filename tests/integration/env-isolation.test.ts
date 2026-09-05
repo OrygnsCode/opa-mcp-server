@@ -138,3 +138,53 @@ describe('evaluated policy cannot read the server environment (real OPA binary)'
     }
   });
 });
+
+describe('the allow-list is not free of credentials (real OPA binary)', () => {
+  const PROXY = 'http://proxyuser:proxypass-sentinel-2a7f@proxy.internal:8080';
+  let savedProxy: string | undefined;
+
+  beforeAll(() => {
+    savedProxy = process.env['HTTPS_PROXY'];
+    process.env['HTTPS_PROXY'] = PROXY;
+  });
+
+  afterAll(() => {
+    if (savedProxy === undefined) delete process.env['HTTPS_PROXY'];
+    else process.env['HTTPS_PROXY'] = savedProxy;
+  });
+
+  it('an evaluated policy can read the proxy URL, credentials included', async () => {
+    // The README and the 0.4.0 changelog entry both called the allow-list free
+    // of secrets. It is not: a proxy URL can embed a username and password, and
+    // the proxy variables are on the list because dropping them breaks every
+    // user behind a corporate proxy. This pins the behaviour the docs describe.
+    const envelope = await callTool(makeServer(), 'rego_eval', {
+      source: 'package exfil\n\nproxy := opa.runtime().env.HTTPS_PROXY\n',
+      query: 'data.exfil.proxy',
+    });
+    expect(JSON.stringify(envelope)).toContain('proxypass-sentinel-2a7f');
+  });
+
+  it('OPA_MCP_BLOCK_ENV withholds it', async () => {
+    const savedBlock = process.env['OPA_MCP_BLOCK_ENV'];
+    process.env['OPA_MCP_BLOCK_ENV'] = 'HTTPS_PROXY';
+    try {
+      const envelope = await callTool(makeServer(), 'rego_eval', {
+        source: 'package exfil\n\nproxy := opa.runtime().env.HTTPS_PROXY\n',
+        query: 'data.exfil.proxy',
+      });
+      expect(JSON.stringify(envelope)).not.toContain('proxypass-sentinel-2a7f');
+    } finally {
+      if (savedBlock === undefined) delete process.env['OPA_MCP_BLOCK_ENV'];
+      else process.env['OPA_MCP_BLOCK_ENV'] = savedBlock;
+    }
+  });
+
+  it('the sentinels stay withheld either way', async () => {
+    const envelope = await callTool(makeServer(), 'rego_eval', {
+      source: EXFIL_POLICY,
+      query: 'data.exfil.leaked',
+    });
+    assertNoSentinels(JSON.stringify(envelope));
+  });
+});

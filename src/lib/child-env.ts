@@ -10,7 +10,13 @@
  * `OPA_TOKEN`, the `GITHUB_TOKEN` this project's own README asks users to put in
  * their client config, and whatever else the operator's shell happens to hold.
  *
- * So the child gets an explicit allow-list instead. Nothing on it is a secret.
+ * So the child gets an explicit allow-list instead. It holds no cloud or
+ * repository token, which is what motivated the list, but it is not free of
+ * credentials: a proxy URL can embed one, and `HTTP_PROXY` and its siblings are
+ * on the list because dropping them breaks every user behind a corporate proxy.
+ * An operator who would rather lose proxy support than expose those credentials
+ * to evaluated policy can name them in `OPA_MCP_BLOCK_ENV`.
+ *
  * Measured against the bundled OPA 1.19.0, `version`, `eval`, `check`, `test`
  * and `build` all succeed with a completely empty environment, so the entries
  * below exist for correctness in real-world setups (proxies, custom CA bundles,
@@ -84,14 +90,30 @@ const TOOL_CONFIG = [
 
 const ALLOWED: readonly string[] = [...COMMON, ...POSIX, ...WINDOWS, ...NETWORK, ...TOOL_CONFIG];
 
-/** Names an operator opted into via OPA_MCP_PASSTHROUGH_ENV. */
-function passthroughNames(source: NodeJS.ProcessEnv): string[] {
-  const raw = source['OPA_MCP_PASSTHROUGH_ENV'];
+/** Split a comma or semicolon separated list of variable names. */
+function nameList(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw
     .split(/[;,]/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** Names an operator opted into via OPA_MCP_PASSTHROUGH_ENV. */
+function passthroughNames(source: NodeJS.ProcessEnv): string[] {
+  return nameList(source['OPA_MCP_PASSTHROUGH_ENV']);
+}
+
+/**
+ * Names an operator withheld via OPA_MCP_BLOCK_ENV.
+ *
+ * Applied last, so it overrides the allow-list, the passthrough list and the
+ * caller's own `extra`. The point is to be able to say no to something this
+ * module would otherwise hand down, and a rule that could be overridden by the
+ * thing it is meant to restrain would not be worth having.
+ */
+function blockedNames(source: NodeJS.ProcessEnv): string[] {
+  return nameList(source['OPA_MCP_BLOCK_ENV']);
 }
 
 /**
@@ -130,7 +152,8 @@ const WINDOWS_IDENTITY_TO_BLANK = ['USERNAME', 'USERDOMAIN', 'LOGONSERVER'];
  *
  * @param extra   Variables the calling command needs. Readable by evaluated
  *                policy like everything else here, so pass secrets only when the
- *                command actually requires them.
+ *                command actually requires them. `OPA_MCP_BLOCK_ENV` removes a
+ *                name even when it appears here.
  * @param source  Environment to read from. Injectable for testing.
  */
 export function buildChildEnv(
@@ -148,7 +171,19 @@ export function buildChildEnv(
     if (value !== undefined) env[name] = value;
   }
 
-  return extra ? { ...env, ...extra } : env;
+  const result = extra ? { ...env, ...extra } : env;
+
+  for (const name of blockedNames(source)) {
+    delete result[name];
+    if (process.platform === 'win32') {
+      const wanted = name.toLowerCase();
+      for (const key of Object.keys(result)) {
+        if (key.toLowerCase() === wanted) delete result[key];
+      }
+    }
+  }
+
+  return result;
 }
 
 /** Exposed for tests and for documenting the surface. */

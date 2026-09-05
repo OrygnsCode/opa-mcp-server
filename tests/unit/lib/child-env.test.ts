@@ -118,6 +118,59 @@ describe('buildChildEnv — explicit caller values', () => {
   });
 });
 
+describe('buildChildEnv - OPA_MCP_BLOCK_ENV opt-out', () => {
+  it('withholds a variable that is on the built-in allow-list', () => {
+    // The list carries no cloud or repository token, but a proxy URL can embed
+    // a username and password, and evaluated policy reads the whole child
+    // environment through opa.runtime().env.
+    const withProxy = { ...source, HTTPS_PROXY: 'http://user:pass@proxy:8080' };
+    expect(buildChildEnv(undefined, withProxy)['HTTPS_PROXY']).toBe('http://user:pass@proxy:8080');
+
+    const blocked = buildChildEnv(undefined, {
+      ...withProxy,
+      OPA_MCP_BLOCK_ENV: 'HTTPS_PROXY',
+    });
+    expect(blocked['HTTPS_PROXY']).toBeUndefined();
+  });
+
+  it('overrides the passthrough opt-in', () => {
+    const env = buildChildEnv(undefined, {
+      ...source,
+      MY_FLAG: 'on',
+      OPA_MCP_PASSTHROUGH_ENV: 'MY_FLAG',
+      OPA_MCP_BLOCK_ENV: 'MY_FLAG',
+    });
+    expect(env['MY_FLAG']).toBeUndefined();
+  });
+
+  it('overrides a variable the caller passed explicitly', () => {
+    const env = buildChildEnv(
+      { OPA_TOKEN: 'secret' },
+      { ...source, OPA_MCP_BLOCK_ENV: 'OPA_TOKEN' },
+    );
+    expect(env['OPA_TOKEN']).toBeUndefined();
+  });
+
+  it('accepts a list separated by commas or semicolons, with spacing', () => {
+    const env = buildChildEnv(undefined, {
+      ...source,
+      HTTP_PROXY: 'p',
+      HTTPS_PROXY: 'q',
+      OPA_MCP_BLOCK_ENV: ' HTTP_PROXY ; HTTPS_PROXY ',
+    });
+    expect(env['HTTP_PROXY']).toBeUndefined();
+    expect(env['HTTPS_PROXY']).toBeUndefined();
+  });
+
+  it('leaves the environment alone when unset or blank', () => {
+    const withProxy = { ...source, HTTP_PROXY: 'p' };
+    expect(buildChildEnv(undefined, { ...withProxy, OPA_MCP_BLOCK_ENV: '  ' })['HTTP_PROXY']).toBe(
+      'p',
+    );
+    expect(buildChildEnv(undefined, withProxy)['HTTP_PROXY']).toBe('p');
+  });
+});
+
 describe('buildChildEnv — OPA_MCP_PASSTHROUGH_ENV opt-in', () => {
   it('forwards a named variable', () => {
     const env = buildChildEnv(undefined, {
