@@ -138,8 +138,6 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
       inputSchema: RegoCoverageGapsInput,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
         // Runs Rego supplied by the caller; a policy can reach the network through http.send.
         openWorldHint: true,
       },

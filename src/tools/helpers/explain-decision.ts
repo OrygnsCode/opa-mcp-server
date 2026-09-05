@@ -92,8 +92,6 @@ export function registerRegoExplainDecision(server: McpServer, config: Config): 
       inputSchema: SharedEvalInput,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
         // Runs Rego supplied by the caller; a policy can reach the network through http.send.
         openWorldHint: true,
       },

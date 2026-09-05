@@ -130,8 +130,6 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
       inputSchema: RegoSecurityAuditInput,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
         // Runs a project's custom Regal rules, which are Rego with the network built-ins.
         openWorldHint: true,
       },

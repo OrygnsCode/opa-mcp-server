@@ -364,8 +364,6 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
       inputSchema: RegoExplainUndefinedInput,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
         // Runs Rego supplied by the caller; a policy can reach the network through http.send.
         openWorldHint: true,
       },

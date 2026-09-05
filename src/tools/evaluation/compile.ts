@@ -26,8 +26,6 @@ export function registerRegoCompileQuery(server: McpServer, config: Config): voi
       inputSchema: RegoCompileQueryInput,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
         // Partial evaluation saves http.send into the residual rather than calling it, but a
         // residual is one step from an evaluation; open-world to be safe.
         openWorldHint: true,

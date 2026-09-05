@@ -90,8 +90,6 @@ export function registerRegoLint(server: McpServer, config: Config): void {
       inputSchema: RegoLintInput,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
         // Runs a project's custom Regal rules, which are Rego with the network built-ins.
         openWorldHint: true,
       },

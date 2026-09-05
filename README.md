@@ -636,9 +636,12 @@ be exposed on the network.
   `rego_security_audit`, `rego_fix`, which run a project's custom rules) all
   run Rego, and OPA's `http.send` lets a policy reach, and write to, any
   network address. A client that gates on the hints will ask before running
-  one. No evaluating tool passes or accepts a capabilities file, so
-  `http.send` cannot be restricted for evaluation; `rego_check` and
-  `opa_bundle_build` accept one, which affects only checking and building.
+  one. `opa_query_decision` and `opa_compile_query` are the exception: the
+  remote OPA evaluates a policy it already holds, and their hints describe
+  what the call does to that server. No evaluating tool passes or accepts a
+  capabilities file, so `http.send` cannot be restricted for evaluation;
+  `rego_check` and `opa_bundle_build` accept one, which affects only checking
+  and building.
 - Releases are published with
   [npm provenance](https://docs.npmjs.com/generating-provenance-statements);
   the Docker image is built reproducibly from the committed `Dockerfile`.

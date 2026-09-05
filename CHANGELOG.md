@@ -106,7 +106,8 @@ not part of the public surface and may change in minor releases.
   project's custom rules, now declares `openWorldHint: true` and no longer
   claims `readOnlyHint`, since a policy's own `http.send` can reach, and write
   to, a remote system. A client that gates on the hints will ask before running
-  one; `destructiveHint` stays false.
+  one. The destructive and idempotent hints on those tools are left to the
+  spec's defaults, since a policy chooses its own HTTP method.
 
 ## [0.5.0] - 2026-09-04
 

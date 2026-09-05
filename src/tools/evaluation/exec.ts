@@ -140,8 +140,6 @@ export function registerOpaExec(server: McpServer, config: Config): void {
       inputSchema: OpaExecInput,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
         // Runs Rego supplied by the caller; a policy can reach the network through http.send.
         openWorldHint: true,
       },

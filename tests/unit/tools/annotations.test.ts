@@ -1,8 +1,9 @@
 /**
  * Annotation invariants across every registered tool. A tool that runs Rego
  * can reach the network through http.send, so it must not present itself as
- * closed-world or read-only; the next evaluating tool added with a
- * copy-pasted annotation block fails here rather than shipping.
+ * closed-world or read-only. Every registered tool has to appear in one of
+ * the three lists below, so a new tool cannot arrive with a copy-pasted
+ * annotation block and pass unnoticed.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -42,21 +43,61 @@ const STATIC = [
   'rego_generate_test_skeleton',
   'rego_suggest_fix',
   'rego_capabilities',
+  'rego_migrate_v1',
+];
+
+/**
+ * Everything else: server-management calls, bundle handling, sharing, meta.
+ * Their annotations describe what the call does to the thing it addresses.
+ */
+const OTHER = [
+  'conftest_pull',
+  'conftest_push',
+  'mcp_server_info',
+  'opa_bundle_build',
+  'opa_bundle_sign',
+  'opa_bundle_verify',
+  'opa_compile_query',
+  'opa_config',
+  'opa_delete_data',
+  'opa_delete_policy',
+  'opa_get_data',
+  'opa_get_policy',
+  'opa_health',
+  'opa_list_policies',
+  'opa_patch_data',
+  'opa_put_data',
+  'opa_put_policy',
+  'opa_query_decision',
+  'opa_status',
+  'rego_check_schema',
+  'rego_deps',
+  'rego_format_write',
+  'rego_inspect',
+  'rego_playground_share',
 ];
 
 describe('tool annotations', () => {
   const server = buildServer(baseConfig);
   const names = registeredToolNames(server);
 
-  it('registers every tool the lists name', () => {
-    for (const name of [...EVALUATING, ...STATIC]) expect(names).toContain(name);
+  it('lists every registered tool exactly once', () => {
+    const listed = [...EVALUATING, ...STATIC, ...OTHER];
+    expect(new Set(listed).size).toBe(listed.length);
+    expect([...names].sort()).toEqual([...listed].sort());
   });
 
-  it('marks every Rego-evaluating tool open-world and not read-only', () => {
+  it('marks every Rego-evaluating tool open-world, not read-only, and claims nothing more', () => {
     for (const name of EVALUATING) {
       const a = getToolAnnotations(server, name);
       expect(a['openWorldHint'], name).toBe(true);
       expect(a['readOnlyHint'], name).toBe(false);
+      // A policy chooses its own HTTP method, so neither hint can be promised;
+      // rego_fix is the one tool here whose own writes are the point.
+      if (name !== 'rego_fix') {
+        expect(a['destructiveHint'], name).toBeUndefined();
+        expect(a['idempotentHint'], name).toBeUndefined();
+      }
     }
   });
 
