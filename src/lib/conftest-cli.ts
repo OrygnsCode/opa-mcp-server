@@ -272,12 +272,16 @@ function relativeToParent(
 /**
  * Pick a working directory on the drive the given paths live on.
  *
- * Conftest opens a policy directory or a config file the way OPA's loader
- * does: an absolute path is split on its first colon and the remainder is
- * resolved against the drive the process is on, so `--policy C:...` fails
- * from a working directory on another drive. The paths are left exactly as
- * given, since conftest echoes them in its output and the inline temp files
- * are matched there afterwards to redact them.
+ * Conftest loads its policy and data directories through OPA's loader, which
+ * splits an absolute path on its first colon and resolves the remainder
+ * against the drive the process is on, so `--policy C:...` fails from a
+ * working directory on another drive. The configs under test are read by
+ * conftest itself and open fine from anywhere, so they are not anchors: an
+ * inline config in the temp directory can be tested against a policy on
+ * another drive, and an inline policy against a config on another drive.
+ * The paths are left exactly as given, since conftest echoes them in its
+ * output and the inline temp files are matched there afterwards to redact
+ * them.
  */
 function anchorDrive(
   args: string[],
@@ -293,7 +297,7 @@ function anchorDrive(
         stderr:
           `paths span more than one drive (${out.conflict.drives.join(', ')}). ` +
           'conftest resolves an absolute path against the drive it runs on, so the policy ' +
-          'and the inputs must be on a single drive.',
+          'and data directories must be on a single drive.',
         timedOut: false,
         aborted: false,
         durationMs: 0,
@@ -367,11 +371,9 @@ export class ConftestCli {
         const effectiveFiles = configPath ? [configPath] : (input.files ?? []);
         args.push(...effectiveFiles);
 
-        const anchored = anchorDrive(args, [
-          effectivePolicyDir,
-          ...(input.data ?? []),
-          ...effectiveFiles,
-        ]);
+        // Only the policy and data go through OPA's loader; conftest reads
+        // the configs itself, so they may sit on any drive.
+        const anchored = anchorDrive(args, [effectivePolicyDir, ...(input.data ?? [])]);
         if (anchored.conflict) return anchored.conflict;
         const result = await this.run(args, signal, anchored.cwd);
         return this.sanitizeOutput(result, configPath, policyDir);

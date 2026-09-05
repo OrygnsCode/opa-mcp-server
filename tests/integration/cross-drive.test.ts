@@ -20,7 +20,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -34,6 +34,9 @@ import { callTool, makeServer } from '../unit/tools/_helpers.js';
 const WINDOWS = process.platform === 'win32';
 /** The Windows file-not-found OPA reports when it opens a path on the wrong drive. */
 const LOAD_ERROR = 'GetFileAttributesEx';
+/** A conftest policy that passes anything but a Pod. */
+const POLICY =
+  'package main\n\nimport rego.v1\n\ndeny contains msg if {\n\tinput.kind == "Pod"\n\tmsg := "no pods"\n}\n';
 
 /** A drive letter with nothing behind it, or undefined when none is free. */
 function freeDriveLetter(): string | undefined {
@@ -61,6 +64,9 @@ beforeAll(async () => {
     'package p\n\nimport rego.v1\n\nallow := true\n',
     'utf8',
   );
+  await mkdir(join(workDir, 'policy'));
+  await writeFile(join(workDir, 'policy', 'm.rego'), POLICY, 'utf8');
+  await writeFile(join(workDir, 'deploy.yaml'), 'kind: Deployment\n', 'utf8');
   letter = freeDriveLetter();
   if (letter !== undefined) mapped = subst([`${letter}:`, workDir]);
 
@@ -170,11 +176,51 @@ describe('temp files on a drive other than the working directory', () => {
       const env = await callTool<Record<string, unknown>>(server, 'conftest_test', {
         inlineConfig: 'kind: Deployment\n',
         inlineConfigParser: 'yaml',
-        inlinePolicy:
-          'package main\n\nimport rego.v1\n\ndeny contains msg if {\n\tinput.kind == "Pod"\n\tmsg := "no pods"\n}\n',
+        inlinePolicy: POLICY,
       });
       const text = JSON.stringify(env);
       expect(text).not.toContain(LOAD_ERROR);
+      expect(env.ok, text).toBe(true);
+    },
+    60_000,
+  );
+
+  // The two mixed layouts. Conftest loads the policy through OPA's loader but
+  // reads the configs itself, so a config may sit on a different drive from
+  // the policy. A machine with the temp directory on one drive and the
+  // project on another hits both of these on ordinary inline calls.
+  it.runIf(WINDOWS)(
+    'tests an inline config against a policy directory on another drive',
+    async (ctx) => {
+      if (!mapped || letter === undefined) ctx.skip('no free drive letter to substitute');
+      const server = makeServer();
+      registerConftestTools(server, config);
+      const env = await callTool<Record<string, unknown>>(server, 'conftest_test', {
+        inlineConfig: 'kind: Deployment\n',
+        inlineConfigParser: 'yaml',
+        policy: `${letter}:\\policy`,
+      });
+      const text = JSON.stringify(env);
+      expect(text).not.toContain(LOAD_ERROR);
+      expect(text).not.toContain('more than one drive');
+      expect(env.ok, text).toBe(true);
+    },
+    60_000,
+  );
+
+  it.runIf(WINDOWS)(
+    'tests a config on another drive against an inline policy',
+    async (ctx) => {
+      if (!mapped || letter === undefined) ctx.skip('no free drive letter to substitute');
+      const server = makeServer();
+      registerConftestTools(server, config);
+      const env = await callTool<Record<string, unknown>>(server, 'conftest_test', {
+        files: [`${letter}:\\deploy.yaml`],
+        inlinePolicy: POLICY,
+      });
+      const text = JSON.stringify(env);
+      expect(text).not.toContain(LOAD_ERROR);
+      expect(text).not.toContain('more than one drive');
       expect(env.ok, text).toBe(true);
     },
     60_000,

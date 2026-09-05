@@ -33,8 +33,9 @@ not part of the public surface and may change in minor releases.
   from its working directory, and `conftest_test` and `conftest_verify` failed
   the same way through `--policy`. OPA and conftest open an absolute path by
   the part after its first colon, resolved on the drive the process runs on;
-  each command now runs from the path's own drive, and paths spread across two
-  drives are refused with a message saying so.
+  each command now runs from the path's own drive. The configs under test are
+  read by conftest itself and may sit on any drive; a policy and a data
+  directory spread across two drives are refused with a message saying so.
 
 ## [0.5.0] - 2026-09-04
 

@@ -111,12 +111,16 @@ describe('ConftestCli.test()', () => {
     );
   });
 
-  it("runs from the policy's drive and leaves every path as given", async () => {
+  it("runs from the policy's directory and leaves every path as given", async () => {
     const dir = await mkdtemp(join(tmpdir(), 'orygn-conftest-'));
+    const elsewhere = await mkdtemp(join(tmpdir(), 'orygn-conftest-inputs-'));
     try {
       const policy = join(dir, 'policy');
       await mkdir(policy);
-      const file = join(dir, 'deploy.yaml');
+      // The config sits outside the policy's tree. It is read by conftest
+      // itself rather than by OPA's loader, so it does not pull the working
+      // directory up to a common ancestor.
+      const file = join(elsewhere, 'deploy.yaml');
       await writeFile(file, 'kind: Deployment');
       const cli = new ConftestCli(baseConfig);
       await cli.test({ files: [file], policy });
@@ -126,6 +130,7 @@ describe('ConftestCli.test()', () => {
       else expect(opts.cwd).toBeUndefined();
     } finally {
       await rm(dir, { recursive: true, force: true });
+      await rm(elsewhere, { recursive: true, force: true });
     }
   });
 
