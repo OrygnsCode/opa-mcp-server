@@ -3,7 +3,8 @@
  *
  * runBinary is mocked so no real conftest binary is required. Tests verify:
  *   - happy-path argv construction and output parsing
- *   - exit-code mapping (0 = pass, 1 = fail, 2+ = command error)
+ *   - exit-code mapping (0 = pass; 1 and 2 = failures when results are present;
+ *     no results on stdout = command error)
  *   - summary field arithmetic across multi-file results
  *   - all INVALID_INPUT mutual-exclusion guards
  *   - path validation (PATH_NOT_ALLOWED, PATH_NOT_FOUND)
@@ -162,6 +163,32 @@ describe('conftest_test', () => {
     expect(env.data?.results[0]?.failures).toHaveLength(1);
     expect(env.data?.summary.failed).toBe(1);
     expect(env.data?.summary.passed).toBe(0);
+  });
+
+  it('returns ok=true, passed=false on exit 2 (a denial under --fail-on-warn)', async () => {
+    // conftest 0.69.0 exits 2 when failures and warnings coincide under
+    // --fail-on-warn, with the full results on stdout. That is a denial to
+    // report, not a broken tool.
+    const results: ConftestFileResult[] = [
+      makeFileResult({
+        filename: failingConfig,
+        failures: [{ msg: 'Container must not run as root' }],
+        warnings: [{ msg: 'Missing resource limits' }],
+      }),
+    ];
+    mockRun.mockResolvedValueOnce({ ...okSpawn, exitCode: 2, stdout: JSON.stringify(results) });
+
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [failingConfig],
+      failOnWarn: true,
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.summary.failed).toBe(1);
+    expect(env.data?.summary.warnings).toBe(1);
   });
 
   it('counts warnings correctly in summary', async () => {
@@ -524,7 +551,7 @@ describe('conftest_test', () => {
     expect(env.error?.code).toBe('CANCELLED');
   });
 
-  it('maps exit code 2 to UNKNOWN_ERROR', async () => {
+  it('maps a non-zero exit with no results on stdout to UNKNOWN_ERROR', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(2, 'policy directory not found'));
 
     const server = makeServer();
@@ -755,7 +782,7 @@ describe('conftest_verify', () => {
     expect(env.error?.code).toBe('CANCELLED');
   });
 
-  it('maps exit code 2 to UNKNOWN_ERROR', async () => {
+  it('maps a non-zero exit with no results on stdout to UNKNOWN_ERROR', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(2, 'no test files found'));
 
     const server = makeServer();

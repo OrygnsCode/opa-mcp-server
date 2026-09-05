@@ -100,6 +100,7 @@ beforeAll(async () => {
   await writeFile(join(workDir, 'cfg', 'good.yaml'), 'kind: Good\n');
   await writeFile(join(workDir, 'cfg', 'bad.yaml'), 'kind: Bad\n');
   await writeFile(join(workDir, 'cfg', 'warn.yaml'), 'kind: Good\nwarnme: true\n');
+  await writeFile(join(workDir, 'cfg', 'bad-warn.yaml'), 'kind: Bad\nwarnme: true\n');
   await writeFile(join(workDir, 'cfg', 'extra-no.yaml'), 'kind: Good\nextra: "no"\n');
 
   const config: Config = {
@@ -154,6 +155,21 @@ describe('conftest_test against the real conftest', () => {
     const hard = await test({ files: [file], policy: policyDir, failOnWarn: true });
     expect(hard.ok, JSON.stringify(hard.error)).toBe(true);
     expect(hard.data?.passed).toBe(false);
+  });
+
+  it('reports a denial together with a warning under failOnWarn as a failed check', async (ctx) => {
+    // conftest exits 2 for this combination and still prints the results;
+    // it used to come back as UNKNOWN_ERROR with the denial in the message.
+    if (!available) ctx.skip('conftest not available');
+    const env = await test({
+      files: [join(workDir, 'cfg', 'bad-warn.yaml')],
+      policy: policyDir,
+      failOnWarn: true,
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.summary.failed).toBe(1);
+    expect(env.data?.summary.warnings).toBe(1);
   });
 
   it('counts a file once across namespaces', async (ctx) => {

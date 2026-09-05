@@ -61,6 +61,15 @@ not part of the public surface and may change in minor releases.
   `OPA_MCP_HTTP_TIMEOUT_MS` was reported as `OPA_UNREACHABLE`, with a hint to
   start a server that was already running. It is now `TIMEOUT`, naming the
   limit, and the timer covers the response body as well as the headers.
+- `conftest_test`, `conftest_verify`: a denial reported under `failOnWarn`
+  came back as a tool error rather than as a failed check, because conftest
+  exits 2 for it. Any exit code with results on stdout is now an outcome, and
+  only output without results is treated as a command error.
+- `conftest_test`: a denial reported under `failOnWarn` came back as a tool
+  error rather than as a failed check, because conftest exits 2 for it. Any
+  exit code with results on stdout is now an outcome, and only output without
+  results is treated as a command error, whose message now carries conftest's
+  own text; `conftest_verify` shares that last part.
 
 ## [0.5.0] - 2026-09-04
 

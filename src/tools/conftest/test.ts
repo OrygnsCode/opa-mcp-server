@@ -11,8 +11,12 @@
  * Exit code mapping:
  *   null  -- conftest binary not found → CONFTEST_NOT_FOUND
  *   0     -- all tests pass (ok: true, passed: true)
- *   1     -- one or more failures (ok: true, passed: false)
- *   2+    -- command error (bad args, policy not found, etc.)
+ *   1     -- one or more failures, or a command error (bad args, policy not
+ *            found): the two are told apart by whether stdout holds results
+ *   2     -- failures together with warnings under --fail-on-warn
+ * Measured with conftest 0.69.0: a denial alone exits 1, a denial with
+ * --fail-on-warn exits 2, and both print the full result JSON. Any exit code
+ * with parseable results is an outcome, not a malfunction.
  */
 import { z } from 'zod';
 
@@ -230,17 +234,12 @@ export function registerConftestTest(server: McpServer, config: Config): void {
         const subprocessFailure = mapSubprocessFailure(result, 'conftest');
         if (subprocessFailure) return subprocessFailure;
 
-        // ── Exit code 0 / 1: parse JSON results ─────────────────────────
-        // Exit 0 = all pass, exit 1 = failures present.
-        // Both produce valid JSON on stdout.
-        if (result.exitCode === 0 || result.exitCode === 1) {
-          const results = parseConftestResults(result.stdout);
-          if (results === null) {
-            return err('UNKNOWN_ERROR', 'conftest test produced no parseable JSON output.', {
-              details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
-            });
-          }
-
+        // ── Results on stdout: an outcome, whatever the exit code ────────
+        // Exit 0 is a pass; 1 and 2 carry failures (2 when --fail-on-warn
+        // adds warnings to them). Routing 2 to the error branch reported a
+        // real denial as a broken tool.
+        const results = parseConftestResults(result.stdout);
+        if (results !== null) {
           return ok<ConftestTestOutput>({
             passed: result.exitCode === 0,
             results,
@@ -248,13 +247,13 @@ export function registerConftestTest(server: McpServer, config: Config): void {
           });
         }
 
-        // ── Exit code 2+: command-level error ────────────────────────────
+        // ── No results: a command-level error ────────────────────────────
         // Examples: policy directory not found, malformed Rego syntax,
         // unknown --parser value, etc.
         const detail = result.stderr.trim() || result.stdout.trim();
         return err(
           'UNKNOWN_ERROR',
-          `conftest test failed with exit code ${result.exitCode}: ${detail}`,
+          `conftest test failed with exit code ${result.exitCode}: ${detail || 'no output'}`,
           { details: { exitCode: result.exitCode, stderr: result.stderr.trim() } },
         );
       });
