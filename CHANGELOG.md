@@ -28,6 +28,13 @@ not part of the public surface and may change in minor releases.
   a module on any other drive failed with a file-not-found. Every load path now
   takes part in choosing the working directory; only data documents are
   respelled.
+- Windows: `rego_check` with inline source and `rego_inspect` reported a
+  module missing when the server's temp directory was on a different drive
+  from its working directory, and `conftest_test` and `conftest_verify` failed
+  the same way through `--policy`. OPA and conftest open an absolute path by
+  the part after its first colon, resolved on the drive the process runs on;
+  each command now runs from the path's own drive, and paths spread across two
+  drives are refused with a message saying so.
 
 ## [0.5.0] - 2026-09-04
 

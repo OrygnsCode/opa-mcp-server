@@ -424,7 +424,9 @@ export class OpaCli {
       // --bundle is meaningless for a single temp source file, so it is only
       // applied in the paths branch below.
       return this.withTempSource(input.source, (path) =>
-        this.run([...args, path], undefined, signal),
+        // A module opened by the loader is found only when the child runs on
+        // its drive; see lib/opa-paths.ts. Declared, not respelled.
+        this.run([...args, path], undefined, signal, [path]),
       );
     }
     if (input.bundle) args.push('--bundle');
@@ -451,7 +453,12 @@ export class OpaCli {
    * packages, namespaces, manifest, and annotations as JSON on stdout.
    */
   async inspect(input: InspectInput, signal?: AbortSignal): Promise<SpawnResult> {
-    return this.run(['inspect', '--format=json', '--annotations', input.target], undefined, signal);
+    return this.run(
+      ['inspect', '--format=json', '--annotations', input.target],
+      undefined,
+      signal,
+      [input.target],
+    );
   }
 
   /**

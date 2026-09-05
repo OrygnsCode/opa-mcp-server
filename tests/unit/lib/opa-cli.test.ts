@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Config } from '../../../src/config.js';
@@ -11,6 +12,8 @@ vi.mock('../../../src/lib/subprocess.js', () => ({
 }));
 
 import { runBinary } from '../../../src/lib/subprocess.js';
+
+const WINDOWS = process.platform === 'win32';
 
 const mockRun = vi.mocked(runBinary);
 
@@ -147,6 +150,14 @@ describe('OpaCli', () => {
       expect(opts.args[opts.args.length - 1]).toMatch(/\.rego$/);
     });
 
+    it("runs from the temp file's directory, where the loader can open it", async () => {
+      await opa.check({ source: 'package y' });
+      const [, opts] = mockRun.mock.calls[0]!;
+      const file = opts.args[opts.args.length - 1]!;
+      if (WINDOWS) expect(opts.cwd).toBe(dirname(file));
+      else expect(opts.cwd).toBeUndefined();
+    });
+
     it('passes paths through directly when no source', async () => {
       await opa.check({ paths: ['/abs/policy.rego'] });
       const [, opts] = mockRun.mock.calls[0]!;
@@ -211,6 +222,21 @@ describe('OpaCli', () => {
   });
 
   describe('inspect()', () => {
+    it("runs from the target's directory, where the loader can open it", async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'orygn-inspect-'));
+      try {
+        const file = join(dir, 'p.rego');
+        await writeFile(file, 'package p');
+        await opa.inspect({ target: file });
+        const [, opts] = mockRun.mock.calls[0]!;
+        expect(opts.args).toEqual(['inspect', '--format=json', '--annotations', file]);
+        if (WINDOWS) expect(opts.cwd).toBe(dir);
+        else expect(opts.cwd).toBeUndefined();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('passes the target path positionally', async () => {
       await opa.inspect({ target: '/abs/bundle.tar.gz' });
       const [, opts] = mockRun.mock.calls[0]!;

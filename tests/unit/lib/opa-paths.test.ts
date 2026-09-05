@@ -137,4 +137,20 @@ describe('rewriteLoadPaths', () => {
     expect(out.args).toEqual(args);
     expect(out.cwd).toBeUndefined();
   });
+  it.runIf(WINDOWS)('with respell off, only the working directory is chosen', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'orygn-anchor-'));
+    try {
+      const policy = join(dir, 'policy');
+      await mkdir(policy);
+      const cfg = join(dir, 'deploy.yaml');
+      await writeFile(cfg, 'a: 1');
+      const args = ['test', '--policy', policy, cfg];
+      const out = rewriteLoadPaths(args, [policy, cfg], { respell: false });
+      expect(out.cwd).toBe(dir);
+      expect(out.args).toEqual(args);
+      expect(out.conflict).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
