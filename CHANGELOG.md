@@ -154,6 +154,13 @@ not part of the public surface and may change in minor releases.
   `OPA_BINARY_NOT_FOUND` or `TIMEOUT` like every other tool.
 - `rego_explain_undefined` validated `inputPath` and then passed the argument
   as written to opa instead of the resolved path.
+- The `*_BINARY` variables now refuse a relative path at startup, which the
+  README said they did; a bare command name or an absolute path is accepted.
+- Docs: the install note described a missing-`opa` failure that the npm
+  package's bundled binary already prevents, and now says where it still
+  applies; CONTRIBUTING said input fields are `snake_case` when the surface
+  is `camelCase`; two prompts sent readers to `rego_describe_policy` for input
+  refs, which `rego_infer_input_schema` reports.
 
 ## [0.5.0] - 2026-09-04
 

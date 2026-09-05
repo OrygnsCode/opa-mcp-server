@@ -216,11 +216,14 @@ The image is multi-arch (`linux/amd64`, `linux/arm64`), bundles pinned
 versions of `opa` and `regal`, and runs as a non-root user. No host
 install of OPA or Regal is required.
 
-### ⚠ First-time install gotcha (read this if you used `npx` or the global install)
+### ⚠ If every tool call returns `OPA_BINARY_NOT_FOUND`
 
-If your client's `PATH` doesn't include the directory where `opa` lives
-(this happens with Claude Desktop on Windows and macOS by default), the
-server boots fine but every tool call returns `OPA_BINARY_NOT_FOUND`.
+The npm package carries its own `opa` for the five platforms it is built
+for, so a client `PATH` without `opa` on it does not matter there. The MCPB
+has no bundled copy, and on any other platform neither does npm: then the
+server boots but every tool call returns `OPA_BINARY_NOT_FOUND`. `regal` and
+`conftest` are never bundled, so their tools need a `PATH` entry or an
+explicit path either way.
 
 **Fix:** add `OPA_BINARY` and `REGAL_BINARY` env entries to your client
 config with the absolute path to each binary. The example configs under
@@ -265,9 +268,10 @@ variable is optional; defaults are sensible for a local OPA on
 | `OPA_MCP_PASSTHROUGH_ENV`      | _(unset)_                    | Comma-separated variable names to pass through to `opa`, `regal` and `conftest`. Everything else is withheld. **Anything named here is readable by any policy the server evaluates**, via `opa.runtime().env`, so use it only for values that are safe in that position.                     |
 | `OPA_MCP_BLOCK_ENV`            | _(unset)_                    | Comma-separated variable names to withhold from `opa`, `regal` and `conftest` even when they are on the built-in allow-list. Applied last, so it also overrides `OPA_MCP_PASSTHROUGH_ENV`. Use it to drop the proxy variables, which can carry credentials, at the cost of proxy support.    |
 
-Paths in `OPA_MCP_ALLOWED_PATHS` and the `*_BINARY` variables must be
-absolute. Relative paths and missing binaries are rejected with structured
-errors.
+Paths in `OPA_MCP_ALLOWED_PATHS` must be absolute, and a `*_BINARY` value is
+either a bare command name looked up on `PATH` or an absolute path; anything
+else stops the server at startup. A binary that cannot be run is reported by
+each tool call with a structured error.
 
 ## Tool reference
 

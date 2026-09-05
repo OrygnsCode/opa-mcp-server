@@ -11,6 +11,20 @@ import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 
 import { resolveOpaBinary } from './lib/resolve-binary.js';
+
+/**
+ * A `*_BINARY` value: a bare command name, looked up on PATH by the spawn,
+ * or an absolute path. A relative path would resolve against wherever the
+ * client happened to launch the server, which the README has always said is
+ * refused; the schema now says so too.
+ */
+const binarySchema = (name: string) =>
+  z
+    .string()
+    .refine((v) => !/[\\/]/.test(v) || isAbsolute(v), {
+      message: 'must be a bare command name found on PATH, or an absolute path',
+    })
+    .default(name);
 import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
 
 /**
@@ -36,13 +50,13 @@ const ConfigSchema = z.object({
   opaToken: z.string().optional(),
 
   /** Path to the `opa` binary. Defaults to `opa` on PATH. */
-  opaBinary: z.string().default('opa'),
+  opaBinary: binarySchema('opa'),
 
   /** Path to the `regal` binary. Defaults to `regal` on PATH. */
-  regalBinary: z.string().default('regal'),
+  regalBinary: binarySchema('regal'),
 
   /** Path to the `conftest` binary. Defaults to `conftest` on PATH. */
-  conftestBinary: z.string().default('conftest'),
+  conftestBinary: binarySchema('conftest'),
 
   /** Hard timeout in ms for any spawned subprocess (opa, regal). */
   subprocessTimeoutMs: z.coerce

@@ -190,6 +190,41 @@ describe('loadConfig - blank environment values mean unset', () => {
   });
 });
 
+describe('loadConfig - binary paths', () => {
+  const expectExitWith = (fragment: string): void => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      throw new Error('process.exit called');
+    }) as never);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => loadConfig()).toThrow('process.exit called');
+    expect(exitSpy).toHaveBeenCalledWith(2);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining(fragment));
+  };
+
+  it('refuses a relative path with a separator, as the README says it does', () => {
+    process.env['OPA_BINARY'] = './bin/opa';
+    try {
+      expectExitWith('absolute path');
+    } finally {
+      delete process.env['OPA_BINARY'];
+    }
+  });
+
+  it('accepts a bare command name and an absolute path', () => {
+    process.env['REGAL_BINARY'] = 'regal';
+    process.env['CONFTEST_BINARY'] =
+      process.platform === 'win32' ? 'C:\\tools\\conftest.exe' : '/usr/local/bin/conftest';
+    try {
+      const cfg = loadConfig();
+      expect(cfg.regalBinary).toBe('regal');
+      expect(cfg.conftestBinary).toMatch(/conftest/);
+    } finally {
+      delete process.env['REGAL_BINARY'];
+      delete process.env['CONFTEST_BINARY'];
+    }
+  });
+});
+
 describe('loadConfig - a timeout Node cannot represent', () => {
   const expectExit = (): void => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {

@@ -70,7 +70,7 @@ Apply this checklist, calling tools as needed:
    concern in a policy hot path.
 6. **Annotations.** Check that exported rules have docstrings. If
    missing, suggest minimal \`# METADATA\` annotations.
-7. **Shape of input.** Use \`rego_describe_policy\` to enumerate input
+7. **Shape of input.** Use \`rego_infer_input_schema\` to enumerate input
    refs the policy reads; confirm the documented input contract
    matches.
 
@@ -97,7 +97,7 @@ Workflow:
    Identify which rules were evaluated and which fired.
 4. The cause is one of:
    a. **Input mismatch** -- the policy expected a different input shape.
-      Use \`rego_describe_policy\` to list the refs the policy reads
+      Use \`rego_infer_input_schema\` to list the refs the policy reads
       and confirm each is present in the input.
    b. **Rule logic** -- a guard fired or didn't fire when it should
       have. Read the trace and explain which rule's body evaluated to
