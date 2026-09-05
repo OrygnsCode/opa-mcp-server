@@ -125,6 +125,95 @@ describe('runBinary signal handling', () => {
   }, 15_000);
 });
 
+describe('runBinary against children that do not cooperate', () => {
+  it.runIf(process.platform !== 'win32')(
+    'reaps a child that traps SIGTERM',
+    async () => {
+      const start = Date.now();
+      const result = await runBinary(NODE, {
+        args: ['-e', 'process.on("SIGTERM", () => {}); setTimeout(() => {}, 60_000)'],
+        timeoutMs: 200,
+      });
+      const elapsed = Date.now() - start;
+
+      expect(result.timedOut).toBe(true);
+      expect(result.signal).toBe('SIGKILL');
+      // 200ms timeout, 2s to escalate, and slack for process start-up.
+      expect(elapsed).toBeLessThan(6_000);
+    },
+    10_000,
+  );
+
+  it('settles when a grandchild keeps the pipes open after the child exits', async () => {
+    // The shape of a wrapper script: start the real program with the
+    // inherited stdio, then exit. The grandchild lives on holding the pipes.
+    const script = [
+      'const { spawn } = require("node:child_process");',
+      'const g = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], {',
+      '  stdio: "inherit", detached: process.platform !== "win32" });',
+      'g.unref();',
+      'process.stdout.write(String(g.pid));',
+      'process.exit(0);',
+    ].join(' ');
+    const start = Date.now();
+    const result = await runBinary(NODE, { args: ['-e', script], timeoutMs: 30_000 });
+    const elapsed = Date.now() - start;
+    const grandchild = Number(result.stdout.trim());
+    try {
+      expect(result.exitCode).toBe(0);
+      expect(result.timedOut).toBe(false);
+      expect(Number.isInteger(grandchild)).toBe(true);
+      // Settled on the drain grace, long before the timeout.
+      expect(elapsed).toBeLessThan(10_000);
+    } finally {
+      if (Number.isInteger(grandchild)) {
+        try {
+          process.kill(grandchild, 'SIGKILL');
+        } catch {
+          // already gone
+        }
+      }
+    }
+  }, 15_000);
+
+  it.runIf(process.platform !== 'win32')(
+    'kills the grandchild together with a hung child on timeout',
+    async () => {
+      // The grandchild stays in the child's process group and inherits the
+      // pipes; the child then hangs. The timeout must take both down.
+      const script = [
+        'const { spawn } = require("node:child_process");',
+        'const g = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "inherit" });',
+        'process.stdout.write(String(g.pid));',
+        'setTimeout(() => {}, 60_000);',
+      ].join(' ');
+      const result = await runBinary(NODE, { args: ['-e', script], timeoutMs: 300 });
+      const grandchild = Number(result.stdout.trim());
+      expect(result.timedOut).toBe(true);
+      expect(Number.isInteger(grandchild)).toBe(true);
+
+      // Give the signal a moment to land, then probe: signal 0 throws ESRCH
+      // once the process is gone.
+      await new Promise((r) => setTimeout(r, 500));
+      let alive = true;
+      try {
+        process.kill(grandchild, 0);
+      } catch {
+        alive = false;
+      }
+      if (alive) {
+        try {
+          process.kill(grandchild, 'SIGKILL');
+        } catch {
+          // raced with its own exit
+        }
+      }
+      expect(alive).toBe(false);
+    },
+    10_000,
+  );
+});
+
 // Assert spawn is what the test depends on at module level so this
 // file fails fast if the import surface ever breaks.
 void spawn;

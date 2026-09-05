@@ -7,7 +7,7 @@
  * - Passes a minimal environment to the child, never the server's own.
  * - Optional stdin payload for piping source code.
  */
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 
 import { buildChildEnv } from './child-env.js';
 
@@ -69,6 +69,44 @@ export interface SpawnResult {
    * valid; absent means "not truncated".
    */
   outputTruncated?: boolean;
+  /**
+   * The signal that ended the child, when one did. Set for the server's own
+   * kills (timeout, cancellation, output cap) and for kills from outside it,
+   * such as the kernel's out-of-memory killer. Optional for the same reason as
+   * `outputTruncated`.
+   */
+  signal?: NodeJS.Signals | null;
+}
+
+/**
+ * How long to wait for the stdio pipes to close once the child has exited.
+ *
+ * The child's own output is complete at 'exit'; 'close' follows when every
+ * holder of the pipes is gone. A grandchild that inherited them, which is the
+ * ordinary shape of a wrapper script around the binary, keeps 'close' from
+ * ever firing, and a result that waits for it never settles.
+ */
+const PIPE_DRAIN_GRACE_MS = 1_000;
+
+/** Grace between SIGTERM and SIGKILL. */
+const KILL_ESCALATION_MS = 2_000;
+
+/**
+ * Signal the child, and on POSIX its whole process group, so a grandchild
+ * started by a wrapper script dies with it. The child is spawned as a group
+ * leader for this purpose; when the group is already gone, or the platform
+ * has no groups, fall back to the child alone.
+ */
+function signalTree(child: ChildProcess, sig: NodeJS.Signals): void {
+  if (process.platform !== 'win32' && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, sig);
+      return;
+    } catch {
+      // ESRCH or EPERM: no group to signal. The child itself may still be there.
+    }
+  }
+  child.kill(sig);
 }
 
 /** Accumulates a stream's chunks up to a byte ceiling. */
@@ -139,6 +177,9 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
       env: buildChildEnv(opts.env),
       shell: false,
       windowsHide: true,
+      // A process group of its own on POSIX, so a kill reaches a grandchild
+      // as well. See signalTree.
+      detached: process.platform !== 'win32',
     });
 
     const limit = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
@@ -148,12 +189,19 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     let aborted = false;
     let settled = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // Whether the child has actually ended. `child.killed` is not that: Node
+    // sets it as soon as a signal was sent, whether or not the child obeyed,
+    // so a guard on it never escalated and a child that trapped SIGTERM hung
+    // the call for good.
+    const alive = (): boolean => child.exitCode === null && child.signalCode === null;
 
     const killChild = (): void => {
-      child.kill('SIGTERM');
+      signalTree(child, 'SIGTERM');
       killTimer = setTimeout(() => {
-        if (!child.killed) child.kill('SIGKILL');
-      }, 2_000);
+        if (alive()) signalTree(child, 'SIGKILL');
+      }, KILL_ESCALATION_MS);
     };
 
     const timer = setTimeout(() => {
@@ -175,6 +223,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     const clearTimers = (): void => {
       clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);
+      if (drainTimer) clearTimeout(drainTimer);
     };
 
     /**
@@ -215,7 +264,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
       });
     });
 
-    child.on('close', (code) => {
+    const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
       // Decoding runs here, in an async callback whose throw would escape every
       // try/catch upstream and reach the process as an uncaughtException. The
       // byte cap is what makes that unreachable; this is the belt to its braces.
@@ -228,6 +277,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
           aborted,
           durationMs: Date.now() - start,
           outputTruncated: stdout.didOverflow || stderr.didOverflow,
+          signal,
         });
       } catch (e) {
         settle({
@@ -238,9 +288,25 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
           aborted,
           durationMs: Date.now() - start,
           outputTruncated: true,
+          signal,
         });
       }
+    };
+
+    // 'close' carries the complete output and is the normal way to finish.
+    // 'exit' starts a short grace for it: when the pipes are still held open
+    // by something the child left behind, the result is built from what was
+    // captured and the server's ends of the pipes are released.
+    child.on('exit', (code, signal) => {
+      // A spawn failure settles on 'error' and may still be followed by 'exit'.
+      if (settled) return;
+      drainTimer = setTimeout(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(code, signal);
+      }, PIPE_DRAIN_GRACE_MS);
     });
+    child.on('close', (code, signal) => finish(code, signal));
 
     if (opts.stdin !== undefined) {
       child.stdin?.write(opts.stdin);

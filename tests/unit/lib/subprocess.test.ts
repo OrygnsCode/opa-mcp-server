@@ -22,6 +22,7 @@ const mockSpawn = vi.mocked(spawn);
 
 interface FakeStream extends EventEmitter {
   on(event: string, listener: (...args: unknown[]) => void): this;
+  destroy: ReturnType<typeof vi.fn>;
 }
 
 interface FakeStdin extends EventEmitter {
@@ -35,6 +36,9 @@ interface FakeChild extends EventEmitter {
   stdin: FakeStdin;
   kill: ReturnType<typeof vi.fn>;
   killed: boolean;
+  pid: number;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
 }
 
 function makeChild(): FakeChild {
@@ -48,14 +52,38 @@ function makeChild(): FakeChild {
   stdin.write = vi.fn();
   stdin.end = vi.fn();
   child.stdin = stdin;
-  child.kill = vi.fn(() => true);
+  child.stdout.destroy = vi.fn();
+  child.stderr.destroy = vi.fn();
+  // Mirrors a real ChildProcess: `killed` flips as soon as a signal is SENT,
+  // whether or not the child obeys; only exitCode / signalCode say it ended.
+  child.kill = vi.fn(() => {
+    child.killed = true;
+    return true;
+  });
   child.killed = false;
+  child.pid = 4242;
+  child.exitCode = null;
+  child.signalCode = null;
   return child;
+}
+
+/** Let a fake child end the way a real one does: 'exit', then 'close'. */
+function endChild(child: FakeChild, code: number | null, signal: NodeJS.Signals | null): void {
+  child.exitCode = code;
+  child.signalCode = signal;
+  child.emit('exit', code, signal);
+  child.emit('close', code, signal);
 }
 
 beforeEach(() => {
   mockSpawn.mockReset();
   vi.useFakeTimers();
+  // On POSIX the child is signalled through its process group first. There is
+  // no group behind the fake pid, so answer the way the kernel would and let
+  // runBinary fall back to child.kill, which the tests observe.
+  vi.spyOn(process, 'kill').mockImplementation(() => {
+    throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+  });
 });
 
 afterEach(() => {
@@ -219,14 +247,15 @@ describe('runBinary — timeout escalation (deterministic)', () => {
     vi.advanceTimersByTime(1_000);
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
 
-    // Child traps SIGTERM — it stays alive (killed === false). 2s later
-    // the inner timer fires SIGKILL.
+    // The child traps SIGTERM and never exits, so 2s later the inner timer
+    // fires SIGKILL. `killed` is already true here, as it is on a real child
+    // the moment the signal is sent; the escalation must not look at it.
     vi.advanceTimersByTime(2_000);
     expect(child.kill).toHaveBeenCalledWith('SIGKILL');
     expect(child.kill).toHaveBeenCalledTimes(2);
   });
 
-  it('does NOT send SIGKILL if the child died after SIGTERM (killed=true)', async () => {
+  it('does not send SIGKILL when the child exited after SIGTERM', async () => {
     const child = makeChild();
     mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
 
@@ -235,19 +264,33 @@ describe('runBinary — timeout escalation (deterministic)', () => {
     vi.advanceTimersByTime(1_000); // SIGTERM
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
 
-    // Cooperative child exits in response to SIGTERM.
-    child.killed = true;
-    child.emit('close', null);
+    // A cooperative child dies of the SIGTERM.
+    endChild(child, null, 'SIGTERM');
 
-    // Advance past the 2s SIGKILL window — the guard `if (!child.killed)`
-    // should keep SIGKILL from being sent.
+    // Past the SIGKILL window nothing more is sent: the child has ended.
     vi.advanceTimersByTime(2_000);
     expect(child.kill).toHaveBeenCalledTimes(1);
 
     const result = await promise;
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).toBeNull();
+    expect(result.signal).toBe('SIGTERM');
   });
+
+  it.runIf(process.platform !== 'win32')(
+    'signals the process group before falling back to the child',
+    () => {
+      const child = makeChild();
+      mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+      void runBinary('opa', { args: ['hang'], timeoutMs: 1_000 });
+      vi.advanceTimersByTime(1_000);
+
+      expect(process.kill).toHaveBeenCalledWith(-4242, 'SIGTERM');
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockSpawn.mock.calls[0]![2]).toMatchObject({ detached: true });
+    },
+  );
 
   it('cancels the kill timer chain when the child closes before the deadline', async () => {
     const child = makeChild();
@@ -284,6 +327,61 @@ describe('runBinary — timeout escalation (deterministic)', () => {
     const result = await promise;
     expect(result.exitCode).toBeNull();
     expect(result.stderr).toContain('EACCES');
+  });
+});
+
+describe('runBinary — pipes held open after exit', () => {
+  it('settles from exit after the drain grace when close never arrives', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['wrapper'], timeoutMs: 30_000 });
+    child.stdout.emit('data', Buffer.from('{"ok":true}'));
+    // The child is gone, but a grandchild still holds the pipes.
+    child.exitCode = 0;
+    child.emit('exit', 0, null);
+
+    vi.advanceTimersByTime(1_000);
+    const result = await promise;
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('{"ok":true}');
+    expect(result.timedOut).toBe(false);
+    expect(child.stdout.destroy).toHaveBeenCalled();
+    expect(child.stderr.destroy).toHaveBeenCalled();
+  });
+
+  it('prefers close when it arrives inside the grace', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['fast'], timeoutMs: 30_000 });
+    child.exitCode = 0;
+    child.emit('exit', 0, null);
+    vi.advanceTimersByTime(200);
+    child.stdout.emit('data', Buffer.from('late bytes'));
+    child.emit('close', 0, null);
+
+    const result = await promise;
+    expect(result.stdout).toBe('late bytes');
+    // The drain timer was cleared with the rest.
+    vi.advanceTimersByTime(5_000);
+    expect(child.stdout.destroy).not.toHaveBeenCalled();
+  });
+
+  it('reports the signal that ended the child', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['big-bundle'], timeoutMs: 30_000 });
+    // Killed from outside the server, the way the OOM killer does it.
+    endChild(child, null, 'SIGKILL');
+
+    const result = await promise;
+    expect(result.exitCode).toBeNull();
+    expect(result.signal).toBe('SIGKILL');
+    expect(result.timedOut).toBe(false);
+    expect(result.aborted).toBe(false);
+    expect(child.kill).not.toHaveBeenCalled();
   });
 });
 

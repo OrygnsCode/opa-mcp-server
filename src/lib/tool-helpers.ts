@@ -96,6 +96,20 @@ export function mapSubprocessFailure(
       },
     );
   }
+  // The server's own kills are handled above. A signal that reaches here came
+  // from outside it, most often the kernel's out-of-memory killer, and the
+  // binary is installed and was running; sending the user to reinstall it
+  // would be wrong.
+  if (result.exitCode === null && result.signal) {
+    return err(
+      'SUBPROCESS_KILLED',
+      `${binary} was terminated by ${result.signal} before it finished.`,
+      {
+        hint: 'The process was killed from outside the server, for example by the out-of-memory killer or a container limit. Check the host memory limits and system logs.',
+        details: { signal: result.signal, durationMs: result.durationMs },
+      },
+    );
+  }
   if (result.exitCode === null) {
     const code: ToolErrorCode =
       binary === 'opa'
