@@ -47,6 +47,13 @@ not part of the public surface and may change in minor releases.
   or `"true"`, was retyped to a number or boolean before evaluation. Strings
   are now passed as strings; only an object or array that arrived serialised
   as a string is still repaired, as every other tool does.
+- `rego_eval`, `rego_eval_with_explain`, `rego_eval_with_profile`,
+  `rego_eval_with_coverage`, `rego_compile_query`, `rego_explain_decision`: a
+  string input that happened to parse as JSON, such as `"42"`, `"true"` or a
+  quoted string, was retyped or unwrapped before evaluation. Strings now reach
+  the policy as strings; only an object or array that arrived serialized as a
+  string is still repaired, the way `rego_bench` and the server-management
+  tools already did.
 
 ## [0.5.0] - 2026-09-04
 
