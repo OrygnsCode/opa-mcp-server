@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-04
+
 ### Security
 
 - `opa_config` described its output as sanitized with secrets excluded. OPA
