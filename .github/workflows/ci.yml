@@ -178,6 +178,12 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/open-policy-agent/conftest/releases/download/v$env:CONFTEST_VERSION/conftest_${env:CONFTEST_VERSION}_Windows_x86_64.zip" -OutFile (Join-Path $tools 'conftest.zip')
           Expand-Archive -Path (Join-Path $tools 'conftest.zip') -DestinationPath $tools -Force
           Add-Content -Path $env:GITHUB_PATH -Value $tools
+          # The live-server tests spawn the binary by name without a shell, and
+          # Node on Windows does not resolve `opa` to `opa.exe` that way, so
+          # hand the tests the full paths rather than relying on PATH.
+          Add-Content -Path $env:GITHUB_ENV -Value "OPA_BINARY=$(Join-Path $tools 'opa.exe')"
+          Add-Content -Path $env:GITHUB_ENV -Value "REGAL_BINARY=$(Join-Path $tools 'regal.exe')"
+          Add-Content -Path $env:GITHUB_ENV -Value "CONFTEST_BINARY=$(Join-Path $tools 'conftest.exe')"
           & (Join-Path $tools 'opa.exe') version
           & (Join-Path $tools 'regal.exe') version
           & (Join-Path $tools 'conftest.exe') --version
