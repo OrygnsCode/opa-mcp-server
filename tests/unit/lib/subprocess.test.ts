@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process';
 import { runBinary } from '../../../src/lib/subprocess.js';
 
 const mockSpawn = vi.mocked(spawn);
+let killSpy: ReturnType<typeof vi.spyOn>;
 
 interface FakeStream extends EventEmitter {
   on(event: string, listener: (...args: unknown[]) => void): this;
@@ -81,7 +82,7 @@ beforeEach(() => {
   // On POSIX the child is signalled through its process group first. There is
   // no group behind the fake pid, so answer the way the kernel would and let
   // runBinary fall back to child.kill, which the tests observe.
-  vi.spyOn(process, 'kill').mockImplementation(() => {
+  killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
     throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
   });
 });
@@ -286,7 +287,7 @@ describe('runBinary — timeout escalation (deterministic)', () => {
       void runBinary('opa', { args: ['hang'], timeoutMs: 1_000 });
       vi.advanceTimersByTime(1_000);
 
-      expect(process.kill).toHaveBeenCalledWith(-4242, 'SIGTERM');
+      expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM');
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
       expect(mockSpawn.mock.calls[0]![2]).toMatchObject({ detached: true });
     },
