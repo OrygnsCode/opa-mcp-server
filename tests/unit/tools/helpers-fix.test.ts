@@ -48,6 +48,78 @@ describe('parseFixOutput()', () => {
     expect(parseFixOutput('  \n  ').fixCount).toBe(0);
   });
 
+  it('reads a real run, which says "applied" where a dry run says "to apply"', () => {
+    // Captured from regal 0.30.0 on a file needing every fix at once.
+    const real = [
+      '3 fixes applied:',
+      'In project root: /tmp/proj',
+      'p.rego -> p/p.rego:',
+      '- directory-package-mismatch',
+      '- opa-fmt',
+      '- no-whitespace-comment',
+    ].join('\n');
+    const dry = real.replace('3 fixes applied:', '3 fixes to apply:');
+    const fromReal = parseFixOutput(real);
+    expect(fromReal.fixCount).toBe(3);
+    expect(fromReal.fixedFiles).toHaveLength(1);
+    expect(fromReal.fixedFiles[0]?.newPath).toContain('p.rego');
+    expect(fromReal.fixedFiles[0]?.rules).toEqual([
+      'directory-package-mismatch',
+      'opa-fmt',
+      'no-whitespace-comment',
+    ]);
+    expect(fromReal).toEqual(parseFixOutput(dry));
+    const one = '1 fix applied:\nIn project root: /tmp/proj\np.rego:\n- opa-fmt';
+    expect(parseFixOutput(one).fixCount).toBe(1);
+    expect(parseFixOutput('No fixes applied.')).toEqual({ fixCount: 0, fixedFiles: [] });
+  });
+
+  it('reports a moved file once when every block that touched it lists the move', () => {
+    // Captured from regal 0.30.0 when directory-package-mismatch fires on a
+    // file that also needs other fixes: the in-place fixes come first under a
+    // blank root with the move spelled absolutely, then the move again under
+    // the real root. One physical file.
+    const stdout = [
+      '3 fixes applied:',
+      'In project root: ',
+      '/tmp/proj/p.rego -> /tmp/proj/p/p.rego:',
+      '- opa-fmt',
+      '- no-whitespace-comment',
+      '',
+      'In project root: /tmp/proj',
+      'p.rego -> p/p.rego:',
+      '- directory-package-mismatch',
+    ].join('\n');
+    const { fixCount, fixedFiles } = parseFixOutput(stdout);
+    expect(fixCount).toBe(3);
+    expect(fixedFiles).toHaveLength(1);
+    const [file] = fixedFiles;
+    const posix = (p: string) => p.replace(/[\\/]/g, '/');
+    expect(posix(file!.path).endsWith('/tmp/proj/p.rego')).toBe(true);
+    expect(posix(file!.newPath!).endsWith('/tmp/proj/p/p.rego')).toBe(true);
+    expect(file!.rules).toEqual(['opa-fmt', 'no-whitespace-comment', 'directory-package-mismatch']);
+  });
+
+  it("folds an entry listed at a moved file's destination into the move", () => {
+    const stdout = [
+      '2 fixes applied:',
+      'In project root: ',
+      '/tmp/proj/p/p.rego:',
+      '- opa-fmt',
+      '',
+      'In project root: /tmp/proj',
+      'p.rego -> p/p.rego:',
+      '- directory-package-mismatch',
+    ].join('\n');
+    const { fixedFiles } = parseFixOutput(stdout);
+    expect(fixedFiles).toHaveLength(1);
+    expect(fixedFiles[0]!.rules).toEqual(['directory-package-mismatch', 'opa-fmt']);
+  });
+
+  it('reads the count from the first line only', () => {
+    expect(parseFixOutput('No fixes applied.\nnote: 7 fixes applied earlier').fixCount).toBe(0);
+  });
+
   it('parses a single in-place fix (no file move)', () => {
     const stdout = [
       '1 fix to apply:',

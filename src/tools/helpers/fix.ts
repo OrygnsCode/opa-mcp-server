@@ -15,7 +15,7 @@
  * Files with uncommitted git changes are refused unless `force: true`
  * is set. This is regal's own safety check, not ours.
  */
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -80,67 +80,103 @@ export interface RegoFixOutput {
 
 /**
  * Parse the plain-text output of `regal fix --no-color` into a structured
- * result. The format produced by regal 0.30.0 is:
+ * result. regal 0.30.0 prints one of:
  *
- *   No fixes to apply.
+ *   No fixes to apply.        (dry run)
+ *   No fixes applied.         (real run)
  *
- * or:
+ * or a count followed by one or more blocks, each headed by a project root:
  *
- *   X fix(es) to apply:
+ *   X fix(es) to apply:       (dry run)
+ *   X fix(es) applied:        (real run)
  *   In project root: <absolute-root>
- *   <filename>[-> <new-relative-path>]:
+ *   <path>[ -> <new-path>]:
  *   - <rule-name>
  *   ...
+ *
+ * Paths are relative to their block's root, or absolute when the root is
+ * blank. A file that moves may be listed twice across blocks, once under its
+ * old name with the arrow and once under its new one; that is one file.
  */
 export function parseFixOutput(stdout: string): { fixCount: number; fixedFiles: FixedFile[] } {
   const text = stdout.trim();
+  const firstLine = text.split('\n')[0]?.trim() ?? '';
 
-  if (!text || text === 'No fixes to apply.') {
+  if (!text || /^No fixes (?:to apply|applied)\.$/.test(firstLine)) {
     return { fixCount: 0, fixedFiles: [] };
   }
 
-  const countMatch = /(\d+) fix(?:es)? to apply/.exec(text);
+  // A real run says "applied" where a dry run says "to apply". Reading only
+  // the dry-run form reported every real run as having changed nothing.
+  const countMatch = /^(\d+) fix(?:es)? (?:to apply|applied):?$/.exec(firstLine);
   if (!countMatch) return { fixCount: 0, fixedFiles: [] };
   const fixCount = parseInt(countMatch[1] ?? '0', 10);
 
-  // Locate the summary block that starts with "In project root:"
-  const rootIdx = text.indexOf('\nIn project root: ');
-  if (rootIdx === -1) return { fixCount, fixedFiles: [] };
-
-  const summaryLines = text.slice(rootIdx + 1).split('\n');
-  const root = (summaryLines[0] ?? '').replace('In project root: ', '').trim();
-
   const fixedFiles: FixedFile[] = [];
-  let current: FixedFile | null = null;
+  for (const block of text.split(/\n(?=In project root:)/).slice(1)) {
+    const lines = block.split('\n');
+    const root = (lines[0] ?? '').replace('In project root:', '').trim();
+    const resolve = (name: string): string => (root ? join(root, name) : name);
+    let current: FixedFile | null = null;
 
-  for (let i = 1; i < summaryLines.length; i++) {
-    const line = summaryLines[i];
-    if (!line?.trim()) continue;
-
-    if (line.trim().startsWith('- ')) {
-      // Rule entry under the current file
-      if (current) current.rules.push(line.trim().slice(2));
-    } else if (line.trim().endsWith(':')) {
-      // New file entry: "filename:" or "old -> new:"
-      if (current) fixedFiles.push(current);
-      const entry = line.trim().slice(0, -1); // strip trailing ":"
-      const arrowIdx = entry.indexOf(' -> ');
-      if (arrowIdx !== -1) {
-        const oldName = entry.slice(0, arrowIdx).trim();
-        const newName = entry.slice(arrowIdx + 4).trim();
-        current = {
-          path: join(root, oldName),
-          newPath: join(root, newName),
-          rules: [],
-        };
-      } else {
-        current = { path: join(root, entry.trim()), rules: [] };
+    for (const raw of lines.slice(1)) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith('- ')) {
+        // Rule entry under the current file
+        if (current) current.rules.push(line.slice(2));
+      } else if (line.endsWith(':')) {
+        // New file entry: "path:" or "old -> new:"
+        if (current) fixedFiles.push(current);
+        const entry = line.slice(0, -1);
+        const arrowIdx = entry.indexOf(' -> ');
+        current =
+          arrowIdx === -1
+            ? { path: resolve(entry.trim()), rules: [] }
+            : {
+                path: resolve(entry.slice(0, arrowIdx).trim()),
+                newPath: resolve(entry.slice(arrowIdx + 4).trim()),
+                rules: [],
+              };
       }
     }
+    if (current) fixedFiles.push(current);
   }
-  if (current) fixedFiles.push(current);
 
-  return { fixCount, fixedFiles };
+  return { fixCount, fixedFiles: foldMoved(fixedFiles) };
+}
+
+/**
+ * Report a moved file once. regal lists a file that moves in every block that
+ * touched it, with the arrow each time, so entries are grouped by original
+ * path with their rules joined. An entry listed at a moved file's destination
+ * without the arrow is folded into the move as well.
+ */
+function foldMoved(entries: FixedFile[]): FixedFile[] {
+  const byPath = new Map<string, FixedFile>();
+  for (const e of entries) {
+    const key = normalize(e.path);
+    const seen = byPath.get(key);
+    if (seen === undefined) {
+      byPath.set(key, { ...e, rules: [...e.rules] });
+      continue;
+    }
+    for (const r of e.rules) if (!seen.rules.includes(r)) seen.rules.push(r);
+    if (seen.newPath === undefined && e.newPath !== undefined) seen.newPath = e.newPath;
+  }
+  const merged = [...byPath.values()];
+  const movers = new Map<string, FixedFile>();
+  for (const e of merged) if (e.newPath) movers.set(normalize(e.newPath), e);
+  const out: FixedFile[] = [];
+  for (const e of merged) {
+    const mover = e.newPath ? undefined : movers.get(normalize(e.path));
+    if (mover) {
+      for (const r of e.rules) if (!mover.rules.includes(r)) mover.rules.push(r);
+      continue;
+    }
+    out.push(e);
+  }
+  return out;
 }
 
 export function registerRegoFix(server: McpServer, config: Config): void {
