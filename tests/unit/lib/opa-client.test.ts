@@ -303,9 +303,7 @@ describe('Timeouts', () => {
       (_url, init) =>
         new Promise((_resolve, reject) => {
           (init as RequestInit).signal?.addEventListener('abort', () => {
-            const err = new Error('aborted');
-            err.name = 'AbortError';
-            reject(err);
+            reject(new DOMException('This operation was aborted', 'AbortError'));
           });
         }),
     );
@@ -328,9 +326,7 @@ describe('Timeouts', () => {
         json: () =>
           new Promise((_resolve, reject) => {
             (init as RequestInit).signal?.addEventListener('abort', () => {
-              const err = new Error('aborted');
-              err.name = 'AbortError';
-              reject(err);
+              reject(new DOMException('This operation was aborted', 'AbortError'));
             });
           }),
         text: () => Promise.resolve(''),
