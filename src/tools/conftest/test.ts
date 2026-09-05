@@ -156,9 +156,8 @@ export function registerConftestTest(server: McpServer, config: Config): void {
         'Policies are executed by conftest and can call OPA built-ins such as http.send.',
       inputSchema: ConftestTestInput,
       annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
+        // Runs Rego supplied by the caller; a policy can reach, and write to, a remote system through http.send.
+        readOnlyHint: false,
         openWorldHint: true,
       },
     },

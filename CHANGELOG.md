@@ -98,6 +98,16 @@ not part of the public surface and may change in minor releases.
   one in helpers and rule bodies alike. Boolean literals are now read as what
   they say, and a helper with a true default and a body that never holds is
   recognised as always holding.
+- Every tool that evaluates caller-supplied Rego now declares
+  `openWorldHint: true`, since a policy can reach the network through
+  `http.send`; a client that gates on the hint will ask before running one.
+  They keep `readOnlyHint: true`: they write nothing locally.
+- Every tool that evaluates Rego, including the Regal tools that run a
+  project's custom rules, now declares `openWorldHint: true` and no longer
+  claims `readOnlyHint`, since a policy's own `http.send` can reach, and write
+  to, a remote system. A client that gates on the hints will ask before running
+  one. The destructive and idempotent hints on those tools are left to the
+  spec's defaults, since a policy chooses its own HTTP method.
 
 ## [0.5.0] - 2026-09-04
 

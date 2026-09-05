@@ -77,10 +77,9 @@ export function registerRegoBench(server: McpServer, config: Config): void {
         'Benchmark a Rego query against a policy + input with `opa bench`. Returns statistical timing data: iterations, ns/op, and allocation counts. Use this to spot slow rules.',
       inputSchema: RegoBenchInput,
       annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
+        readOnlyHint: false,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
     async ({ query, paths, input, inputPath, count }, { signal }) => {

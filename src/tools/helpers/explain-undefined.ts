@@ -363,10 +363,9 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         'breakdown of which conditions blocked each rule plus a human-readable summary.',
       inputSchema: RegoExplainUndefinedInput,
       annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
+        readOnlyHint: false,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
     async (args, { signal }) => {

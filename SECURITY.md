@@ -82,6 +82,16 @@ on the network.
   payloads are truncated rather than streamed back unbounded.
 - Stdout is reserved for the MCP protocol; logs go to a file.
 - `OPA_TOKEN` is never echoed in tool responses or log entries.
+- Tools that evaluate Rego (`rego_eval` and its variants, `rego_test`,
+  `rego_test_multiroot`, `rego_bench`, `rego_compile_query`, `opa_exec`, the
+  explain, diff and coverage helpers, the conftest tools, and the Regal tools,
+  which run a project's custom rules) declare `openWorldHint: true` and not
+  `readOnlyHint`, because OPA's `http.send` lets a policy reach, and write to,
+  any network address. `opa_query_decision` and `opa_compile_query` are the
+  exception: the remote OPA evaluates a policy it already holds, and their
+  hints describe the call to that server. No evaluating tool passes or accepts a capabilities
+  file, so `http.send` cannot be restricted for evaluation; `rego_check` and
+  `opa_bundle_build` accept one, which affects only checking and building.
 - Releases are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements);
   the Docker image is built reproducibly via GitHub Actions.
 

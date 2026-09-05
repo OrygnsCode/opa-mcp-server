@@ -129,10 +129,9 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
         'Run regal lint restricted to the security and bugs categories across one or more policy directories. Returns findings grouped by severity (high/medium) with remediation guidance. Use this for a periodic fleet-wide security sweep rather than per-file style review. Requires regal.',
       inputSchema: RegoSecurityAuditInput,
       annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
+        readOnlyHint: false,
+        // Runs a project's custom Regal rules, which are Rego with the network built-ins.
+        openWorldHint: true,
       },
     },
     async ({ paths, configFile, ignoreFiles }, { signal }) => {
