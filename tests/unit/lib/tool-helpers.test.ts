@@ -34,6 +34,29 @@ describe('mapSubprocessFailure', () => {
     ).toBe('CONFTEST_NOT_FOUND');
   });
 
+  it('reports a child killed from outside as SUBPROCESS_KILLED, not a missing binary', () => {
+    const env = mapSubprocessFailure(
+      { ...base, exitCode: null, timedOut: false, signal: 'SIGKILL' },
+      'opa',
+    );
+    expect(env?.error?.code).toBe('SUBPROCESS_KILLED');
+    expect(env?.error?.message).toContain('SIGKILL');
+    expect(env?.error?.details).toMatchObject({ signal: 'SIGKILL' });
+  });
+
+  it("keeps the server's own kills on their own codes although they carry a signal", () => {
+    expect(
+      mapSubprocessFailure({ ...base, exitCode: null, timedOut: true, signal: 'SIGTERM' }, 'opa')
+        ?.error?.code,
+    ).toBe('TIMEOUT');
+    expect(
+      mapSubprocessFailure(
+        { ...base, exitCode: null, timedOut: false, outputTruncated: true, signal: 'SIGTERM' },
+        'opa',
+      )?.error?.code,
+    ).toBe('OUTPUT_TOO_LARGE');
+  });
+
   it('prefers CANCELLED over both when the client aborted', () => {
     const env = mapSubprocessFailure(
       { ...base, exitCode: null, timedOut: true, aborted: true },

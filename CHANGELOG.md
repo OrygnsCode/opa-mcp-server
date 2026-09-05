@@ -36,6 +36,13 @@ not part of the public surface and may change in minor releases.
   each command now runs from the path's own drive. The configs under test are
   read by conftest itself and may sit on any drive; a policy and a data
   directory spread across two drives are refused with a message saying so.
+- The subprocess timeout is now hard on Linux and macOS. The SIGKILL escalation
+  fired on a flag Node sets when a signal is sent rather than when the child
+  ends, so a child that ignored SIGTERM hung the tool call for good, and a
+  wrapper script that left a grandchild holding the pipes kept the result from
+  ever settling. A child killed from outside the server is reported as
+  `SUBPROCESS_KILLED` naming the signal, not as a missing binary. On SIGINT or
+  SIGTERM the server now signals the children it started before exiting.
 
 ## [0.5.0] - 2026-09-04
 

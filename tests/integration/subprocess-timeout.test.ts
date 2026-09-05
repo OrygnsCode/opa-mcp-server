@@ -105,11 +105,9 @@ describe('runBinary signal handling', () => {
     // child: when a hung child is sent SIGTERM, runBinary actually
     // resolves with timedOut=true and the child is reaped.
     //
-    // We do NOT trap SIGTERM in the child here, because some Linux CI
-    // runners exhibit pathological delays propagating SIGCHLD when the
-    // child has both a trapped SIGTERM and a long-running setTimeout
-    // pending. The unit-level fake-timer suite covers that path
-    // separately.
+    // The child does not trap SIGTERM here; the trapped case, which needs
+    // the SIGKILL escalation to be real, is covered below with a bound wide
+    // enough for a slow runner.
     const start = Date.now();
     const result = await runBinary(NODE, {
       args: ['-e', 'setTimeout(() => {}, 60_000)'],
@@ -123,6 +121,105 @@ describe('runBinary signal handling', () => {
     // bound is generous to absorb CI-runner scheduler jitter.
     expect(elapsed).toBeLessThan(10_000);
   }, 15_000);
+});
+
+describe('runBinary against children that do not cooperate', () => {
+  it.runIf(process.platform !== 'win32')(
+    'reaps a child that traps SIGTERM',
+    async () => {
+      const start = Date.now();
+      // Long enough for node to boot and install the handler on a slow
+      // runner; otherwise the default disposition kills it and the test
+      // would prove nothing.
+      const result = await runBinary(NODE, {
+        args: ['-e', 'process.on("SIGTERM", () => {}); setTimeout(() => {}, 60_000)'],
+        timeoutMs: 2_000,
+      });
+      const elapsed = Date.now() - start;
+
+      expect(result.timedOut).toBe(true);
+      expect(result.signal).toBe('SIGKILL');
+      // 2s timeout, 2s to escalate, and slack for process start-up.
+      expect(elapsed).toBeLessThan(10_000);
+    },
+    15_000,
+  );
+
+  it('settles when a grandchild keeps the pipes open after the child exits', async () => {
+    // The shape of a wrapper script: start the real program with the
+    // inherited stdio, then exit. The grandchild lives on holding the pipes.
+    const script = [
+      'const { spawn } = require("node:child_process");',
+      'const g = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], {',
+      '  stdio: "inherit", detached: process.platform !== "win32" });',
+      'g.unref();',
+      'process.stdout.write(String(g.pid));',
+      'process.exit(0);',
+    ].join(' ');
+    const start = Date.now();
+    const result = await runBinary(NODE, { args: ['-e', script], timeoutMs: 30_000 });
+    const elapsed = Date.now() - start;
+    // parseInt, and a positive check: Number('') is 0, and kill(0) would
+    // signal this process's own group, test runner included.
+    const grandchild = Number.parseInt(result.stdout.trim(), 10);
+    try {
+      expect(result.exitCode).toBe(0);
+      expect(result.timedOut).toBe(false);
+      expect(grandchild).toBeGreaterThan(0);
+      // Settled on the drain grace, long before the timeout.
+      expect(elapsed).toBeLessThan(10_000);
+    } finally {
+      if (Number.isInteger(grandchild) && grandchild > 0) {
+        try {
+          process.kill(grandchild, 'SIGKILL');
+        } catch {
+          // already gone
+        }
+      }
+    }
+  }, 15_000);
+
+  it.runIf(process.platform !== 'win32')(
+    'kills the grandchild together with a hung child on timeout',
+    async () => {
+      // The grandchild stays in the child's process group and inherits the
+      // pipes; the child then hangs. The timeout must take both down.
+      const script = [
+        'const { spawn } = require("node:child_process");',
+        'const g = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "inherit" });',
+        'process.stdout.write(String(g.pid));',
+        'setTimeout(() => {}, 60_000);',
+      ].join(' ');
+      // Two node start-ups have to fit inside the timeout, or the pid never
+      // reaches stdout and there is nothing to probe.
+      const result = await runBinary(NODE, { args: ['-e', script], timeoutMs: 3_000 });
+      const grandchild = Number.parseInt(result.stdout.trim(), 10);
+      try {
+        expect(result.timedOut).toBe(true);
+        expect(grandchild).toBeGreaterThan(0);
+
+        // Give the signal a moment to land, then probe: signal 0 throws ESRCH
+        // once the process is gone.
+        await new Promise((r) => setTimeout(r, 500));
+        let alive = true;
+        try {
+          process.kill(grandchild, 0);
+        } catch {
+          alive = false;
+        }
+        expect(alive).toBe(false);
+      } finally {
+        if (Number.isInteger(grandchild) && grandchild > 0) {
+          try {
+            process.kill(grandchild, 'SIGKILL');
+          } catch {
+            // already gone
+          }
+        }
+      }
+    },
+    15_000,
+  );
 });
 
 // Assert spawn is what the test depends on at module level so this
