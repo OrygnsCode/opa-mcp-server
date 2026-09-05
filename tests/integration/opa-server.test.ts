@@ -34,7 +34,10 @@ const OPA_TEST_URL = `http://127.0.0.1:${OPA_TEST_PORT}`;
 let opaProcess: ChildProcess | undefined;
 let workDir: string;
 
-async function waitForReady(url: string, timeoutMs = 10_000): Promise<void> {
+// A freshly downloaded binary on a cold Windows runner can take well over ten
+// seconds to start serving, so the wait is generous; it returns as soon as
+// the health check answers.
+async function waitForReady(url: string, timeoutMs = 30_000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -76,10 +79,19 @@ async function startOpa(): Promise<void> {
     },
   );
 
-  // Capture stderr so test failures surface OPA-side errors.
+  // Capture both streams so a failure to start says why. A spawn error is
+  // its own event: without a listener it is swallowed, and a binary that
+  // could not be launched looks identical to one that is merely slow.
   let stderrBuf = '';
+  opaProcess.stdout?.on('data', (chunk: Buffer) => {
+    stderrBuf += chunk.toString('utf8');
+  });
   opaProcess.stderr?.on('data', (chunk: Buffer) => {
     stderrBuf += chunk.toString('utf8');
+  });
+  opaProcess.on('error', (e: Error) => {
+    stderrBuf += `spawn error: ${e.message}
+`;
   });
 
   opaProcess.on('exit', (code) => {
@@ -89,7 +101,13 @@ async function startOpa(): Promise<void> {
   });
 
   await waitForReady(OPA_TEST_URL).catch((e: unknown) => {
-    console.error('OPA never came up. stderr:', stderrBuf);
+    const state =
+      opaProcess?.exitCode !== null
+        ? `exited with ${opaProcess?.exitCode}`
+        : opaProcess?.pid
+          ? `still running as pid ${opaProcess.pid}`
+          : 'never started';
+    console.error(`OPA never came up (${OPA_BINARY}, ${state}). output:`, stderrBuf || '(none)');
     opaProcess?.kill('SIGKILL');
     throw e;
   });
