@@ -132,6 +132,10 @@ not part of the public surface and may change in minor releases.
   archive stayed unsigned. An archive is now refused with a pointer to
   `opa_bundle_build`, which produces a signed one. The `outputDir` input,
   which only applied to archives, is gone.
+- `OPA_MCP_MAX_RESPONSE_BYTES` now bounds error envelopes as well as
+  results. An oversize error was sent whole with `truncated: true` set; its
+  details are now dropped first and its message cut last, so the code and
+  the message stay readable within the cap.
 
 ## [0.5.0] - 2026-09-04
 
