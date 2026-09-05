@@ -150,3 +150,45 @@ jobs:
       - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run build
       - run: npm run test:integration
+
+  integration-tests-windows:
+    name: Integration tests (Windows)
+    runs-on: windows-latest
+    needs: build
+    # Two of the fixes in 0.5.0 were Windows-only (data mounted under the drive
+    # letter; conftest joining an absolute path onto ".") and neither could be
+    # seen by the Linux leg. This leg is not a required check, so a failure
+    # here shows on the pull request without blocking it.
+    env:
+      OPA_VERSION: '1.19.0'
+      REGAL_VERSION: '0.30.0'
+      CONFTEST_VERSION: '0.69.0'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install OPA, Regal and Conftest
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP 'tools'
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          Invoke-WebRequest -Uri "https://openpolicyagent.org/downloads/v$env:OPA_VERSION/opa_windows_amd64.exe" -OutFile (Join-Path $tools 'opa.exe')
+          Invoke-WebRequest -Uri "https://github.com/StyraInc/regal/releases/download/v$env:REGAL_VERSION/regal_Windows_x86_64.exe" -OutFile (Join-Path $tools 'regal.exe')
+          Invoke-WebRequest -Uri "https://github.com/open-policy-agent/conftest/releases/download/v$env:CONFTEST_VERSION/conftest_${env:CONFTEST_VERSION}_Windows_x86_64.zip" -OutFile (Join-Path $tools 'conftest.zip')
+          Expand-Archive -Path (Join-Path $tools 'conftest.zip') -DestinationPath $tools -Force
+          Add-Content -Path $env:GITHUB_PATH -Value $tools
+          & (Join-Path $tools 'opa.exe') version
+          & (Join-Path $tools 'regal.exe') version
+          & (Join-Path $tools 'conftest.exe') --version
+      - run: npm install --no-audit --no-fund --loglevel=error
+      - run: npm run build
+      - run: npm run test:integration
+        # The live-server tests spawn the binary by name without a shell, and
+        # Node on Windows does not resolve `opa` to `opa.exe` that way, so the
+        # tests get the full paths. The runner context is only available to a
+        # step, not to the job's env.
+        env:
+          OPA_BINARY: ${{ runner.temp }}/tools/opa.exe
+          REGAL_BINARY: ${{ runner.temp }}/tools/regal.exe
+          CONFTEST_BINARY: ${{ runner.temp }}/tools/conftest.exe
