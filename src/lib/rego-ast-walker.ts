@@ -12,6 +12,7 @@
 import type { OpaExpression, OpaModule, OpaRule, OpaTerm } from './rego-ast-types.js';
 import type { RuleShape, VerifyExpr, VerifyValue, VerifyWalkResult } from './rego-ir.js';
 import { isSimpleRegexPattern } from './rego-smt-encoder.js';
+import { renderInputPath } from './rego-input-path.js';
 
 const MAX_INLINE_DEPTH = 5;
 
@@ -811,7 +812,7 @@ function extractInputRef(refTerms: OpaTerm[], result: VerifyWalkResult): VerifyV
     }
   }
 
-  const path = 'input.' + segments.join('.');
+  const path = renderInputPath(segments);
   if (!result.inputPaths.has(path)) {
     result.inputPaths.set(path, segments);
   }

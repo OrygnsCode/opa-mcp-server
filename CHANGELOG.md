@@ -166,6 +166,11 @@ not part of the public surface and may change in minor releases.
   checking in the `opa fmt --rego-v1` phase, as a parse failure with advice to
   fix syntax. The type error opa gives is now the message, with a hint to
   replace the built-in first; the description says so.
+- `rego_verify`: a quoted key holding a dot, `input["a.b"]`, and the nested
+  path `input.a.b` were treated as one field, so a rule reading both was
+  proved never true, and a witness for the quoted key was built as the nested
+  object. Paths are now rendered the way Rego writes them and read back the
+  same way.
 
 ## [0.5.0] - 2026-09-04
 

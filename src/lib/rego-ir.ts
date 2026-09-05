@@ -8,7 +8,8 @@
  * A value that appears as an operand in a VerifyExpr.
  *
  * input_ref   - a path like input.user.role (path = "input.user.role",
- *               segments = ["user","role"])
+ *               segments = ["user","role"]); a segment that is not a plain
+ *               identifier is rendered `["..."]`, so paths never collide
  * local_var   - a local variable bound by :=/= in the same clause
  * literal_*   - a constant from the policy source
  */
