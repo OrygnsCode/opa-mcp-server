@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 import type { Config } from '../config.js';
+import { rewriteLoadPaths } from './opa-paths.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
 
 // ─── Shared output types ──────────────────────────────────────────────────────
@@ -268,6 +269,40 @@ function relativeToParent(
   return { parent, name };
 }
 
+/**
+ * Pick a working directory on the drive the given paths live on.
+ *
+ * Conftest opens a policy directory or a config file the way OPA's loader
+ * does: an absolute path is split on its first colon and the remainder is
+ * resolved against the drive the process is on, so `--policy C:...` fails
+ * from a working directory on another drive. The paths are left exactly as
+ * given, since conftest echoes them in its output and the inline temp files
+ * are matched there afterwards to redact them.
+ */
+function anchorDrive(
+  args: string[],
+  paths: Array<string | undefined>,
+): { cwd?: string; conflict?: SpawnResult } {
+  const present = paths.filter((p): p is string => typeof p === 'string' && p.length > 0);
+  const out = rewriteLoadPaths(args, present, { respell: false });
+  if (out.conflict) {
+    return {
+      conflict: {
+        exitCode: 1,
+        stdout: '',
+        stderr:
+          `paths span more than one drive (${out.conflict.drives.join(', ')}). ` +
+          'conftest resolves an absolute path against the drive it runs on, so the policy ' +
+          'and the inputs must be on a single drive.',
+        timedOut: false,
+        aborted: false,
+        durationMs: 0,
+      },
+    };
+  }
+  return out.cwd !== undefined ? { cwd: out.cwd } : {};
+}
+
 export class ConftestCli {
   constructor(private readonly config: Config) {}
 
@@ -332,7 +367,13 @@ export class ConftestCli {
         const effectiveFiles = configPath ? [configPath] : (input.files ?? []);
         args.push(...effectiveFiles);
 
-        const result = await this.run(args, signal);
+        const anchored = anchorDrive(args, [
+          effectivePolicyDir,
+          ...(input.data ?? []),
+          ...effectiveFiles,
+        ]);
+        if (anchored.conflict) return anchored.conflict;
+        const result = await this.run(args, signal, anchored.cwd);
         return this.sanitizeOutput(result, configPath, policyDir);
       },
     );
@@ -347,7 +388,9 @@ export class ConftestCli {
     if (input.policy) args.push('--policy', input.policy);
     if (input.namespace) args.push('--namespace', input.namespace);
     for (const d of input.data ?? []) args.push('--data', d);
-    return this.run(args, signal);
+    const anchored = anchorDrive(args, [input.policy, ...(input.data ?? [])]);
+    if (anchored.conflict) return anchored.conflict;
+    return this.run(args, signal, anchored.cwd);
   }
 
   /**

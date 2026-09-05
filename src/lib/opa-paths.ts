@@ -88,7 +88,22 @@ function commonAncestor(paths: string[]): string | undefined {
  * merely opens cannot be touched. On a platform whose absolute paths carry no
  * drive letter nothing matches and the arguments come back unchanged.
  */
-export function rewriteLoadPaths(args: string[], loadPaths: readonly string[]): RewrittenArgs {
+export interface RewriteOptions {
+  /**
+   * Respell the non-module load paths relative to the working directory.
+   * Off, only the working directory is chosen and every argument is returned
+   * as given. That is what a caller wants when the child echoes its paths and
+   * the caller matches them afterwards, as the conftest wrapper does to redact
+   * the temp files it writes for inline input.
+   */
+  respell?: boolean;
+}
+
+export function rewriteLoadPaths(
+  args: string[],
+  loadPaths: readonly string[],
+  options: RewriteOptions = {},
+): RewrittenArgs {
   // Every drive-letter load path anchors the working directory, modules
   // included, since a module is opened relative to the child's drive even
   // though it mounts by package. Only the non-module ones are respelled.
@@ -103,6 +118,8 @@ export function rewriteLoadPaths(args: string[], loadPaths: readonly string[]): 
   // cannot be a working directory.
   const cwd = commonAncestor(anchors.map(dirname));
   if (cwd === undefined || !existsSync(cwd)) return { args };
+
+  if (options.respell === false) return { args, cwd };
 
   const targets = anchors.filter(needsRewrite);
 

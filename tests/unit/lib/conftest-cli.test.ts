@@ -8,6 +8,8 @@
  *   - parses the version string from conftest --version output
  *   - sanitizes inline temp paths from stdout before returning
  */
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +22,8 @@ vi.mock('../../../src/lib/subprocess.js', () => ({
 }));
 
 import { runBinary } from '../../../src/lib/subprocess.js';
+
+const WINDOWS = process.platform === 'win32';
 
 const mockRun = vi.mocked(runBinary);
 
@@ -105,6 +109,24 @@ describe('ConftestCli.test()', () => {
         ]),
       }),
     );
+  });
+
+  it("runs from the policy's drive and leaves every path as given", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'orygn-conftest-'));
+    try {
+      const policy = join(dir, 'policy');
+      await mkdir(policy);
+      const file = join(dir, 'deploy.yaml');
+      await writeFile(file, 'kind: Deployment');
+      const cli = new ConftestCli(baseConfig);
+      await cli.test({ files: [file], policy });
+      const [, opts] = mockRun.mock.calls[0]!;
+      expect(opts.args).toEqual(expect.arrayContaining(['--policy', policy, file]));
+      if (WINDOWS) expect(opts.cwd).toBe(dir);
+      else expect(opts.cwd).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('passes --policy when provided', async () => {
@@ -227,6 +249,22 @@ describe('ConftestCli.verify()', () => {
     expect(args).toContain('/my/policy');
     expect(args).toContain('--namespace');
     expect(args).toContain('main');
+  });
+
+  it("runs from the policy's drive and leaves the path as given", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'orygn-conftest-'));
+    try {
+      const policy = join(dir, 'policy');
+      await mkdir(policy);
+      const cli = new ConftestCli(baseConfig);
+      await cli.verify({ policy });
+      const [, opts] = mockRun.mock.calls[0]!;
+      expect(opts.args).toEqual(expect.arrayContaining(['--policy', policy]));
+      if (WINDOWS) expect(opts.cwd).toBe(dir);
+      else expect(opts.cwd).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('omits --policy when not provided', async () => {

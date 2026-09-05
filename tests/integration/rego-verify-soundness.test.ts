@@ -67,7 +67,11 @@ const DOMAIN: Array<Record<string, unknown>> = [
 function evalRule(src: string, rule: string, input: unknown): unknown {
   const file = join(workDir, 'p.rego');
   writeFileSync(file, src, 'utf8');
-  const r = spawnSync(OPA, ['eval', '-d', file, '-I', '--format', 'json', `data.t.${rule}`], {
+  // Run from the module's directory and name it relatively. OPA's loader
+  // resolves an absolute path against the drive the child is on, which fails
+  // when the temp directory is on a different drive from the tests.
+  const r = spawnSync(OPA, ['eval', '-d', 'p.rego', '-I', '--format', 'json', `data.t.${rule}`], {
+    cwd: workDir,
     input: JSON.stringify(input),
     encoding: 'utf8',
     windowsHide: true,
@@ -86,7 +90,8 @@ function evalRule(src: string, rule: string, input: unknown): unknown {
 function parse(src: string): unknown {
   const file = join(workDir, 'q.rego');
   writeFileSync(file, src, 'utf8');
-  const r = spawnSync(OPA, ['parse', file, '--format', 'json'], {
+  const r = spawnSync(OPA, ['parse', 'q.rego', '--format', 'json'], {
+    cwd: workDir,
     encoding: 'utf8',
     windowsHide: true,
   });
