@@ -1,11 +1,14 @@
 /**
- * `rego_security_audit` -- run regal lint filtered to the security
- * and bugs categories and return a severity-grouped finding report.
+ * `rego_security_audit` -- run regal lint filtered to the `bugs` category,
+ * plus any custom rules in a `security` category, and return a
+ * severity-grouped finding report.
  *
- * This is a focused slice of `rego_lint`: only the rules most relevant
- * to security and correctness are enabled. The result groups findings
- * by severity with remediation guidance so the agent can prioritize
- * fixes without wading through style and formatting noise.
+ * This is a focused slice of `rego_lint`. regal ships no security category
+ * of its own: its `bugs` rules are the correctness defects most likely to
+ * open a policy up, and a `security` category stays enabled as the place a
+ * project's custom rules can go. The result groups findings by severity
+ * with remediation guidance so the agent can prioritize fixes without
+ * wading through style and formatting noise.
  *
  * Requires regal. Returns REGAL_NOT_FOUND if the binary is absent.
  */
@@ -126,7 +129,7 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
     {
       title: 'Rego security audit',
       description:
-        'Run regal lint restricted to the security and bugs categories across one or more policy directories. Returns findings grouped by severity (high/medium) with remediation guidance. Use this for a periodic fleet-wide security sweep rather than per-file style review. Requires regal.',
+        'Run regal lint restricted to its `bugs` category, the correctness rules whose defects most often turn into policy bypasses, plus any custom rules placed in a `security` category, across one or more policy directories. Returns findings grouped by severity (high/medium) with remediation guidance. Use this for a periodic fleet-wide sweep rather than per-file style review. Requires regal.',
       inputSchema: RegoSecurityAuditInput,
       annotations: {
         readOnlyHint: false,
@@ -151,7 +154,9 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
             paths: validation.resolved,
             configFile: resolvedConfigFile,
             ignoreFiles,
-            // Start from zero rules and enable only security + bugs.
+            // Start from zero rules and enable regal's bugs category, plus a
+            // security category that regal does not ship but a project's
+            // custom rules may populate.
             disableAll: true,
             enableCategory: ['security', 'bugs'],
             // Fail on errors only; warnings are still surfaced in JSON.

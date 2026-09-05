@@ -112,6 +112,10 @@ not part of the public surface and may change in minor releases.
   against the digests published with their releases. The image was described
   as reproducible while nothing verified those downloads; the wording now says
   what the build does.
+- `rego_security_audit` was described as running regal's `security` and
+  `bugs` categories; regal ships no `security` category, so that half of the
+  sweep matched nothing. The description now says what runs: the `bugs`
+  category, plus any custom rules a project places in a `security` category.
 
 ## [0.5.0] - 2026-09-04
 
