@@ -76,7 +76,7 @@ Once an MCP client is connected, an agent can:
   deployable bundle, optionally signing it. Output is a regular `.tar.gz`
   the agent can hand to your delivery system.
 - **Lint.** `rego_lint` runs Regal across a directory or a single file
-  and returns categorized findings (style, bugs, performance, idioms).
+  and returns each finding with its category, level and location.
 
 A walk-through of a typical session lives in [Cookbook](#cookbook).
 
@@ -237,7 +237,8 @@ Get-Command opa, regal | Select-Object Source              # Windows
 
 This does not affect the **Docker** install path, which ships `opa` and
 `regal` in the image and bypasses `PATH` entirely. The **MCPB** bundle
-carries neither and resolves `opa` the same way the npm install does.
+carries neither, and unlike the npm install has no bundled fallback: set
+`OPA_BINARY` or put `opa` on `PATH`.
 See [Troubleshooting](#troubleshooting) for full detail.
 
 ## Configuration
@@ -279,12 +280,10 @@ Every tool returns a JSON envelope:
 
 Stable error codes: `INVALID_INPUT`, `INVALID_REGO`, `INVALID_BUNDLE`,
 `EVAL_ERROR`, `OPA_BINARY_NOT_FOUND`, `REGAL_NOT_FOUND`,
-`REGAL_VERSION_TOO_OLD`, `CONFTEST_NOT_FOUND`, `OPA_UNREACHABLE`,
-`OPA_AUTH_FAILED`, `POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`,
-`PATH_NOT_FOUND`, `DEPENDENCY_CONFLICT`, `NO_TESTS_FOUND`,
-`COVERAGE_BELOW_THRESHOLD`, `OPA_VERSION_UNSUPPORTED`, `VERIFY_INCONCLUSIVE`,
-`Z3_INIT_ERROR`, `GITHUB_TOKEN_MISSING`, `GIST_CREATE_FAILED`,
-`OUTPUT_TOO_LARGE`, `TIMEOUT`,
+`CONFTEST_NOT_FOUND`, `OPA_UNREACHABLE`, `OPA_AUTH_FAILED`,
+`POLICY_NOT_FOUND`, `DATA_NOT_FOUND`, `PATH_NOT_ALLOWED`, `PATH_NOT_FOUND`,
+`NO_TESTS_FOUND`, `COVERAGE_BELOW_THRESHOLD`, `OPA_VERSION_UNSUPPORTED`,
+`GITHUB_TOKEN_MISSING`, `GIST_CREATE_FAILED`, `OUTPUT_TOO_LARGE`, `TIMEOUT`,
 `CANCELLED`, `UNKNOWN_ERROR`.
 
 ### Category A: Authoring & static analysis
@@ -297,10 +296,10 @@ Operate on Rego source code without needing a running OPA server. Wrap
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                                                                                        |
 | `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                                                                                        |
-| `rego_lint`         | Run Regal across a file or directory. Returns findings grouped by category. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                                                       |
+| `rego_lint`         | Run Regal across a file or directory. Returns each violation with its category, level and location. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                               |
 | `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                                                                                              |
 | `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                                                                                       |
-| `rego_capabilities` | Return the capabilities (built-ins, future keywords) understood by the bundled OPA.                                                                                                                     |
+| `rego_capabilities` | List the built-ins and features the resolved `opa` binary understands (`OPA_BINARY`, then `PATH`, then the bundled copy)                                                                                |
 | `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                                                         |
 | `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`.                                |
 | `rego_check_schema` | Check Rego against a JSON Schema. Validates that every `input.*` field the policy reads exists in the schema using `opa check --schema`. Accepts inline schema or a path to a JSON Schema file on disk. |
@@ -353,17 +352,17 @@ Operate on Rego source code without needing a running OPA server. Wrap
 Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 `opa bench`.
 
-| Tool                      | What it does                                                                                                                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.                                                                                                                                      |
-| `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                                                                                                                                                |
-| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.                                                                                                                                  |
-| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                                                                                                                                                     |
-| `rego_test`               | Run `opa test` over a directory. Returns pass/fail per test, with optional coverage.                                                                                                                         |
-| `rego_bench`              | Run `opa bench` and return statistical timing data.                                                                                                                                                          |
-| `rego_compile_query`      | Partially evaluate a query against a policy.                                                                                                                                                                 |
-| `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`.                                                                                       |
-| `rego_test_multiroot`     | Run Rego tests across multiple roots. Solves OPA's package-conflict problem for repos with multiple independent namespaces. Supports `explicit` root lists and `scan` mode (auto-discovers leaf test roots). |
+| Tool                      | What it does                                                                                                                                                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.                                                                                                                                                                      |
+| `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                                                                                                                                                                                |
+| `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.                                                                                                                                                                  |
+| `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                                                                                                                                                                                     |
+| `rego_test`               | Run Rego unit tests with `opa test`. Returns pass, fail, skip and error counts plus per-test records; `errored` counts tests OPA could not evaluate. With `coverage` or `threshold` OPA emits a coverage report instead of per-test records. |
+| `rego_bench`              | Run `opa bench` and return statistical timing data.                                                                                                                                                                                          |
+| `rego_compile_query`      | Partially evaluate a query against a policy.                                                                                                                                                                                                 |
+| `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`.                                                                                                                       |
+| `rego_test_multiroot`     | Run `opa test` once per root and aggregate. Use when `opa test .` hits package conflicts. Totals include `totalErrored`.                                                                                                                     |
 
 #### Featured: `rego_eval`
 
@@ -386,55 +385,55 @@ Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 
 ### Category C: Bundle operations
 
-Package and sign deployable bundles. Wrap `opa build` and `opa sign`.
+Package, sign, and verify deployable bundles. Wrap `opa build`, `opa sign`, and `opa build --verification-key`.
 
-| Tool                | What it does                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------- |
-| `opa_bundle_build`  | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`.             |
-| `opa_bundle_sign`   | Sign a bundle with a private key. Returns `.signatures.json` content.                             |
-| `opa_bundle_verify` | Verify the signature of a signed bundle using a public key. Returns `{ bundle, verified: true }`. |
+| Tool                | What it does                                                                                                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `opa_bundle_build`  | Build a `.tar.gz` bundle from a policy directory. Supports `optimize` and `revision`.                                                                                                                                   |
+| `opa_bundle_sign`   | Sign a bundle directory in place, or an archive beside itself, with a private key. A directory signature stays valid wherever the directory is placed under the same name. Returns the path, algorithm, and file count. |
+| `opa_bundle_verify` | Verify a signed bundle with a public key through `opa build --verification-key`. Failures name the reason: wrong key, scope, modified, added, missing or unparseable file, unsigned, or a bundle that does not load.    |
 
 ### Category D: OPA server management
 
 Talk to a running OPA server over its REST API. Require `OPA_URL` to
 point at a reachable server.
 
-| Tool                 | What it does                                           |
-| -------------------- | ------------------------------------------------------ |
-| `opa_list_policies`  | List policies registered on the server.                |
-| `opa_get_policy`     | Get a single policy by ID.                             |
-| `opa_put_policy`     | Upload or replace a policy.                            |
-| `opa_delete_policy`  | Delete a policy by ID.                                 |
-| `opa_get_data`       | Read a path from the data hierarchy.                   |
-| `opa_put_data`       | Write to a path in the data hierarchy.                 |
-| `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.              |
-| `opa_delete_data`    | Delete a document from the data hierarchy.             |
-| `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input. |
-| `opa_compile_query`  | Partially evaluate a query against the running server. |
-| `opa_health`         | Liveness / readiness check.                            |
-| `opa_status`         | Bundle / decision-log status.                          |
-| `opa_config`         | Server configuration (without secrets).                |
+| Tool                 | What it does                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `opa_list_policies`  | List policies registered on the server.                                                                            |
+| `opa_get_policy`     | Get a single policy by ID.                                                                                         |
+| `opa_put_policy`     | Upload or replace a policy.                                                                                        |
+| `opa_delete_policy`  | Delete a policy by ID.                                                                                             |
+| `opa_get_data`       | Read a path from the data hierarchy.                                                                               |
+| `opa_put_data`       | Write to a path in the data hierarchy.                                                                             |
+| `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.                                                                          |
+| `opa_delete_data`    | Delete a document from the data hierarchy.                                                                         |
+| `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input.                                                             |
+| `opa_compile_query`  | Partially evaluate a query against the running server.                                                             |
+| `opa_health`         | Liveness / readiness check.                                                                                        |
+| `opa_status`         | Server configuration as reported by `GET /v1/config`. Bundle and decision-log status (`/v1/status`) is not exposed |
+| `opa_config`         | Server configuration (without secrets).                                                                            |
 
 ### Category E: Higher-level helpers
 
 The differentiation surface. These compose lower-level primitives into
 the tasks agents are actually asked to do.
 
-| Tool                          | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rego_explain_decision`       | Walk through every rule that fired (and didn't) for a given query. Wraps `rego_eval_with_explain` and produces a step-by-step natural-language trace.                                                                                                                                                                                                                                                                                                                                                                           |
-| `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `rego_describe_policy`        | Summarize what a policy does, its inputs, decisions, and assumptions.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `rego_suggest_fix`            | For a failed `rego_check` or `rego_lint`, propose minimal patches.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `rego_coverage_gaps`          | Run `opa test --coverage` and return per-file uncovered line ranges, sorted worst first. Use `threshold` to focus on files below a target percentage.                                                                                                                                                                                                                                                                                                                                                                           |
-| `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.                                                                                                                                                                                                                                                                                                                                                                                  |
-| `rego_infer_input_schema`     | Statically analyse a policy (or directory of policies) with `opa parse` and return a JSON Schema describing every `input.*` field the policy reads. No running OPA required. Correct starting point for writing integration tests or configuring `opa check --schema`.                                                                                                                                                                                                                                                          |
-| `rego_fix`                    | Run `regal fix` to auto-apply mechanical fixes: `opa-fmt`, `use-rego-v1`, `use-assignment-operator`, `no-whitespace-comment`, and `directory-package-mismatch`. Use `dryRun: true` to preview changes first. Returns a per-file breakdown of which rules were applied and, for `directory-package-mismatch`, the new path the file was moved to.                                                                                                                                                                                |
-| `rego_format_write`           | Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to list which files would change without modifying them. Validates all files parse successfully before writing any. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags. Only requires `opa`.                                                                                                                                                                                                            |
-| `rego_policy_diff`            | Evaluate the same query against two policies in parallel and compare the results. Returns `equal: true/false`, the raw value from each side (`resultA`/`resultB`), and `changedPaths` -- dot/bracket JSON paths that differ. Each side takes inline source or a file/directory path. Useful for verifying refactor equivalence or mapping divergence between two policy versions.                                                                                                                                               |
-| `rego_verify`                 | Formally verify a property about a Rego rule using SMT solving (Microsoft Z3 via WASM). Unlike testing, this checks ALL possible inputs mathematically and either proves the property holds or returns a concrete counterexample. Supports `always_true`, `never_true`, and `satisfiable` property kinds. Handles equality, comparison, string built-ins (`startswith`, `endswith`, `contains`, `regex.match`), multi-clause rules, and cross-rule inlining. Reports `INCONCLUSIVE` for negation-as-failure and comprehensions. |
-| `rego_explain_undefined`      | Explain why a Rego query is undefined. Combines a plain eval, a full-trace eval, and per-condition AST analysis to identify the exact body expression blocking each rule. Returns a structured breakdown of which conditions blocked each rule plus a human-readable summary.                                                                                                                                                                                                                                                   |
-| `rego_playground_share`       | Publish a policy (and optional input) as a secret GitHub Gist and return the link, for sharing a reproduction. Requires `GITHUB_TOKEN` with the `gist` scope; returns `GITHUB_TOKEN_MISSING` otherwise.                                                                                                                                                                                                                                                                                                                         |
+| Tool                          | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rego_explain_decision`       | Turn an evaluation trace into a structured per-rule summary of what fired and what did not                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `rego_generate_test_skeleton` | Given a policy, generate a `_test.rego` skeleton covering each rule.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `rego_describe_policy`        | Summarize a policy's package, imports and per-rule structure from its AST. For the input references a policy reads, use `rego_infer_input_schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `rego_suggest_fix`            | For a failed `rego_check` or `rego_lint`, propose minimal patches.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `rego_coverage_gaps`          | Run `opa test --coverage` and return per-file uncovered line ranges, sorted worst first. Use `threshold` to focus on files below a target percentage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `rego_security_audit`         | Run regal lint restricted to `security` and `bugs` categories across a directory. Returns severity-grouped findings with remediation guidance.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `rego_infer_input_schema`     | Statically analyse a policy (or directory of policies) with `opa parse` and return a JSON Schema describing every `input.*` field the policy reads. No running OPA required. Correct starting point for writing integration tests or configuring `opa check --schema`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `rego_fix`                    | Run `regal fix` to auto-apply mechanical fixes: `opa-fmt`, `use-rego-v1`, `use-assignment-operator`, `no-whitespace-comment`, and `directory-package-mismatch`. Use `dryRun: true` to preview changes first. Returns a per-file breakdown of which rules were applied and, for `directory-package-mismatch`, the new path the file was moved to.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `rego_format_write`           | Run `opa fmt --write` to canonically format one or more Rego files or directories in place. Use `dryRun: true` to list which files would change without modifying them. Validates all files parse successfully before writing any. Supports `regoV1`, `v0Compatible`, and `v1Compatible` flags. Only requires `opa`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `rego_policy_diff`            | Evaluate the same query against two policies in parallel and compare the results. Returns `equal: true/false`, the raw value from each side (`resultA`/`resultB`), and `changedPaths` -- dot/bracket JSON paths that differ. Each side takes inline source or a file/directory path. Useful for verifying refactor equivalence or mapping divergence between two policy versions.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `rego_verify`                 | Formally verify a property about a Rego rule using SMT solving (Microsoft Z3 via WASM). Unlike testing, this checks ALL possible inputs mathematically and either proves the property holds or returns a concrete counterexample. Supports `always_true`, `never_true`, and `satisfiable` property kinds. Handles equality, comparison, string built-ins (`startswith`, `endswith`, `contains`, `regex.match`), multi-clause rules, rule defaults, non-boolean head values, and cross-rule inlining. Reports `INCONCLUSIVE` rather than guessing for negation-as-failure, comprehensions, partial set and object rules, functions, else chains, and complex regex. A body reading an absent field is undefined rather than true, so `always_true` requires the rule to hold for an empty input too. |
+| `rego_explain_undefined`      | Explain why a Rego query is undefined. Combines a plain eval, a full-trace eval, and per-condition AST analysis to identify the exact body expression blocking each rule. Returns a structured breakdown of which conditions blocked each rule plus a human-readable summary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `rego_playground_share`       | Publish a policy (and optional input) as a secret GitHub Gist and return the link, for sharing a reproduction. Requires `GITHUB_TOKEN` with the `gist` scope; returns `GITHUB_TOKEN_MISSING` otherwise.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Category F: Conftest (configuration policy testing)
 
@@ -445,8 +444,8 @@ YAML/JSON/HCL/TOML/INI against Rego policies using
 
 | Tool              | What it does                                                                                                                                                                                                                              |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `conftest_test`   | Evaluate configuration files against policies with `conftest test`. Accepts file paths or `inlineConfig` (inline YAML/JSON/HCL/etc) and `policy` path or `inlinePolicy` source. Returns per-file pass/fail/warn results and a summary.    |
-| `conftest_verify` | Run `test_*` rules inside `*_test.rego` files to verify the policies themselves are correct. Equivalent to `opa test` but using conftest's policy-loading machinery.                                                                      |
+| `conftest_test`   | Evaluate config files or an inline document against Rego policies with `conftest test`. Per-file, per-namespace results with arrays always present, and a summary that counts files by name. Parser names are a closed set.               |
+| `conftest_verify` | Run the `test_*` rules in a conftest policy directory with `conftest verify`. Reports per-rule results and `NO_TESTS_FOUND` when there are none.                                                                                          |
 | `conftest_pull`   | Pull a policy bundle from an OCI registry or Git repo into a local directory with `conftest pull`. The target directory need not exist; conftest creates it.                                                                              |
 | `conftest_push`   | Package a local policy directory as an OCI artifact and push to a registry with `conftest push`. Registry credentials come from the host environment (`docker login`, ORAS keychain, etc.) -- credentials are never passed through tools. |
 
@@ -695,12 +694,6 @@ path(s) you want the server to read from, comma-separated.
 `OPA_URL` (default `http://localhost:8181`) must point at a running OPA
 server (`opa run --server ...`). Check with `curl $OPA_URL/health`.
 
-**Regal "version too old."**
-
-We track the current Regal release. If `REGAL_VERSION_TOO_OLD` fires,
-upgrade Regal: `brew upgrade regal` or download from the
-[Regal releases](https://github.com/StyraInc/regal/releases) page.
-
 **`directory-package-mismatch` violation when linting inline source.**
 
 Since v0.1.1, the server auto-disables this rule for inline-source calls.
@@ -736,7 +729,7 @@ npm run build             # compile to dist/
 ```
 
 CI runs lint, typecheck, build, and unit tests on every push and PR
-across Ubuntu, macOS, and Windows on Node 20, 22, and 24. Integration
+across Ubuntu and Windows on Node 20, 22 and 24, plus macOS on Node 22. Integration
 tests run on Linux against pinned `opa` and `regal` releases.
 
 For the full contributor workflow (adding tools, naming conventions,

@@ -8,6 +8,8 @@
  *   - parses the version string from conftest --version output
  *   - sanitizes inline temp paths from stdout before returning
  */
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Config } from '../../../src/config.js';
@@ -243,19 +245,25 @@ describe('ConftestCli.verify()', () => {
 // ─── pull() ──────────────────────────────────────────────────────────────────
 
 describe('ConftestCli.pull()', () => {
-  it('builds correct argv with url and optional policy dir', async () => {
+  it('runs from the parent and names the directory relatively', async () => {
+    // conftest resolves --policy against the working directory rather than
+    // honouring an absolute path, so an absolute one never addressed the
+    // directory asked for.
     const cli = new ConftestCli(baseConfig);
-    await cli.pull({ url: 'oci://ghcr.io/org/policies:latest', policy: '/local/policy' });
-    const { args } = mockRun.mock.calls[0]![1];
+    await cli.pull({ url: 'oci://ghcr.io/org/policies:latest', policy: join('/local', 'policy') });
+    const { args, cwd } = mockRun.mock.calls[0]![1];
     expect(args[0]).toBe('pull');
     expect(args).toContain('oci://ghcr.io/org/policies:latest');
     expect(args).toContain('--policy');
-    expect(args).toContain('/local/policy');
+    expect(args).toContain('policy');
+    expect(args).not.toContain(join('/local', 'policy'));
+    expect(cwd).toBe(join('/local'));
   });
 
-  it('omits --policy when not provided', async () => {
+  it('omits --policy and sets no cwd when not provided', async () => {
     await new ConftestCli(baseConfig).pull({ url: 'oci://registry/repo' });
     expect(mockRun.mock.calls[0]![1].args).not.toContain('--policy');
+    expect(mockRun.mock.calls[0]![1].cwd).toBeUndefined();
   });
 
   it('forwards AbortSignal', async () => {
@@ -268,14 +276,16 @@ describe('ConftestCli.pull()', () => {
 // ─── push() ──────────────────────────────────────────────────────────────────
 
 describe('ConftestCli.push()', () => {
-  it('builds correct argv with repository and optional policy dir', async () => {
+  it('runs from the parent and names the directory relatively', async () => {
     const cli = new ConftestCli(baseConfig);
-    await cli.push({ repository: 'ghcr.io/org/policies:latest', policy: '/local/policy' });
-    const { args } = mockRun.mock.calls[0]![1];
+    await cli.push({ repository: 'ghcr.io/org/policies:v1', policy: join('/local', 'policy') });
+    const { args, cwd } = mockRun.mock.calls[0]![1];
     expect(args[0]).toBe('push');
-    expect(args).toContain('ghcr.io/org/policies:latest');
+    expect(args).toContain('ghcr.io/org/policies:v1');
     expect(args).toContain('--policy');
-    expect(args).toContain('/local/policy');
+    expect(args).toContain('policy');
+    expect(args).not.toContain(join('/local', 'policy'));
+    expect(cwd).toBe(join('/local'));
   });
 
   it('omits --policy when not provided', async () => {

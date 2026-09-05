@@ -12,18 +12,22 @@
  *   - conftest_pull does NOT require policy dir to exist
  *   - conftest_push DOES require policy dir to exist
  */
+import { mkdir, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   baseConfig,
   callTool,
   fixturePath,
+  fixturesDir,
   makeServer,
+  okSpawn,
   spawnFailure,
   spawnSuccess,
   spawnTimedOut,
   spawnUnreachable,
-  okSpawn,
 } from './_helpers.js';
 
 vi.mock('../../../src/lib/subprocess.js', () => ({
@@ -60,6 +64,24 @@ function makeFileResult(overrides: Partial<ConftestFileResult> = {}): ConftestFi
   };
 }
 
+/**
+ * Serialize results the way conftest prints them: every array is
+ * `omitempty`, so an empty one is absent from the JSON entirely. Mocked
+ * output that carried `failures: []` matched the type definitions and not the
+ * binary, which is how a wrapper that threw on every clean run stayed green.
+ */
+function conftestJson(results: ConftestFileResult[]): string {
+  return JSON.stringify(
+    results.map((r) => {
+      const out: Record<string, unknown> = { ...r };
+      for (const key of ['failures', 'warnings', 'skipped', 'exceptions'] as const) {
+        if (r[key].length === 0) delete out[key];
+      }
+      return out;
+    }),
+  );
+}
+
 const spawnAborted = () => ({
   ...okSpawn,
   exitCode: null,
@@ -84,7 +106,7 @@ describe('conftest_test', () => {
     const results: ConftestFileResult[] = [
       makeFileResult({ filename: passingConfig, successes: 3 }),
     ];
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(results)));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson(results)));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -101,7 +123,7 @@ describe('conftest_test', () => {
 
   it('forwards parser to conftest as --parser', async () => {
     const results: ConftestFileResult[] = [makeFileResult({ filename: passingConfig })];
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(results)));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson(results)));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -148,7 +170,7 @@ describe('conftest_test', () => {
         warnings: [{ msg: 'No resource limits set' }, { msg: 'Image tag is latest' }],
       }),
     ];
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(results)));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson(results)));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -197,7 +219,7 @@ describe('conftest_test', () => {
   });
 
   it('accepts inlineConfig and returns ok=true', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([makeFileResult()])));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([makeFileResult()])));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -210,7 +232,7 @@ describe('conftest_test', () => {
   });
 
   it('accepts inlineConfig with inlinePolicy and returns ok=true', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([makeFileResult()])));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([makeFileResult()])));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -223,7 +245,7 @@ describe('conftest_test', () => {
   });
 
   it('passes --policy and files correctly for disk-based inputs', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([])));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([])));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -242,7 +264,7 @@ describe('conftest_test', () => {
   });
 
   it('uses config.conftestBinary as the binary name', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([])));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([])));
 
     const cfg = { ...baseConfig, conftestBinary: '/usr/local/bin/conftest' };
     const server = makeServer();
@@ -253,7 +275,7 @@ describe('conftest_test', () => {
   });
 
   it('returns empty summary when results array is empty', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([])));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([])));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -262,10 +284,114 @@ describe('conftest_test', () => {
     });
 
     expect(env.ok).toBe(true);
-    expect(env.data?.summary).toEqual({ passed: 0, failed: 0, warnings: 0, skipped: 0 });
+    expect(env.data?.summary).toEqual({
+      passed: 0,
+      failed: 0,
+      warnings: 0,
+      skipped: 0,
+      successes: 0,
+      failures: 0,
+    });
   });
 
   // ── Mutual exclusion guards ─────────────────────────────────────────────────
+
+  it('summarises real output that carries no array fields', async () => {
+    // Exactly what conftest 0.69 prints for a clean file.
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess('[{"filename":"cfg/good.yaml","namespace":"main","successes":2}]'),
+    );
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [passingConfig],
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.results[0]).toMatchObject({
+      filename: 'cfg/good.yaml',
+      successes: 2,
+      failures: [],
+      warnings: [],
+      skipped: [],
+      exceptions: [],
+    });
+    expect(env.data?.summary).toEqual({
+      passed: 1,
+      failed: 0,
+      warnings: 0,
+      skipped: 0,
+      successes: 2,
+      failures: 0,
+    });
+  });
+
+  it('counts a file once across namespaces', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '',
+        conftestJson([
+          makeFileResult({ filename: 'a.yaml', namespace: 'main', successes: 1 }),
+          makeFileResult({
+            filename: 'a.yaml',
+            namespace: 'extra',
+            successes: 0,
+            failures: [{ msg: 'no' }],
+          }),
+          makeFileResult({ filename: 'b.yaml', namespace: 'main', successes: 1 }),
+          makeFileResult({ filename: 'b.yaml', namespace: 'extra', successes: 1 }),
+        ]),
+      ),
+    );
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [passingConfig],
+      allNamespaces: true,
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.summary).toMatchObject({ passed: 1, failed: 1, failures: 1, successes: 3 });
+  });
+
+  it('keeps exception messages as messages', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        '[{"filename":"x.yaml","namespace":"main","successes":1,"exceptions":[{"msg":"data.main.exception"}]}]',
+      ),
+    );
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [passingConfig],
+    });
+    expect(env.data?.results[0]?.exceptions[0]?.msg).toBe('data.main.exception');
+  });
+
+  it('rejects an inlineConfigParser outside the closed set before running conftest', async () => {
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool(server, 'conftest_test', {
+      inlineConfig: 'kind: Good',
+      inlineConfigParser: '../../../escaped',
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.message).toMatch(/inlineConfigParser/);
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects a parser outside the closed set before running conftest', async () => {
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool(server, 'conftest_test', {
+      files: [passingConfig],
+      parser: 'yaml; rm -rf /',
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
 
   it('rejects calls with neither files nor inlineConfig', async () => {
     const server = makeServer();
@@ -350,7 +476,7 @@ describe('conftest_test', () => {
   });
 
   it('accepts fixture files inside allowed root', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([makeFileResult()])));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([makeFileResult()])));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -436,13 +562,45 @@ describe('conftest_test', () => {
 // ─── conftest_verify ──────────────────────────────────────────────────────────
 
 describe('conftest_verify', () => {
+  it('reports NO_TESTS_FOUND when conftest prints null', async () => {
+    // conftest verify prints the literal `null` and exits 0 when the policy
+    // directory has no test rules.
+    mockRun.mockResolvedValueOnce(spawnSuccess('null'));
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool(server, 'conftest_verify', { policy: policyDir });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('NO_TESTS_FOUND');
+  });
+
+  it('counts a test file once when conftest emits one entry per rule', async () => {
+    // Real shape: one entry per passing rule and one per failing rule, all
+    // naming the same file with an empty namespace.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '',
+        '[{"filename":"policy/main_test.rego","namespace":"","successes":0,"failures":[{"msg":"data.main.test_that_fails"}]},' +
+          '{"filename":"policy/main_test.rego","namespace":"","successes":1}]',
+      ),
+    );
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestVerifyOutput>(server, 'conftest_verify', {
+      policy: policyDir,
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.summary).toEqual({ passed: 0, failed: 1, totalPassed: 1, totalFailed: 1 });
+  });
+
   // ── Happy paths ─────────────────────────────────────────────────────────────
 
   it('returns ok=true, passed=true on exit 0 with all-passing tests', async () => {
     const results: ConftestFileResult[] = [
       makeFileResult({ filename: 'main_test.rego', successes: 5 }),
     ];
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(results)));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson(results)));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -514,7 +672,7 @@ describe('conftest_verify', () => {
 
   it('builds correct argv with policy, namespace, and data', async () => {
     const dataDir = fixturePath('conftest', 'policy');
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([])));
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([])));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
@@ -619,13 +777,15 @@ describe('conftest_verify', () => {
   });
 
   it('succeeds without any arguments (uses conftest default policy dir)', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([])));
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(conftestJson([makeFileResult({ filename: 'main_test.rego', successes: 1 })])),
+    );
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
     const env = await callTool<ConftestVerifyOutput>(server, 'conftest_verify', {});
 
-    expect(env.ok).toBe(true);
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
     const args = mockRun.mock.calls[0]![1].args;
     expect(args).not.toContain('--policy');
   });
@@ -633,21 +793,59 @@ describe('conftest_verify', () => {
 
 // ─── conftest_pull ────────────────────────────────────────────────────────────
 
+/**
+ * Directory link: a junction on Windows, which needs no privilege, a symlink
+ * elsewhere. Node creates a junction natively, so no shell is involved.
+ * Returns false when neither can be created.
+ */
+async function linkDir(link: string, target: string): Promise<boolean> {
+  try {
+    await symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe('conftest_pull', () => {
+  it('refuses a policy directory that goes through a directory link pointing outside the roots', async (ctx) => {
+    const outside = join(tmpdir(), `orygn-outside-${Math.random().toString(36).slice(2)}`);
+    await mkdir(outside, { recursive: true });
+    const link = join(fixturesDir, 'escape-link');
+    try {
+      if (!(await linkDir(link, outside))) ctx.skip('cannot create directory links here');
+      const server = makeServer();
+      registerConftestTools(server, baseConfig);
+      const env = await callTool(server, 'conftest_pull', {
+        url: 'oci://ghcr.io/org/policies:latest',
+        policy: join(link, 'policy'),
+      });
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+      expect(mockRun).not.toHaveBeenCalled();
+    } finally {
+      await rm(link, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   const testUrl = 'oci://ghcr.io/org/policies:latest';
 
   // ── Happy paths ─────────────────────────────────────────────────────────────
 
-  it('returns ok=true with url and default policyDir on success', async () => {
+  it('returns ok=true and reports the resolved policy directory', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool<ConftestPullOutput>(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool<ConftestPullOutput>(server, 'conftest_pull', {
+      url: testUrl,
+      policy: policyDir,
+    });
 
     expect(env.ok).toBe(true);
     expect(env.data?.url).toBe(testUrl);
-    expect(env.data?.policyDir).toBe('policy');
+    expect(env.data?.policyDir).toBe(policyDir);
   });
 
   it('returns the provided policy directory in output', async () => {
@@ -674,22 +872,25 @@ describe('conftest_pull', () => {
       policy: policyDir,
     });
 
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args[0]).toBe('pull');
-    expect(args).toContain(testUrl);
-    expect(args).toContain('--policy');
-    expect(args).toContain(policyDir);
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args[0]).toBe('pull');
+    expect(call.args).toContain(testUrl);
+    expect(call.args).toContain('--policy');
+    // conftest resolves --policy against the working directory, so the
+    // directory is named relatively and the run starts in its parent.
+    expect(call.args).toContain(basename(policyDir));
+    expect(call.args).not.toContain(policyDir);
+    expect(call.cwd).toBe(dirname(policyDir));
   });
 
-  it('omits --policy arg when policy is not provided', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
-
+  it('refuses the implicit default when it falls outside the allowed roots', async () => {
+    // Omitting `policy` meant conftest's own default, resolved against the
+    // working directory of the server, and the tool ran without checking it.
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    await callTool(server, 'conftest_pull', { url: testUrl });
-
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).not.toContain('--policy');
+    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it('allows policy dir that does not yet exist (conftest creates it)', async () => {
@@ -726,7 +927,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('CONFTEST_NOT_FOUND');
   });
@@ -736,7 +937,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
     expect(env.error?.message).toMatch(/exit code 1/);
@@ -747,7 +948,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('TIMEOUT');
   });
@@ -757,7 +958,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('CANCELLED');
   });
@@ -770,16 +971,19 @@ describe('conftest_push', () => {
 
   // ── Happy paths ─────────────────────────────────────────────────────────────
 
-  it('returns ok=true with repository and default policyDir on success', async () => {
+  it('returns ok=true and reports the resolved policy directory', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool<ConftestPushOutput>(server, 'conftest_push', { repository });
+    const env = await callTool<ConftestPushOutput>(server, 'conftest_push', {
+      repository,
+      policy: policyDir,
+    });
 
     expect(env.ok).toBe(true);
     expect(env.data?.repository).toBe(repository);
-    expect(env.data?.policyDir).toBe('policy');
+    expect(env.data?.policyDir).toBe(policyDir);
   });
 
   it('returns the provided policyDir in output', async () => {
@@ -806,22 +1010,25 @@ describe('conftest_push', () => {
       policy: policyDir,
     });
 
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args[0]).toBe('push');
-    expect(args).toContain(repository);
-    expect(args).toContain('--policy');
-    expect(args).toContain(policyDir);
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args[0]).toBe('push');
+    expect(call.args).toContain(repository);
+    expect(call.args).toContain('--policy');
+    // conftest resolves --policy against the working directory, so the
+    // directory is named relatively and the run starts in its parent.
+    expect(call.args).toContain(basename(policyDir));
+    expect(call.args).not.toContain(policyDir);
+    expect(call.cwd).toBe(dirname(policyDir));
   });
 
-  it('omits --policy arg when policy is not provided', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
-
+  it('refuses the implicit default when it falls outside the allowed roots', async () => {
+    // Omitting `policy` meant conftest's own default, resolved against the
+    // working directory of the server, and the tool ran without checking it.
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    await callTool(server, 'conftest_push', { repository });
-
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).not.toContain('--policy');
+    const env = await callTool(server, 'conftest_push', { repository });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   // ── Path validation ─────────────────────────────────────────────────────────
@@ -854,7 +1061,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('CONFTEST_NOT_FOUND');
   });
@@ -864,7 +1071,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
     expect(env.error?.message).toMatch(/exit code 1/);
@@ -875,7 +1082,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('TIMEOUT');
   });
@@ -885,7 +1092,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('CANCELLED');
   });

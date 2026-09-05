@@ -33,7 +33,7 @@ const OpaExecInput = {
     .string()
     .min(1)
     .describe(
-      'The policy entrypoint to evaluate for each input, e.g. `"data.authz.allow"` or `"data.policy.violations"`. Must be a fully-qualified Rego reference.',
+      'The policy entrypoint to evaluate for each input, e.g. `"authz/allow"`. `opa exec` names a decision by slash-separated path with no `data.` prefix; the Rego reference forms (`data.authz.allow`, `authz.allow`) are accepted here and converted, because passing one straight through leaves every file undefined.',
     ),
   bundle: z
     .string()
@@ -101,6 +101,31 @@ export interface OpaExecOutput {
    * false when no gate flag is set.
    */
   failed: boolean;
+  /**
+   * Present only when every input left the decision undefined. That happens
+   * both when no rule matched and when the decision names nothing at all, and
+   * the two are indistinguishable in the per-file results.
+   */
+  hint?: string;
+}
+
+/**
+ * Convert a decision reference to the path `opa exec --decision` expects.
+ *
+ * `opa exec` names a decision by slash-separated path with no `data.` prefix.
+ * Every other spelling, including the `data.authz.allow` this tool used to
+ * document, is accepted by the flag and then resolves to nothing, so each input
+ * file comes back with `opa_undefined_error` and the call looks like a policy
+ * result rather than a mistake. Returns undefined when nothing is left to name.
+ */
+export function toDecisionPath(decision: string): string | undefined {
+  const trimmed = decision.trim().replace(/^[/]+/, '').replace(/[/]+$/, '');
+  // Drop a leading `data.` or `data/` root, but not a package named `database`.
+  const withoutRoot = trimmed.replace(/^data(?=$|[./])[./]?/, '');
+  if (withoutRoot.length === 0) return undefined;
+  const segments = withoutRoot.includes('/') ? withoutRoot.split('/') : withoutRoot.split('.');
+  if (segments.some((seg) => seg.length === 0)) return undefined;
+  return segments.join('/');
 }
 
 export function registerOpaExec(server: McpServer, config: Config): void {
@@ -149,6 +174,14 @@ export function registerOpaExec(server: McpServer, config: Config): void {
           );
         }
 
+        const decisionPath = toDecisionPath(decision);
+        if (decisionPath === undefined) {
+          return err(
+            'INVALID_INPUT',
+            '`decision` must name a rule, for example "authz/allow" or "data.authz.allow".',
+          );
+        }
+
         // Validate input file paths.
         const inputValidation = validatePaths(inputPaths, config, { mustExist: true });
         if (!inputValidation.ok) return inputValidation.error;
@@ -172,7 +205,7 @@ export function registerOpaExec(server: McpServer, config: Config): void {
         const result = await opa.exec(
           {
             inputPaths: inputValidation.resolved,
-            decision,
+            decision: decisionPath,
             bundle: resolvedBundle,
             dataPaths: resolvedDataPaths,
             fail,
@@ -223,12 +256,23 @@ export function registerOpaExec(server: McpServer, config: Config): void {
         const successCount = results.filter((r) => r.error === undefined).length;
         const errorCount = results.filter((r) => r.error !== undefined).length;
 
+        // A decision naming nothing is reported per file as an undefined
+        // decision, indistinguishable from every input legitimately matching no
+        // rule. Both read as a pass under a `deny`-style policy, so say so.
+        const allUndefined =
+          results.length > 0 && results.every((r) => r.error?.code === 'opa_undefined_error');
+
         return ok<OpaExecOutput>({
           results,
           count: results.length,
           successCount,
           errorCount,
           failed: result.exitCode !== 0,
+          ...(allUndefined
+            ? {
+                hint: `Every input left \`${decisionPath}\` undefined. That is the expected outcome when no rule matched any of them, and it is also what a decision naming nothing in the loaded policy looks like. Confirm the rule exists at that path before reading this as a pass.`,
+              }
+            : {}),
         });
       });
     },

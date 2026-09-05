@@ -13,6 +13,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
+import { parseJsonValues } from '../../lib/json-stream.js';
 import {
   mapSubprocessFailure,
   tryParseJson,
@@ -70,7 +71,7 @@ const RegoTestInput = {
     .min(1)
     .optional()
     .describe(
-      'Number of times to repeat each test (`--count N`). Default is 1. Useful for measuring repeatability or catching flaky tests under load.',
+      'Number of times to repeat the suite (`--count N`). Default is 1. Useful for catching flaky tests. OPA stops at the first repetition that fails, so `repetitions` in the output reports how many actually ran, and each test is listed once carrying its worst outcome across them.',
     ),
   timeout: z
     .string()
@@ -97,9 +98,27 @@ export interface TestRecord {
   pass?: boolean;
   fail?: boolean;
   skip?: boolean;
+  /**
+   * Present when the test could not be evaluated: a conflicting rule, a
+   * built-in raising with strict errors, and so on. OPA sets this INSTEAD of
+   * `fail`, so a record carrying it is neither passed nor failed. Counting
+   * `total - failed - skipped` reported such a test as passing.
+   */
+  error?: { code?: string; message?: string; location?: unknown };
   duration?: number;
   trace?: unknown;
   output?: string;
+  /**
+   * Per-case outcomes for a parameterized test, keyed by case name. OPA reports
+   * a `test_x[case]` rule as a single record and puts the cases here rather than
+   * emitting one record per case.
+   */
+  sub_results?: Record<string, { name?: string; fail?: boolean; skip?: boolean }>;
+}
+
+/** A test that could not run is neither a pass nor a failure. */
+function isErrored(r: TestRecord): boolean {
+  return r.error !== undefined && r.error !== null;
 }
 
 interface CoverageRange {
@@ -133,8 +152,21 @@ export interface RegoTestOutput {
   failed: number;
   /** Number of skipped (todo_*) tests. Always 0 in coverage mode. */
   skipped: number;
+  /**
+   * Number of tests that could not be evaluated, each carrying `error` in its
+   * record. A suite with even one of these has not been proven to pass.
+   */
+  errored: number;
   /** Total test records. Always 0 in coverage mode. */
   total: number;
+  /**
+   * How many repetitions of the suite actually ran, present only when more than
+   * one did. OPA stops repeating at the first run with a failure, so this can be
+   * lower than the requested `count`. Each test appears once in `results`,
+   * carrying its worst outcome across the repetitions that ran, so a test that
+   * fails intermittently is reported as failing.
+   */
+  repetitions?: number;
   /** Per-test records. Empty in coverage mode. */
   results: TestRecord[];
   /** Per-file coverage report. Present when `coverage: true` or `threshold` is set and threshold is met. */
@@ -143,6 +175,12 @@ export interface RegoTestOutput {
   coveragePct?: number;
   /** Present when `threshold` is set and the threshold was met. */
   thresholdMet?: boolean;
+  /**
+   * Case-level totals across every parameterized test, present only when the
+   * run had one. The top-level counts follow OPA and treat a parameterized rule
+   * as a single test however many cases it holds.
+   */
+  caseCounts?: { total: number; passed: number; failed: number; skipped: number };
   /**
    * Groups of parameterized test cases. When OPA runs `test_X[case]`-style
    * parametrized rules, each case appears as a separate record like
@@ -162,7 +200,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
     {
       title: 'Run Rego tests',
       description:
-        "Run Rego unit tests with `opa test`. Returns aggregate pass/fail counts plus per-test records. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up automatically. Use `runPattern` to filter by name regex; when no tests match, the error hint includes the pattern you supplied. Use `threshold` to gate on minimum coverage (returns COVERAGE_BELOW_THRESHOLD on failure). Use `varValues: true` with `verbose: true` to include local variable bindings in the trace -- essential for debugging table-driven tests written with `every tc in cases { ... }` to identify which case caused a failure. When tests use the `test_X[case]` parametrized form, the output includes `parameterizedGroups` mapping each base test name to its case records. Use `ignorePatterns` to exclude generated or fixture files. Use `bundle: true` when testing bundle-structured policy directories. Use `timeout` to raise the per-test limit beyond OPA's default 5s. Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.",
+        "Run Rego unit tests with `opa test`. Returns aggregate pass/fail/skip/error counts plus per-test records. `errored` counts tests OPA could not evaluate (a rule conflict, a raising built-in); such a test is neither a pass nor a failure, and a suite with any is not passing. Tests live in `*_test.rego` files; rule names beginning with `test_` are picked up automatically. Use `runPattern` to filter by name regex; when no tests match, the error hint includes the pattern you supplied. Use `threshold` to gate on minimum coverage (returns COVERAGE_BELOW_THRESHOLD on failure). Use `varValues: true` with `verbose: true` to include local variable bindings in the trace -- essential for debugging table-driven tests written with `every tc in cases { ... }` to identify which case caused a failure. When tests use the `test_x[case]` parameterized form, OPA reports the rule as a single test whatever the number of cases; `parameterizedGroups` maps the rule name to a record per case and `caseCounts` totals them, so a failing rule says which case failed. Use `ignorePatterns` to exclude generated or fixture files. Use `bundle: true` when testing bundle-structured policy directories. Use `timeout` to raise the per-test limit beyond OPA's default 5s. Note: enabling `coverage` or `threshold` switches OPA to coverage-report output mode -- per-test counts are unavailable but `coverage` and `coveragePct` fields are populated.",
       inputSchema: RegoTestInput,
       annotations: {
         readOnlyHint: true,
@@ -250,12 +288,14 @@ function handleCoverageMode(
   exitCode: number | null,
   threshold: number | undefined,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
+  const coverageData = tryParseJson<CoverageReport>(stdout);
+
   if (exitCode === 0) {
-    const coverageData = tryParseJson<CoverageReport>(stdout);
     return ok<RegoTestOutput>({
       passed: 0,
       failed: 0,
       skipped: 0,
+      errored: 0,
       total: 0,
       results: [],
       coverage: coverageData,
@@ -277,11 +317,122 @@ function handleCoverageMode(
     });
   }
 
+  // A suite holding a `todo_` test exits non-zero in coverage mode with an
+  // empty stderr, and the coverage report is on stdout as asked for. Reporting
+  // that as "one or more tests failed" was wrong twice: nothing failed, and the
+  // report the caller wanted was thrown away.
+  if (coverageData !== undefined && stderrTrimmed.length === 0) {
+    return ok<RegoTestOutput>({
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      errored: 0,
+      total: 0,
+      results: [],
+      coverage: coverageData,
+      coveragePct: coverageData.coverage,
+      thresholdMet: threshold !== undefined ? true : undefined,
+    });
+  }
+
   // Test failures in coverage mode (stderr has "package.test_name: FAIL" lines).
   return err('EVAL_ERROR', stderrTrimmed || 'One or more tests failed.', {
     hint: 'Fix the failing tests then re-run. Use verbose: true for trace output.',
-    details: { exitCode },
+    details: {
+      exitCode,
+      // Keep the report when OPA produced one; it is what was asked for.
+      ...(coverageData !== undefined ? { coveragePct: coverageData.coverage } : {}),
+    },
   });
+}
+
+/**
+ * Bucket the cases of a parameterized test under the rule they belong to.
+ *
+ * OPA reports a `test_x[case]` rule as one record carrying a `sub_results`
+ * object, not as one record per case. Looking for a bracketed name meant the
+ * grouping never fired on any OPA 1.x run, and the per-case outcomes OPA had
+ * already worked out were passed through untouched: a caller saw one failing
+ * test and no indication which of its cases failed. The bracketed form is still
+ * read, since that is what older versions emitted.
+ */
+function groupParameterized(records: TestRecord[]): {
+  parameterizedGroups: Record<string, TestRecord[]>;
+  caseCounts: { total: number; passed: number; failed: number; skipped: number };
+} {
+  const parameterizedGroups: Record<string, TestRecord[]> = {};
+  const counts = { total: 0, passed: 0, failed: 0, skipped: 0 };
+
+  const add = (baseName: string, record: TestRecord): void => {
+    (parameterizedGroups[baseName] ??= []).push(record);
+    counts.total++;
+    if (record.skip === true) counts.skipped++;
+    else if (record.fail === true || isErrored(record)) counts.failed++;
+    else counts.passed++;
+  };
+
+  for (const record of records) {
+    if (record.name === undefined) continue;
+
+    if (record.sub_results) {
+      for (const [caseName, outcome] of Object.entries(record.sub_results)) {
+        const caseRecord: TestRecord = {
+          name: outcome.name ?? caseName,
+          ...(record.package !== undefined ? { package: record.package } : {}),
+          ...(record.location !== undefined ? { location: record.location } : {}),
+          ...(outcome.fail === true ? { fail: true } : {}),
+          ...(outcome.skip === true ? { skip: true } : {}),
+        };
+        add(record.name, caseRecord);
+      }
+      continue;
+    }
+
+    // Older OPA named each case in the record itself: `test_x[{"k":"v"}]`.
+    const match = /^(test_[a-zA-Z0-9_]+)\[/.exec(record.name);
+    if (match) add(match[1]!, record);
+  }
+
+  return { parameterizedGroups, caseCounts: counts };
+}
+
+/**
+ * Collapse the repetitions of `opa test --count N` into one record per test.
+ *
+ * The flag exists to surface tests that do not behave the same way every time,
+ * so a test keeps its worst outcome across the runs: an error beats a failure,
+ * a failure beats a pass, and a test skipped in every run stays skipped. The
+ * longest duration is kept, since that is the one a timeout would hit.
+ *
+ * OPA stops repeating once a run fails, so `runs` can be shorter than the
+ * requested count; the caller reports the length rather than the request.
+ */
+function mergeRepetitions(runs: TestRecord[][]): TestRecord[] {
+  const worst = new Map<string, TestRecord>();
+  const order: string[] = [];
+
+  for (const run of runs) {
+    for (const record of run) {
+      const key = `${record.package ?? ''}.${record.name ?? ''}`;
+      const seen = worst.get(key);
+      if (seen === undefined) {
+        worst.set(key, { ...record });
+        order.push(key);
+        continue;
+      }
+      const merged: TestRecord = { ...seen };
+      if (record.error !== undefined) merged.error = record.error;
+      if (record.fail === true) merged.fail = true;
+      // A test skipped in one run but executed in another is not skipped.
+      if (record.skip !== true) delete merged.skip;
+      if ((record.duration ?? 0) > (merged.duration ?? 0)) merged.duration = record.duration;
+      // An errored record is neither passed nor failed, so drop the weaker mark.
+      if (merged.error !== undefined) delete merged.fail;
+      worst.set(key, merged);
+    }
+  }
+
+  return order.map((key) => worst.get(key)!);
 }
 
 /**
@@ -302,17 +453,29 @@ function handleTestRecordsMode(
   runPattern?: string,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
   let records: TestRecord[] = [];
+  let repetitions = 1;
 
-  // OPA emits a JSON array. Older versions may emit NDJSON (one object per line).
+  // OPA emits a JSON array. With `--count N` it emits one such array per
+  // repetition, back to back, which is neither a single JSON value nor NDJSON;
+  // reading only the first form reported a repeated run as no tests at all.
+  // Older versions may emit NDJSON (one object per line).
   const arrayParsed = tryParseJson<TestRecord[]>(stdout);
   if (Array.isArray(arrayParsed)) {
     records = arrayParsed;
   } else {
-    for (const line of stdout.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      const parsed = tryParseJson<TestRecord>(trimmed);
-      if (parsed) records.push(parsed);
+    const runs = parseJsonValues<TestRecord[] | TestRecord>(stdout).filter((v): v is TestRecord[] =>
+      Array.isArray(v),
+    );
+    if (runs.length > 0) {
+      repetitions = runs.length;
+      records = mergeRepetitions(runs);
+    } else {
+      for (const line of stdout.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        const parsed = tryParseJson<TestRecord>(trimmed);
+        if (parsed) records.push(parsed);
+      }
     }
   }
 
@@ -340,31 +503,25 @@ function handleTestRecordsMode(
   }
 
   // OPA does NOT emit `pass: true` for passing tests; only `fail: true` for
-  // failures and `skip: true` for todo_* tests. Derive passed count from total.
+  // failures, `skip: true` for todo_* tests, and `error` for a test that could
+  // not be evaluated. Passing is what is left after all three: subtracting only
+  // failures and skips counted an errored test as a pass.
   const failed = records.filter((r) => r.fail).length;
   const skipped = records.filter((r) => r.skip).length;
-  const passed = records.length - failed - skipped;
+  const errored = records.filter(isErrored).length;
+  const passed = records.length - failed - skipped - errored;
 
-  // Group parametrized test cases. OPA names them like `test_X[{"key":"val"}]`;
-  // extract the base name and bucket records for at-a-glance failure analysis.
-  const parameterizedGroups: Record<string, TestRecord[]> = {};
-  for (const record of records) {
-    if (record.name) {
-      const match = /^(test_[a-zA-Z0-9_]+)\[/.exec(record.name);
-      if (match) {
-        const baseName = match[1]!;
-        (parameterizedGroups[baseName] ??= []).push(record);
-      }
-    }
-  }
+  const { parameterizedGroups, caseCounts } = groupParameterized(records);
   const hasGroups = Object.keys(parameterizedGroups).length > 0;
 
   return ok<RegoTestOutput>({
     passed,
     failed,
     skipped,
+    errored,
     total: records.length,
     results: records,
-    ...(hasGroups ? { parameterizedGroups } : {}),
+    ...(repetitions > 1 ? { repetitions } : {}),
+    ...(hasGroups ? { caseCounts, parameterizedGroups } : {}),
   });
 }

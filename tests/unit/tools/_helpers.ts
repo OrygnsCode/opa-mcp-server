@@ -40,6 +40,18 @@ export const baseConfig: Config = {
  */
 export const fixturePath = (...segments: string[]): string => resolve(fixturesDir, ...segments);
 
+/**
+ * Every argv entry of a mocked run, as an absolute path where it names one.
+ *
+ * A load path may reach opa spelled relative to the call's working directory,
+ * because an absolute Windows path would be split on its drive-letter colon
+ * and mounted under `data.C`. What a test should assert is that opa is pointed
+ * at the right file, not which spelling was used to point it there.
+ */
+export function resolvedArgs(call: { args: string[]; cwd?: string }): string[] {
+  return call.args.map((a) => (call.cwd === undefined ? a : resolve(call.cwd, a)));
+}
+
 export const okSpawn = {
   exitCode: 0,
   stdout: '',

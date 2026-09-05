@@ -14,27 +14,92 @@ import {
 import type { ToolEnvelope, ToolErrorCode } from '../../types.js';
 
 /**
- * Convert a user-supplied OPA data path (dotted or slash form) to the
- * `/v1/data/...` REST API path. Rejects `..` segments so a crafted input
- * cannot traverse to unrelated OPA endpoints (e.g. `/v1/config`).
+ * Split a user-supplied OPA data path into its key segments.
+ *
+ * A path arrives either dotted (`users.alice`, the Rego spelling) or slashed
+ * (`users/alice`, the REST spelling). Data keys are free to contain the other
+ * separator: hostnames, image references and semver strings carry dots, so
+ * treating both characters as separators addressed a document that was not the
+ * one asked for. A slash anywhere therefore makes the slash the only separator,
+ * and a path with no slash is read as dotted.
+ *
+ * A key holding both characters, such as a Kubernetes label key, cannot be
+ * written either way. Callers pass an array of literal segments for that.
+ */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    // A stray `%` is a literal character in a key, not an escape.
+    return segment;
+  }
+}
+
+function splitDataPath(path: string): string[] {
+  const trimmed = path.trim().replace(/^[/]+/, '').replace(/[/]+$/, '');
+  // Drop a leading `data.` or `data/` root, but not a key named `database`.
+  const withoutRoot = trimmed.replace(/^data(?=$|[./])[./]?/, '');
+  if (withoutRoot.length === 0) return [];
+  return withoutRoot.includes('/') ? withoutRoot.split('/') : withoutRoot.split('.');
+}
+
+/**
+ * The data root. OPA answers `PATCH /v1/data` but redirects `/v1/data/`, so the
+ * root has no trailing slash while every deeper path is built by joining onto
+ * `${OPA_DATA_ROOT}/`.
+ */
+export const OPA_DATA_ROOT = '/v1/data';
+
+/**
+ * Convert a user-supplied OPA data path to the `/v1/data/...` REST API path.
+ *
+ * Accepts the dotted or slash string form, or an array whose elements are
+ * literal keys. Every segment is percent-encoded, which OPA decodes, so a key
+ * may hold a dot, a slash, a question mark or any non-ASCII character. Rejects
+ * `.` and `..` segments so a crafted input cannot traverse to unrelated OPA
+ * endpoints such as `/v1/config`.
  */
 export function parseOpaDataPath(
-  path: string,
-): { ok: true; apiPath: string } | { ok: false; error: ToolEnvelope<never> } {
-  const stripped = path.replace(/^data\./, '').replace(/^\/+/, '');
-  const apiPath = `/v1/data/${stripped.replace(/\./g, '/')}`;
+  path: string | readonly string[],
+): { ok: true; apiPath: string; segments: string[] } | { ok: false; error: ToolEnvelope<never> } {
+  const segments = typeof path === 'string' ? splitDataPath(path) : [...path];
+  const shown = typeof path === 'string' ? path : JSON.stringify(path);
 
-  // Normalize through URL parsing to catch both literal `..` segments and
-  // percent-encoded variants (%2e%2e). If the resolved pathname no longer
-  // starts with /v1/data/, a traversal escaped the intended prefix.
-  const normalized = new URL(`http://h${apiPath}`).pathname;
-  if (!normalized.startsWith('/v1/data/')) {
+  if (segments.length === 0) {
     return {
       ok: false,
-      error: err('INVALID_INPUT', `Path traversal not allowed: ${path}`),
+      error: err('INVALID_INPUT', `Data path must name at least one segment: ${shown}`, {
+        hint: 'The root of the data hierarchy is not addressable here. Supply a path such as "users" or "users/alice".',
+      }),
     };
   }
-  return { ok: true, apiPath };
+
+  for (const segment of segments) {
+    if (segment.length === 0) {
+      return {
+        ok: false,
+        error: err('INVALID_INPUT', `Data path has an empty segment: ${shown}`, {
+          hint: 'Remove the repeated separator, or pass `segments` if a key is genuinely empty.',
+        }),
+      };
+    }
+    // Encoding below already stops `%2e%2e` reaching the wire as a traversal,
+    // but a caller writing one means to traverse, so say no rather than look up
+    // a key of that literal name.
+    const decoded = decodeSegment(segment);
+    if (decoded === '.' || decoded === '..') {
+      return { ok: false, error: err('INVALID_INPUT', `Path traversal not allowed: ${shown}`) };
+    }
+  }
+
+  const apiPath = `${OPA_DATA_ROOT}/${segments.map(encodeURIComponent).join('/')}`;
+
+  // Backstop. Encoding already neutralises `%2e%2e` and friends, but a resolved
+  // path outside the data prefix must never reach the server.
+  if (!new URL(`http://h${apiPath}`).pathname.startsWith(`${OPA_DATA_ROOT}/`)) {
+    return { ok: false, error: err('INVALID_INPUT', `Path traversal not allowed: ${shown}`) };
+  }
+  return { ok: true, apiPath, segments };
 }
 
 /**

@@ -15,6 +15,8 @@
  */
 import { z } from 'zod';
 
+import { resolve } from 'node:path';
+
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
@@ -38,7 +40,7 @@ const ConftestPushInput = {
     .describe(
       'Path to the local directory containing Rego policies to push. ' +
         'Must be inside an allowed root (OPA_MCP_ALLOWED_PATHS) and must exist. ' +
-        "Defaults to `./policy` (conftest's convention).",
+        'Omitted, it falls back to `policy` in the working directory of the server process, the conftest convention, which must itself sit inside an allowed root.',
     ),
 };
 
@@ -48,6 +50,9 @@ export interface ConftestPushOutput {
   /** The local policy directory that was packaged and pushed. */
   policyDir: string;
 }
+
+/** Where conftest looks when `--policy` is not given, as an absolute path. */
+const DEFAULT_POLICY_DIR = resolve('policy');
 
 export function registerConftestPush(server: McpServer, config: Config): void {
   const conftest = new ConftestCli(config);
@@ -73,15 +78,26 @@ export function registerConftestPush(server: McpServer, config: Config): void {
     async (input, { signal }) => {
       return withToolEnvelope<ConftestPushOutput>(config, async () => {
         // ── Path validation ──────────────────────────────────────────────
-        if (input.policy !== undefined) {
-          const v = validatePaths([input.policy], config, { mustExist: true });
-          if (!v.ok) return v.error;
-          input = { ...input, policy: v.resolved[0] };
+        // An omitted path means the conftest default, resolved against the
+        // working directory. This publishes whatever it finds there, so the
+        // default is checked against the allow-list like an explicit one.
+        const v = validatePaths([input.policy ?? DEFAULT_POLICY_DIR], config, { mustExist: true });
+        if (!v.ok) {
+          if (input.policy !== undefined) return v.error;
+          return err(
+            'PATH_NOT_ALLOWED',
+            'The conftest default policy directory is outside the allowed roots.',
+            {
+              hint: 'Pass `policy` with a directory inside OPA_MCP_ALLOWED_PATHS.',
+              details: { defaultPolicyDir: DEFAULT_POLICY_DIR },
+            },
+          );
         }
+        const policyDir = v.resolved[0]!;
 
         // ── Run conftest push ────────────────────────────────────────────
         const result = await conftest.push(
-          { repository: input.repository, policy: input.policy },
+          { repository: input.repository, policy: policyDir },
           signal,
         );
 
@@ -91,7 +107,7 @@ export function registerConftestPush(server: McpServer, config: Config): void {
         if (result.exitCode === 0) {
           return ok<ConftestPushOutput>({
             repository: input.repository,
-            policyDir: input.policy ?? 'policy',
+            policyDir,
           });
         }
 

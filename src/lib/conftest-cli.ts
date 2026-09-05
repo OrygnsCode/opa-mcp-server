@@ -16,7 +16,7 @@
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import type { Config } from '../config.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
@@ -44,7 +44,50 @@ export interface ConftestFileResult {
   failures: ConftestMessage[];
   warnings: ConftestMessage[];
   skipped: ConftestMessage[];
-  exceptions: string[];
+  exceptions: ConftestMessage[];
+}
+
+/**
+ * Parse `--output=json` from `conftest test` or `conftest verify` into
+ * results whose array fields are always present.
+ *
+ * conftest marks every array `omitempty`, so a file that passes cleanly
+ * arrives as `{filename, namespace, successes}` with no `failures` key at
+ * all, and `verify` with no test rules prints the literal `null`. Reading
+ * `.failures.length` off that threw on every clean run. Returns null when
+ * stdout is not a JSON array (or `null`), which is what a command-level
+ * failure looks like.
+ */
+export function parseConftestResults(stdout: string): ConftestFileResult[] | null {
+  const text = stdout.trim();
+  if (text === '') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (parsed === null) return [];
+  if (!Array.isArray(parsed)) return null;
+  const messages = (v: unknown): ConftestMessage[] =>
+    Array.isArray(v)
+      ? v.map((m) =>
+          m !== null && typeof m === 'object' ? (m as ConftestMessage) : { msg: String(m) },
+        )
+      : [];
+  return parsed.map((item) => {
+    const r = (item !== null && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    return {
+      ...r,
+      filename: typeof r['filename'] === 'string' ? r['filename'] : '',
+      namespace: typeof r['namespace'] === 'string' ? r['namespace'] : '',
+      successes: typeof r['successes'] === 'number' ? r['successes'] : 0,
+      failures: messages(r['failures']),
+      warnings: messages(r['warnings']),
+      skipped: messages(r['skipped']),
+      exceptions: messages(r['exceptions']),
+    };
+  });
 }
 
 // ─── Input types ──────────────────────────────────────────────────────────────
@@ -57,10 +100,10 @@ export interface ConftestTestInput {
   inlineConfig?: string;
   /**
    * Parser used for inline config content. Determines the temp file
-   * extension (yaml → .yaml, json → .json, dockerfile → Dockerfile, etc.).
+   * name (yaml -> config.yaml, dockerfile -> Dockerfile, and so on).
    * Defaults to `yaml` when not specified.
    */
-  inlineConfigParser?: string;
+  inlineConfigParser?: ConftestParser;
   /**
    * Absolute path to a directory or file containing Rego policies.
    * Defaults to `./policy` (conftest's convention). Mutually exclusive
@@ -87,7 +130,7 @@ export interface ConftestTestInput {
    * flag, overriding extension-based detection. Use it to parse files whose
    * extension does not match their format (e.g. a `.tfstate` file as `json`).
    */
-  parser?: string;
+  parser?: ConftestParser;
 }
 
 /** Input for `conftest verify`. */
@@ -116,28 +159,81 @@ export interface ConftestPushInput {
   policy?: string;
 }
 
-// ─── Parser → file extension map ─────────────────────────────────────────────
+// ─── Parser names ─────────────────────────────────────────────────────────────
 
-const PARSER_TO_EXT: Record<string, string> = {
-  yaml: '.yaml',
-  json: '.json',
-  toml: '.toml',
-  hcl1: '.hcl',
-  hcl2: '.hcl',
-  ini: '.ini',
-  xml: '.xml',
-  dotenv: '.env',
-  cue: '.cue',
-  jsonnet: '.jsonnet',
-  properties: '.properties',
-  edn: '.edn',
-  hocon: '.conf',
-  // Dockerfile is a special case -- conftest detects by filename
-  dockerfile: '',
+/**
+ * The parsers conftest 0.69 accepts for `--parser`, and the only values a
+ * caller may pass. The name also chooses the temp file name for inline
+ * config, so it must never be free text: a value carrying path separators
+ * used to be joined straight into the temp path, and `../` sequences in it
+ * walked out of the temp directory to wherever the caller pointed.
+ */
+export const CONFTEST_PARSERS = [
+  'cue',
+  'dockerfile',
+  'dotenv',
+  'edn',
+  'hcl1',
+  'hcl2',
+  'hocon',
+  'ignore',
+  'ini',
+  'json',
+  'jsonnet',
+  'nginx',
+  'properties',
+  'spdx',
+  'textproto',
+  'toml',
+  'vcl',
+  'xml',
+  'yaml',
+] as const;
+
+export type ConftestParser = (typeof CONFTEST_PARSERS)[number];
+
+export function isConftestParser(value: string): value is ConftestParser {
+  return (CONFTEST_PARSERS as readonly string[]).includes(value);
+}
+
+/**
+ * Temp file names for inline config. The parser is passed to conftest
+ * explicitly, so the name only has to be plausible for a reader of the
+ * output; conftest also recognises a Dockerfile by name.
+ */
+const INLINE_CONFIG_FILENAME: Record<ConftestParser, string> = {
+  cue: 'config.cue',
+  dockerfile: 'Dockerfile',
+  dotenv: 'config.env',
+  edn: 'config.edn',
+  hcl1: 'config.hcl',
+  hcl2: 'config.hcl',
+  hocon: 'config.conf',
+  ignore: '.gitignore',
+  ini: 'config.ini',
+  json: 'config.json',
+  jsonnet: 'config.jsonnet',
+  nginx: 'nginx.conf',
+  properties: 'config.properties',
+  spdx: 'config.spdx',
+  textproto: 'config.textproto',
+  toml: 'config.toml',
+  vcl: 'config.vcl',
+  xml: 'config.xml',
+  yaml: 'config.yaml',
 };
 
-function parserToExt(parser: string): string {
-  return PARSER_TO_EXT[parser.toLowerCase()] ?? `.${parser.toLowerCase()}`;
+/**
+ * Temp file name for inline config. Throws on anything outside the closed
+ * set; the tool layer rejects such input first, so this is the backstop for
+ * any other caller.
+ */
+function inlineConfigFilename(parser: string | undefined): string {
+  const name = parser ?? 'yaml';
+  if (!isConftestParser(name)) {
+    throw new Error(`unsupported conftest parser: ${name}`);
+  }
+  return INLINE_CONFIG_FILENAME[name];
 }
 
 // ─── ConftestCli ──────────────────────────────────────────────────────────────
@@ -149,6 +245,29 @@ function parserToExt(parser: string): string {
  * returned `SpawnResult` is the signal. Inline source is written to temp
  * files/directories because conftest does not read from stdin.
  */
+/**
+ * Split a policy directory into the directory to run from and the name to pass.
+ *
+ * `conftest pull` and `conftest push` resolve `--policy` against the working
+ * directory rather than treating an absolute path as absolute. On Windows pull
+ * fails outright, reporting a path of the form `.\\C:\\...`, and push drops the
+ * volume and reads from the same path on whichever drive it was started on. The
+ * tools resolve the caller's path against the allow-list before handing it over,
+ * so it is always absolute and neither command ever addressed the directory
+ * asked for. Running from the parent and passing the final component is
+ * unambiguous on every platform.
+ */
+function relativeToParent(
+  policy: string | undefined,
+): { parent: string; name: string } | undefined {
+  if (!policy) return undefined;
+  const parent = dirname(policy);
+  const name = basename(policy);
+  // A root such as `C:\\` or `/` has nothing to descend into.
+  if (name.length === 0 || parent === policy) return undefined;
+  return { parent, name };
+}
+
 export class ConftestCli {
   constructor(private readonly config: Config) {}
 
@@ -202,7 +321,12 @@ export class ConftestCli {
         // Flags
         if (input.combine) args.push('--combine');
         if (input.failOnWarn) args.push('--fail-on-warn');
-        if (input.parser) args.push('--parser', input.parser);
+        // conftest's --parser overrides extension detection, so inline
+        // config names its parser explicitly rather than trusting the temp
+        // file's extension. A global `parser` wins when both are given.
+        const parser =
+          input.parser ?? (configPath ? (input.inlineConfigParser ?? 'yaml') : undefined);
+        if (parser) args.push('--parser', parser);
 
         // Config files (positional args, must come last)
         const effectiveFiles = configPath ? [configPath] : (input.files ?? []);
@@ -232,8 +356,9 @@ export class ConftestCli {
    */
   async pull(input: ConftestPullInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['pull', input.url];
-    if (input.policy) args.push('--policy', input.policy);
-    return this.run(args, signal);
+    const target = relativeToParent(input.policy);
+    if (target) args.push('--policy', target.name);
+    return this.run(args, signal, target?.parent);
   }
 
   /**
@@ -242,21 +367,23 @@ export class ConftestCli {
    */
   async push(input: ConftestPushInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['push', input.repository];
-    if (input.policy) args.push('--policy', input.policy);
-    return this.run(args, signal);
+    const target = relativeToParent(input.policy);
+    if (target) args.push('--policy', target.name);
+    return this.run(args, signal, target?.parent);
   }
 
   /**
    * Run `conftest` with the given argv. Tools should prefer the typed
    * methods above; this is the escape hatch for unusual invocations.
    */
-  async run(args: string[], signal?: AbortSignal): Promise<SpawnResult> {
+  async run(args: string[], signal?: AbortSignal, cwd?: string): Promise<SpawnResult> {
     const opts: Parameters<typeof runBinary>[1] = {
       args,
       timeoutMs: this.config.subprocessTimeoutMs,
       maxOutputBytes: this.config.maxSubprocessBytes,
     };
     if (signal !== undefined) opts.signal = signal;
+    if (cwd !== undefined) opts.cwd = cwd;
     return runBinary(this.config.conftestBinary, opts);
   }
 
@@ -269,7 +396,7 @@ export class ConftestCli {
   private async withTempAssets<T>(
     opts: {
       inlineConfig?: string;
-      inlineConfigParser?: string;
+      inlineConfigParser?: ConftestParser;
       inlinePolicy?: string;
     },
     fn: (paths: { configPath?: string; policyDir?: string }) => Promise<T>,
@@ -279,11 +406,7 @@ export class ConftestCli {
 
     try {
       if (opts.inlineConfig !== undefined) {
-        const ext =
-          opts.inlineConfigParser === 'dockerfile'
-            ? ''
-            : parserToExt(opts.inlineConfigParser ?? 'yaml');
-        const basename = opts.inlineConfigParser === 'dockerfile' ? 'Dockerfile' : `config${ext}`;
+        const basename = inlineConfigFilename(opts.inlineConfigParser);
         // mkdtemp creates the directory atomically (O_CREAT|O_EXCL) -- safe temp file pattern.
         const tmpDir = await mkdtemp(join(tmpdir(), 'orygn-conftest-'));
         temps.push(tmpDir);

@@ -5,6 +5,7 @@ import {
   callTool,
   fixturePath,
   makeServer,
+  resolvedArgs,
   spawnFailure,
   spawnSuccess,
   spawnTimedOut,
@@ -274,6 +275,197 @@ describe('rego_test', () => {
     expect(env.data?.failed).toBe(1);
     expect(env.data?.skipped).toBe(1);
     expect(env.data?.total).toBe(4);
+  });
+
+  it('counts a record carrying `error` as errored, not as passed', async () => {
+    // OPA 1.19 shape for a test it could not evaluate: an `error` object and
+    // NO `fail`, so `total - failed - skipped` used to absorb it into passed.
+    const records = [
+      { name: 'test_ok', duration: 100 },
+      {
+        name: 'test_conflict',
+        error: {
+          code: 'eval_conflict_error',
+          message: 'complete rules must not produce multiple outputs',
+        },
+        duration: 0,
+      },
+      { name: 'test_broken', fail: true, duration: 5 },
+      { name: 'todo_pending', skip: true, duration: 0 },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      passed: number;
+      failed: number;
+      skipped: number;
+      errored: number;
+      total: number;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ passed: 1, failed: 1, skipped: 1, errored: 1, total: 4 });
+  });
+
+  it('does not report a suite of only errored tests as passing', async () => {
+    const records = [
+      { name: 'test_a', error: { code: 'eval_conflict_error', message: 'x' } },
+      { name: 'test_b', error: { code: 'eval_type_error', message: 'y' } },
+    ];
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ passed: number; errored: number; total: number }>(
+      server,
+      'rego_test',
+      { paths: [validRegoPath()] },
+    );
+    expect(env.data).toMatchObject({ passed: 0, errored: 2, total: 2 });
+  });
+
+  it('groups the cases OPA reports under a parameterized rule', async () => {
+    // OPA reports a `test_x[case]` rule as one record carrying `sub_results`,
+    // not one record per case. Looking for a bracketed name meant the grouping
+    // never fired and the per-case outcomes were passed through untouched: one
+    // failing test, no indication of which case failed.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        2,
+        '',
+        JSON.stringify([
+          {
+            package: 'data.p',
+            name: 'test_allow',
+            fail: true,
+            duration: 10,
+            sub_results: {
+              admin_allowed: { name: 'admin_allowed' },
+              broken: { name: 'broken', fail: true },
+              todo_case: { name: 'todo_case', skip: true },
+            },
+          },
+        ]),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      total: number;
+      failed: number;
+      caseCounts?: { total: number; passed: number; failed: number; skipped: number };
+      parameterizedGroups?: Record<string, Array<{ name?: string; fail?: boolean }>>;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    // The top-level counts stay OPA's: one rule, one failure.
+    expect(env.data?.total).toBe(1);
+    expect(env.data?.failed).toBe(1);
+    expect(env.data?.caseCounts).toEqual({ total: 3, passed: 1, failed: 1, skipped: 1 });
+
+    const group = env.data?.parameterizedGroups?.['test_allow'];
+    expect(group).toHaveLength(3);
+    expect(group?.find((c) => c.name === 'broken')?.fail).toBe(true);
+    expect(group?.find((c) => c.name === 'admin_allowed')?.fail).toBeUndefined();
+  });
+
+  it('still reads the bracketed names older OPA emitted', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        2,
+        '',
+        JSON.stringify([
+          { package: 'data.p', name: 'test_allow[{"k":"a"}]', duration: 1 },
+          { package: 'data.p', name: 'test_allow[{"k":"b"}]', fail: true, duration: 1 },
+        ]),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      caseCounts?: { total: number; failed: number };
+      parameterizedGroups?: Record<string, unknown[]>;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(env.data?.parameterizedGroups?.['test_allow']).toHaveLength(2);
+    expect(env.data?.caseCounts).toMatchObject({ total: 2, failed: 1 });
+  });
+
+  it('omits the grouping when no test is parameterized', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify([{ package: 'data.p', name: 'test_a', duration: 1 }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ caseCounts?: unknown; parameterizedGroups?: unknown }>(
+      server,
+      'rego_test',
+      { paths: [validRegoPath()] },
+    );
+    expect(env.data?.parameterizedGroups).toBeUndefined();
+    expect(env.data?.caseCounts).toBeUndefined();
+  });
+
+  it('reads the repeated arrays opa prints for count > 1', async () => {
+    // opa test --count N prints one pretty-printed array per repetition, back
+    // to back. That is neither one JSON value nor NDJSON, and reading only the
+    // first form reported a repeated run as no tests at all.
+    // Pretty-printed, as opa prints it: the arrays span many lines, so neither
+    // JSON.parse nor a line-by-line read finds a complete value.
+    const run = (fail: boolean) =>
+      JSON.stringify(
+        [
+          { name: 'test_steady', duration: 10 },
+          { name: 'test_flaky', duration: 10, ...(fail ? { fail: true } : {}) },
+        ],
+        null,
+        2,
+      );
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', `${run(false)}\n${run(true)}\n`));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      total: number;
+      passed: number;
+      failed: number;
+      repetitions?: number;
+      results: Array<{ name?: string; fail?: boolean }>;
+    }>(server, 'rego_test', { paths: [validRegoPath()], count: 2 });
+
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    // One record per test, not one per repetition.
+    expect(env.data?.total).toBe(2);
+    expect(env.data?.repetitions).toBe(2);
+    // A test that failed in any repetition is reported as failing.
+    expect(env.data?.failed).toBe(1);
+    expect(env.data?.passed).toBe(1);
+    expect(env.data?.results.find((r) => r.name === 'test_flaky')?.fail).toBe(true);
+    expect(env.data?.results.find((r) => r.name === 'test_steady')?.fail).toBeUndefined();
+  });
+
+  it('does not report repetitions for a single run', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ repetitions?: number }>(server, 'rego_test', {
+      paths: [validRegoPath()],
+    });
+    expect(env.data?.repetitions).toBeUndefined();
+  });
+
+  it('keeps an error from any repetition ahead of a pass', async () => {
+    const clean = JSON.stringify([{ name: 'test_x', duration: 5 }], null, 2);
+    const broken = JSON.stringify(
+      [{ name: 'test_x', error: { code: 'eval_conflict_error', message: 'x' }, duration: 5 }],
+      null,
+      2,
+    );
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', `${clean}\n${broken}\n`));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ errored: number; passed: number }>(server, 'rego_test', {
+      paths: [validRegoPath()],
+      count: 2,
+    });
+    expect(env.data).toMatchObject({ errored: 1, passed: 0 });
   });
 
   it('parses NDJSON output as a fallback', async () => {
@@ -765,6 +957,56 @@ describe('rego_bench', () => {
     expect(args).toContain('1000');
   });
 
+  it('reads every repetition opa prints for count > 1', async () => {
+    // opa bench prints one JSON document per repetition, back to back, which
+    // JSON.parse rejects outright: any count above 1 failed as unparseable.
+    const run = (n: number, t: number) => JSON.stringify({ N: n, T: t }, null, 2);
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess([run(100, 2000), run(100, 1000), run(100, 3000)].join('\n')),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      N?: number;
+      T?: number;
+      runs?: Array<{ T?: number }>;
+      repetitions?: number;
+    }>(server, 'rego_bench', { query: 'data.x', paths: [validRegoPath()], count: 3 });
+
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.repetitions).toBe(3);
+    expect(env.data?.runs).toHaveLength(3);
+    // The top-level figures come from the fastest run by ns per iteration.
+    expect(env.data?.T).toBe(1000);
+  });
+
+  it('omits runs and repetitions for a single document', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ N: 10, T: 100 })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ runs?: unknown; repetitions?: number }>(server, 'rego_bench', {
+      query: 'data.x',
+      paths: [validRegoPath()],
+    });
+    expect(env.data?.runs).toBeUndefined();
+    expect(env.data?.repetitions).toBeUndefined();
+  });
+
+  it('surfaces the diagnostics opa writes to stdout on failure', async () => {
+    // `opa bench --format=json` puts its errors on stdout and leaves stderr
+    // empty, so reporting stderr alone returned a failure with nothing in it.
+    const errors = [{ message: 'unexpected eof token', code: 'rego_parse_error' }];
+    mockRun.mockResolvedValueOnce(spawnFailure(1, '', JSON.stringify({ errors })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_bench', {
+      query: 'data.x ==',
+      paths: [validRegoPath()],
+    });
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(JSON.stringify(env.error?.details)).toContain('rego_parse_error');
+  });
+
   it('rejects calls with both input and inputPath', async () => {
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
@@ -905,9 +1147,99 @@ describe('opa_exec', () => {
     expect(args[0]).toBe('exec');
     expect(args).toContain('--format=json');
     expect(args).toContain('--decision');
-    expect(args[args.indexOf('--decision') + 1]).toBe('data.rbac.allow');
+    // opa exec names a decision by slash path with no `data.` prefix; passing
+    // the Rego reference through left every input file undefined.
+    expect(args[args.indexOf('--decision') + 1]).toBe('rbac/allow');
     // Input path is a positional arg at the end of argv.
     expect(args[args.length - 1]).toBe(validInputPath());
+  });
+
+  it('converts every spelling of a decision reference to the path opa exec wants', async () => {
+    const forms: Array<[string, string]> = [
+      ['data.rbac.allow', 'rbac/allow'],
+      ['rbac/allow', 'rbac/allow'],
+      ['rbac.allow', 'rbac/allow'],
+      ['/rbac/allow', 'rbac/allow'],
+      ['data/rbac/allow', 'rbac/allow'],
+      ['data.a.b.c', 'a/b/c'],
+      // A package that merely starts with "data" keeps its first segment.
+      ['database.allow', 'database/allow'],
+    ];
+    for (const [given, expected] of forms) {
+      mockRun.mockReset();
+      mockRun.mockResolvedValueOnce(
+        spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+      );
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: given,
+      });
+      expect(env.ok, given).toBe(true);
+      const args = mockRun.mock.calls[0]![1].args;
+      expect(args[args.indexOf('--decision') + 1], given).toBe(expected);
+    }
+  });
+
+  it('rejects a decision that names nothing', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    for (const decision of ['data', 'data.', '/', 'a..b']) {
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision,
+      });
+      expect(env.error?.code, decision).toBe('INVALID_INPUT');
+    }
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('flags a run where every input left the decision undefined', async () => {
+    const undefinedEntry = (path: string) => ({
+      path,
+      error: { code: 'opa_undefined_error', message: 'decision was undefined' },
+    });
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({
+          result: [undefinedEntry(validInputPath()), undefinedEntry('other.json')],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ hint?: string; errorCount: number }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'rbac/nosuch',
+    });
+    expect(env.data?.errorCount).toBe(2);
+    // Undefined everywhere reads as a pass under a deny-style policy whether
+    // the rule matched nothing or does not exist at all.
+    expect(env.data?.hint).toContain('rbac/nosuch');
+  });
+
+  it('does not flag a run where some input produced a result', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({
+          result: [
+            { path: validInputPath(), result: true },
+            {
+              path: 'other.json',
+              error: { code: 'opa_undefined_error', message: 'undefined' },
+            },
+          ],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ hint?: string }>(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'rbac/allow',
+    });
+    expect(env.data?.hint).toBeUndefined();
   });
 
   it('passes --bundle flag when bundle is provided', async () => {
@@ -921,10 +1253,12 @@ describe('opa_exec', () => {
       decision: 'data.authz.allow',
       bundle: fixturePath('policies', 'valid'),
     });
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).toContain('--bundle');
-    expect(args[args.indexOf('--bundle') + 1]).toBe(fixturePath('policies', 'valid'));
-    expect(args).not.toContain('--data');
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args).toContain('--bundle');
+    // The bundle root is a load path, so it may be spelled relative to cwd.
+    const resolved = resolvedArgs(call);
+    expect(resolved[call.args.indexOf('--bundle') + 1]).toBe(fixturePath('policies', 'valid'));
+    expect(call.args).not.toContain('--data');
   });
 
   it('passes --bundle for each dataPaths entry (opa exec has no --data flag)', async () => {
@@ -941,8 +1275,9 @@ describe('opa_exec', () => {
     const args = mockRun.mock.calls[0]![1].args;
     const bundleIdxs = args.map((a, i) => (a === '--bundle' ? i : -1)).filter((i) => i !== -1);
     expect(bundleIdxs).toHaveLength(2);
-    expect(args[bundleIdxs[0]! + 1]).toBe(validRegoPath());
-    expect(args[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
+    const resolvedExec = resolvedArgs(mockRun.mock.calls[0]![1]);
+    expect(resolvedExec[bundleIdxs[0]! + 1]).toBe(validRegoPath());
+    expect(resolvedExec[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
     expect(args).not.toContain('--data');
   });
 

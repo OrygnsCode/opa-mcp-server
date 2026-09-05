@@ -8,7 +8,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { OpaClient } from '../../lib/opa-client.js';
-import { ok } from '../../lib/errors.js';
+import { err, ok } from '../../lib/errors.js';
 import { coerceJsonArg } from '../../lib/json-coerce.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
 import { mapOpaClientError, parseOpaDataPath } from './_shared.js';
@@ -26,7 +26,15 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
         path: z
           .string()
           .min(1)
+          .optional()
           .describe('Decision path under `data.`, e.g. "rbac/allow" or "rbac.allow".'),
+        segments: z
+          .array(z.string().min(1))
+          .min(1)
+          .optional()
+          .describe(
+            'Path as literal key segments, e.g. ["labels", "app.kubernetes.io/name"]. Use instead of `path` when a key contains a dot or a slash.',
+          ),
         input: z.unknown().optional().describe('Input document to evaluate against.'),
         explain: z
           .enum(['notes', 'fails', 'full', 'debug'])
@@ -41,11 +49,18 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ path, input, explain, metrics }, { signal }) => {
+    async ({ path, segments, input, explain, metrics }, { signal }) => {
       return withToolEnvelope<{ result?: unknown; explanation?: unknown; metrics?: unknown }>(
         config,
         async () => {
-          const parsed = parseOpaDataPath(path);
+          const target = segments ?? path;
+          if (target === undefined) {
+            return err('INVALID_INPUT', 'Supply either `path` or `segments`.');
+          }
+          if (path !== undefined && segments !== undefined) {
+            return err('INVALID_INPUT', 'Supply `path` or `segments`, not both.');
+          }
+          const parsed = parseOpaDataPath(target);
           if (!parsed.ok) return parsed.error;
           try {
             const query: Record<string, string | boolean> = {};

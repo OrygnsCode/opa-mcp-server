@@ -17,6 +17,9 @@
  *   0     -- pull succeeded
  *   non-0 -- network / auth error
  */
+import { mkdir } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -43,7 +46,9 @@ const ConftestPullInput = {
     .describe(
       'Local directory where the pulled policies will be written. ' +
         'Must be inside an allowed root (OPA_MCP_ALLOWED_PATHS). ' +
-        "Defaults to `./policy` (conftest's convention).",
+        'Omitted, it falls back to `policy` in the working directory of the server process, the conftest convention, which must itself sit inside an allowed root. ' +
+        'The directory is emptied before the pull, so do not point it at one holding anything ' +
+        'you want to keep.',
     ),
 };
 
@@ -53,6 +58,9 @@ export interface ConftestPullOutput {
   /** The local directory where policies were written. */
   policyDir: string;
 }
+
+/** Where conftest looks when `--policy` is not given, as an absolute path. */
+const DEFAULT_POLICY_DIR = resolve('policy');
 
 export function registerConftestPull(server: McpServer, config: Config): void {
   const conftest = new ConftestCli(config);
@@ -81,17 +89,30 @@ export function registerConftestPull(server: McpServer, config: Config): void {
     async (input, { signal }) => {
       return withToolEnvelope<ConftestPullOutput>(config, async () => {
         // ── Path validation ──────────────────────────────────────────────
-        // The policy directory does not have to exist yet -- conftest will
-        // create it. Validate only that the parent is within allowed roots
-        // by validating the path itself (without mustExist).
-        if (input.policy !== undefined) {
-          const v = validatePaths([input.policy], config);
-          if (!v.ok) return v.error;
-          input = { ...input, policy: v.resolved[0] };
+        // The directory does not have to exist yet; conftest creates it. An
+        // omitted path means conftest's own default, which it resolves against
+        // the working directory. This tool writes files, so that default is
+        // checked against the allow-list too rather than escaping it by being
+        // implicit.
+        const v = validatePaths([input.policy ?? DEFAULT_POLICY_DIR], config);
+        if (!v.ok) {
+          if (input.policy !== undefined) return v.error;
+          return err(
+            'PATH_NOT_ALLOWED',
+            'The conftest default policy directory is outside the allowed roots.',
+            {
+              hint: 'Pass `policy` with a directory inside OPA_MCP_ALLOWED_PATHS.',
+              details: { defaultPolicyDir: DEFAULT_POLICY_DIR },
+            },
+          );
         }
+        const policyDir = v.resolved[0]!;
+
+        // conftest runs from the parent, so the parent has to exist.
+        await mkdir(dirname(policyDir), { recursive: true });
 
         // ── Run conftest pull ────────────────────────────────────────────
-        const result = await conftest.pull({ url: input.url, policy: input.policy }, signal);
+        const result = await conftest.pull({ url: input.url, policy: policyDir }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'conftest');
         if (subprocessFailure) return subprocessFailure;
@@ -99,7 +120,7 @@ export function registerConftestPull(server: McpServer, config: Config): void {
         if (result.exitCode === 0) {
           return ok<ConftestPullOutput>({
             url: input.url,
-            policyDir: input.policy ?? 'policy',
+            policyDir,
           });
         }
 
