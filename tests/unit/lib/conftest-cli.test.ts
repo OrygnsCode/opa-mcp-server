@@ -210,6 +210,26 @@ describe('ConftestCli.test()', () => {
     expect(mockRun).toHaveBeenCalledWith('/usr/local/bin/conftest', expect.any(Object));
   });
 
+  it('sanitizes the inline temp path in stderr too, where conftest writes it raw', async () => {
+    // A config that does not parse: conftest names the file on stderr, and
+    // the wrapper has deleted that file by the time the caller reads it.
+    mockRun.mockImplementation((_binary, opts) => {
+      const actualPath = opts.args[opts.args.length - 1] as string;
+      return Promise.resolve({
+        ...okSpawn,
+        exitCode: 1,
+        stdout: '',
+        stderr: `Error: running test: parsing ${actualPath}: yaml: line 1: did not find expected node content`,
+      });
+    });
+
+    const cli = new ConftestCli(baseConfig);
+    const result = await cli.test({ inlineConfig: 'a: [' });
+
+    expect(result.stderr).toContain('parsing <inline>:');
+    expect(result.stderr).not.toMatch(/orygn-conftest-/);
+  });
+
   it('sanitizes inline config temp path from stdout', async () => {
     // Use mockImplementation to echo the actual temp path back in stdout.
     // The last positional arg to conftest test is the temp config file.

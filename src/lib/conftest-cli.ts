@@ -493,25 +493,35 @@ export class ConftestCli {
     policyDir: string | undefined,
   ): SpawnResult {
     if (!configPath && !policyDir) return result;
-    if (!result.stdout) return result;
+
+    // stdout holds a JSON document, where a backslash in the path is encoded
+    // as two; stderr holds the raw path. Both spellings are replaced in both
+    // streams, since an error message can quote either.
+    const forms = (path: string): string[] => {
+      const raw = path;
+      const jsonEncoded = JSON.stringify(path).slice(1, -1);
+      return [...new Set([jsonEncoded, raw])];
+    };
+    const escapeRe = (s: string): string => s.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
+    const replaceAll = (text: string, path: string, marker: string): string => {
+      let out = text;
+      for (const form of forms(path)) out = out.replace(new RegExp(escapeRe(form), 'g'), marker);
+      return out;
+    };
 
     let stdout = result.stdout;
-
+    let stderr = result.stderr;
     if (configPath) {
-      // JSON.stringify encodes backslashes as \\, so match the encoded form.
-      const jsonEncoded = JSON.stringify(configPath).slice(1, -1);
-      const escaped = jsonEncoded.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
-      stdout = stdout.replace(new RegExp(escaped, 'g'), '<inline>');
+      stdout = replaceAll(stdout, configPath, '<inline>');
+      stderr = replaceAll(stderr, configPath, '<inline>');
     }
-
     if (policyDir) {
-      const jsonEncoded = JSON.stringify(policyDir).slice(1, -1);
-      const escaped = jsonEncoded.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
-      // Policy dir appears in conftest output as part of file paths.
-      // Replace the full dir prefix so the policy filename is preserved.
-      stdout = stdout.replace(new RegExp(escaped, 'g'), '<inline-policy>');
+      // The policy dir appears as a prefix of file paths; the file name is
+      // kept.
+      stdout = replaceAll(stdout, policyDir, '<inline-policy>');
+      stderr = replaceAll(stderr, policyDir, '<inline-policy>');
     }
 
-    return { ...result, stdout };
+    return { ...result, stdout, stderr };
   }
 }

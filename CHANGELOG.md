@@ -184,6 +184,10 @@ not part of the public surface and may change in minor releases.
   `N`, `T` and `MemAllocs`, under a type that promised `iterations` and
   `metrics`, so those were never set. It now reports `iterations`, `nsPerOp`,
   `allocsPerOp` and `bytesPerOp` and keeps the document in `raw`.
+- `conftest_test`, `conftest_verify`: an error from conftest named the temp
+  file an inline config or policy had been written to, a file the tool had
+  already removed. The path is replaced in stderr as it already was in the
+  results.
 
 ## [0.5.0] - 2026-09-04
 
