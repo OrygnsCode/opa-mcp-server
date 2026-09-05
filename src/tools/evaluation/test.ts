@@ -16,6 +16,7 @@ import { err, ok } from '../../lib/errors.js';
 import { parseJsonValues } from '../../lib/json-stream.js';
 import {
   mapSubprocessFailure,
+  lastJsonObject,
   tryParseJson,
   validatePaths,
   withToolEnvelope,
@@ -287,7 +288,10 @@ function handleCoverageMode(
   exitCode: number | null,
   threshold: number | undefined,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
-  const coverageData = tryParseJson<CoverageReport>(stdout);
+  // With `--count N` opa prints one report per run; the last is the one to
+  // read. The single-document parse failed on the concatenation and left the
+  // caller with `coverage: undefined` and a threshold reported as met.
+  const coverageData = lastJsonObject<CoverageReport>(stdout);
 
   if (exitCode === 0) {
     return ok<RegoTestOutput>({

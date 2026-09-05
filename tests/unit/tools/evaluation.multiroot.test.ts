@@ -266,6 +266,24 @@ describe('rego_test_multiroot (explicit mode)', () => {
     expect(args).toContain('--coverage');
   });
 
+  it('keeps the report of a root that exits non-zero with an empty stderr, as a todo test does', async () => {
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(coverageJson(80)))
+      .mockResolvedValueOnce({ ...spawnSuccess(coverageJson(90)), exitCode: 2 });
+
+    const server = makeServer();
+    registerRegoTestMultiroot(server, baseConfig);
+    const env = await callTool<MultiRootTestOutput>(server, 'rego_test_multiroot', {
+      roots: [{ path: root1() }, { path: root2() }],
+      coverage: true,
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.roots[1]!.coveragePct).toBe(90);
+    expect(env.data?.roots[1]!.error).toBeUndefined();
+    expect(env.data?.overallCoveragePct).toBe(85);
+  });
+
   it('records thresholdMet: false on a root that misses the threshold', async () => {
     const thresholdMsg = 'Code coverage threshold not met: got 70.00 instead of 80.00';
     mockRun
