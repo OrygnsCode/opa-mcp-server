@@ -62,6 +62,12 @@ async function startOpa(): Promise<void> {
     'utf8',
   );
 
+  // The seed is named relative to a working directory set to its own folder.
+  // OPA reads an absolute path as an optional `prefix:path` pair split on the
+  // first colon, so a Windows path is opened by the part after the drive
+  // letter, resolved against whatever drive the process is on. A runner that
+  // keeps its temp directory on one drive and its workspace on another never
+  // found the seed, and the server exited before it could answer.
   opaProcess = spawn(
     OPA_BINARY,
     [
@@ -71,9 +77,10 @@ async function startOpa(): Promise<void> {
       `127.0.0.1:${OPA_TEST_PORT}`,
       '--log-level',
       'error',
-      join(workDir, 'seed.rego'),
+      'seed.rego',
     ],
     {
+      cwd: workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     },
