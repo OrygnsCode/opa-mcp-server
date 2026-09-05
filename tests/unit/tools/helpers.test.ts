@@ -180,7 +180,7 @@ describe('rego_generate_test_skeleton', () => {
     expect(env.data?.ruleNames).toEqual(['allow', 'deny_reasons']);
     expect(env.data?.testFile).toContain('package rbac_test');
     expect(env.data?.testFile).toContain('import rego.v1');
-    expect(env.data?.testFile).toContain('import data.rbac');
+    expect(env.data?.testFile).not.toContain('import data.rbac');
     expect(env.data?.testFile).toContain('test_allow if {');
     expect(env.data?.testFile).toContain('test_deny_reasons if {');
     // Single allow rule shouldn't appear twice in the skeleton.
@@ -553,7 +553,7 @@ describe('rego_generate_test_skeleton', () => {
     // Package header matches the source package.
     expect(file).toContain('package authz_test');
     expect(file).toContain('import rego.v1');
-    expect(file).toContain('import data.authz');
+    expect(file).not.toContain('import data.authz');
     // Cases array declared at package scope.
     expect(file).toContain('allow_cases := [');
     // Each case object has the three required scaffold keys.

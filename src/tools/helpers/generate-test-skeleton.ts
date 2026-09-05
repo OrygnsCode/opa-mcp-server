@@ -28,7 +28,89 @@ interface AstPackage {
 }
 
 interface AstRule {
-  head?: { name?: string; ref?: Array<{ value?: string; type?: string }> };
+  head?: {
+    name?: string;
+    ref?: Array<{ value?: string; type?: string }>;
+    key?: unknown;
+    value?: { type?: string; value?: unknown };
+    args?: unknown[];
+  };
+}
+
+/**
+ * What a rule produces, read from its head. A stub has to reference the rule
+ * the way Rego allows and compare it to something of the right shape: a
+ * function needs arguments or the whole test file fails to compile, and a
+ * set or object is never `== true`.
+ */
+type RuleKind =
+  | { kind: 'boolean' }
+  | { kind: 'set' }
+  | { kind: 'object' }
+  | { kind: 'function'; arity: number }
+  | { kind: 'value'; literal: string };
+
+interface RuleStub {
+  name: string;
+  shape: RuleKind;
+}
+
+function ruleKindFromAst(rule: AstRule): RuleKind {
+  const head = rule.head ?? {};
+  if (Array.isArray(head.args)) return { kind: 'function', arity: head.args.length };
+  const value = head.value;
+  const keyed = head.key !== undefined || (Array.isArray(head.ref) && head.ref.length > 1);
+  if (keyed) {
+    // A keyed head with a value is a partial object (`perms[k] := v`); one
+    // without, or with the implicit boolean, is a partial set (`deny contains x`).
+    return value !== undefined && value.type !== 'boolean' ? { kind: 'object' } : { kind: 'set' };
+  }
+  if (value === undefined || value.type === 'boolean') return { kind: 'boolean' };
+  if (value.type === 'string' || value.type === 'number' || value.type === 'null') {
+    return { kind: 'value', literal: JSON.stringify(value.value ?? null) };
+  }
+  return { kind: 'value', literal: 'null' };
+}
+
+/** The expression a stub compares against, and the reference it evaluates. */
+function stubParts(
+  ruleRef: string,
+  shape: RuleKind,
+): { reference: string; expected: string; note: string } {
+  switch (shape.kind) {
+    case 'function': {
+      const args = Array.from({ length: shape.arity }, () => 'null').join(', ');
+      return {
+        reference: `${ruleRef}(${args})`,
+        expected: 'true',
+        note: `# TODO: replace the ${shape.arity} placeholder argument(s) and the expected value.`,
+      };
+    }
+    case 'set':
+      return {
+        reference: ruleRef,
+        expected: 'set()',
+        note: '# Set rule: expected is the set of values, or set() when nothing should match.',
+      };
+    case 'object':
+      return {
+        reference: ruleRef,
+        expected: '{}',
+        note: '# Object rule: expected is the object of entries, or {} when nothing should match.',
+      };
+    case 'value':
+      return {
+        reference: ruleRef,
+        expected: shape.literal,
+        note: '# Value rule: the head assigns a value; expected is that value for this input.',
+      };
+    case 'boolean':
+      return {
+        reference: ruleRef,
+        expected: 'true',
+        note: '# Boolean rule: expected is true or false; an undefined rule fails the comparison.',
+      };
+  }
 }
 
 interface ParsedAst {
@@ -138,38 +220,35 @@ function shapeToRegoLiteral(shape: InputShape): string {
   return `{${inner}}`;
 }
 
-function makeTableSkeleton(
-  packageName: string,
-  ruleNames: string[],
-  inputShape: InputShape,
-): string {
+function makeTableSkeleton(packageName: string, rules: RuleStub[], inputShape: InputShape): string {
   const lines: string[] = [];
   const testPackage = packageName ? `${packageName}_test` : 'main_test';
   lines.push(`package ${testPackage}`);
   lines.push('');
   lines.push('import rego.v1');
-  if (packageName) {
-    lines.push(`import data.${packageName}`);
-  }
+  // The stubs reference rules by their full data path, so an import of the
+  // package would go unused, which opa check --strict rejects.
   lines.push('');
   const inputLiteral = shapeToRegoLiteral(inputShape);
-  for (const name of ruleNames) {
+  for (const { name, shape } of rules) {
     const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
     const testName = `test_${safeName}`;
     const ruleRef = packageName ? `data.${packageName}.${name}` : `data.${name}`;
+    const { reference, expected, note } = stubParts(ruleRef, shape);
     const casesVar = `${safeName}_cases`;
     lines.push(`# TODO: add test cases -- one object per scenario.`);
+    lines.push(note);
     lines.push(`${casesVar} := [`);
     lines.push(`\t{`);
     lines.push(`\t\t"description": "TODO: describe what this case tests",`);
     lines.push(`\t\t"input": ${inputLiteral},`);
-    lines.push(`\t\t"expected": true,`);
+    lines.push(`\t\t"expected": ${expected},`);
     lines.push(`\t},`);
     lines.push(`]`);
     lines.push('');
     lines.push(`${testName} if {`);
     lines.push(`\tevery tc in ${casesVar} {`);
-    lines.push(`\t\tactual := ${ruleRef} with input as tc.input`);
+    lines.push(`\t\tactual := ${reference} with input as tc.input`);
     lines.push(`\t\tactual == tc.expected`);
     lines.push(`\t}`);
     lines.push(`}`);
@@ -178,27 +257,25 @@ function makeTableSkeleton(
   return lines.join('\n');
 }
 
-function makeSkeleton(packageName: string, ruleNames: string[], inputShape: InputShape): string {
+function makeSkeleton(packageName: string, rules: RuleStub[], inputShape: InputShape): string {
   const lines: string[] = [];
   const testPackage = packageName ? `${packageName}_test` : 'main_test';
   lines.push(`package ${testPackage}`);
   lines.push('');
   lines.push('import rego.v1');
-  if (packageName) {
-    lines.push(`import data.${packageName}`);
-  }
+  // The stubs reference rules by their full data path, so an import of the
+  // package would go unused, which opa check --strict rejects.
   lines.push('');
   const inputLiteral = shapeToRegoLiteral(inputShape);
-  for (const name of ruleNames) {
+  for (const { name, shape } of rules) {
     const testName = `test_${name.replace(/[^a-zA-Z0-9_]/g, '_')}`;
-    const ruleRef = packageName ? `${packageName}.${name}` : name;
+    const ruleRef = packageName ? `data.${packageName}.${name}` : `data.${name}`;
+    const { reference, expected, note } = stubParts(ruleRef, shape);
     lines.push(`# TODO: replace the placeholder input and expected value with a realistic case.`);
-    lines.push(
-      `# Boolean rules: assert == true/false. Set/partial rules: assert membership or count(actual).`,
-    );
+    lines.push(note);
     lines.push(`${testName} if {`);
-    lines.push(`\tactual := data.${ruleRef} with input as ${inputLiteral}`);
-    lines.push(`\tactual == true`);
+    lines.push(`\tactual := ${reference} with input as ${inputLiteral}`);
+    lines.push(`\tactual == ${expected}`);
     lines.push(`}`);
     lines.push('');
   }
@@ -262,9 +339,14 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
         // Infer input shape from AST ref accesses.
         const inputShape = inferInputShape(ast);
 
+        // One stub per rule name, shaped by the first head that carries it.
+        const stubs: RuleStub[] = ruleNames.map((name) => {
+          const rule = (ast.rules ?? []).find((r) => ruleNameFromAst(r) === name);
+          return { name, shape: rule ? ruleKindFromAst(rule) : { kind: 'boolean' } };
+        });
         const testFile = tableStyle
-          ? makeTableSkeleton(packageName, ruleNames, inputShape)
-          : makeSkeleton(packageName, ruleNames, inputShape);
+          ? makeTableSkeleton(packageName, stubs, inputShape)
+          : makeSkeleton(packageName, stubs, inputShape);
 
         return ok<RegoGenerateTestSkeletonOutput>({
           testFile,
