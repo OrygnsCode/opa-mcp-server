@@ -287,6 +287,18 @@ describe('OpaCli', () => {
   });
 
   describe('eval()', () => {
+    it('passes each import as --import, alias included', async () => {
+      await opa.eval({
+        query: 'lib.ok; t == "gold"',
+        source: 'package authz',
+        package: 'authz',
+        imports: ['data.lib', 'input.tier as t'],
+      });
+      const [, opts] = mockRun.mock.calls[0]!;
+      const flags = opts.args.map((a, i) => (a === '--import' ? opts.args[i + 1] : undefined));
+      expect(flags.filter(Boolean)).toEqual(['data.lib', 'input.tier as t']);
+    });
+
     it('passes --package so a bare rule reference resolves in that package', async () => {
       await opa.eval({
         query: 'is_admin; input.tier == "gold"',

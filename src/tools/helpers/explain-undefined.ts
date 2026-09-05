@@ -251,12 +251,6 @@ function findBlockingRowFromTrace(rule: AstRule, trace: TraceEvent[]): number | 
 }
 
 /**
- * Evaluate a prefix of a rule body as a query inside the rule's package. The
- * prefix carries the locals assigned earlier, and the package makes a bare
- * reference to a sibling rule resolve, so the answer is the one the rule
- * itself would get up to that point.
- */
-/**
  * The module's import statements as `--import` takes them: the path as
  * written, plus the alias when there is one. `--package` alone does not bring
  * them, and a body expression through an import is unsafe without them.
@@ -277,6 +271,12 @@ function moduleImports(ast: OpaAst): string[] {
  */
 const MAX_PREFIX_CHARS = 16_000;
 
+/**
+ * Evaluate a prefix of a rule body as a query inside the rule's package. The
+ * prefix carries the locals assigned earlier, and the package makes a bare
+ * reference to a sibling rule resolve, so the answer is the one the rule
+ * itself would get up to that point.
+ */
 async function evalPrefixStandalone(
   prefixText: string,
   pkg: string,
@@ -369,7 +369,11 @@ function buildSummary(
       } else if (r.conditions.length === 0) {
         lines.push(`  Rule ${r.ruleIndex}${loc}: no analysable body conditions.`);
       } else {
-        const unevalCount = r.conditions.filter((c) => c.result === 'unevaluable').length;
+        // Conditions behind the one that stopped evaluation were never attempted
+        // and are not what the summary is warning about.
+        const unevalCount = r.conditions.filter(
+          (c) => c.result === 'unevaluable' && !/^Not (reached|evaluated):/.test(c.note ?? ''),
+        ).length;
         lines.push(
           `  Rule ${r.ruleIndex}${loc}: blocking condition could not be determined ` +
             `(${unevalCount} unevaluable expression${unevalCount !== 1 ? 's' : ''}).`,
