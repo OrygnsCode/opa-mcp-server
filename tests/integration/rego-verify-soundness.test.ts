@@ -215,6 +215,24 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     name: 'helper and caller reuse the same local name',
     src: 'package t\n\nallow if {\n\tx := input.x\n\tx == "a"\n\thelper\n}\n\nhelper if {\n\ty := input.role\n\ty == "admin"\n}\n',
   },
+  // A bare `false` in a helper body was filtered out with the harmless bare
+  // `true`, so a helper that can never fire inlined as one that always does.
+  {
+    name: 'helper with a literal false body',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\nhelper if {\n\tfalse\n}\n',
+  },
+  {
+    name: 'helper with a comparison and then a literal false',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\nhelper if {\n\tinput.x == "a"\n\tfalse\n}\n',
+  },
+  {
+    name: 'helper whose head is false, default is true and body is a literal false',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper := false if {\n\tfalse\n}\n',
+  },
+  {
+    name: 'helper with a true default and a literal false body',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper if {\n\tfalse\n}\n',
+  },
   {
     name: 'partial set rule',
     src: 'package t\n\ndeny contains "no" if {\n\tinput.n == 1\n}\n',

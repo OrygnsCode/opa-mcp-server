@@ -524,6 +524,22 @@ function inlineRule(
   const newStack = new Set(inliningStack);
   newStack.add(targetName);
 
+  // A bare `false` makes the helper's body unsatisfiable, exactly as it does
+  // in a rule body (see walkRule). It used to be dropped along with the
+  // harmless bare `true`, which left an always-true body behind and verified a
+  // helper that can never fire as one that always does.
+  const hasLiteralFalse = targetRule.body.some(
+    (e) => !Array.isArray(e.terms) && e.terms.type === 'boolean' && e.terms.value === false,
+  );
+  if (hasLiteralFalse) {
+    // Under negation the reference holds exactly when the body fails, which
+    // here is always.
+    if (negateInlinedBody) return [];
+    return [
+      { kind: 'contradiction', reason: `Helper '${targetName}' has a literal false in its body.` },
+    ];
+  }
+
   const bodyExprs = targetRule.body.filter(
     (e) => !(!Array.isArray(e.terms) && e.terms.type === 'boolean'),
   );
