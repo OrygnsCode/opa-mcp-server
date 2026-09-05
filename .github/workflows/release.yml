@@ -252,10 +252,14 @@ jobs:
           top=$(jq -r '.version' server.json)
           npmv=$(jq -r '.packages[] | select(.registryType=="npm") | .version' server.json)
           oci=$(jq -r '.packages[] | select(.registryType=="oci") | .identifier' server.json)
-          echo "tag=${tag}  server.json: version=${top} npm=${npmv} oci=${oci}"
+          # The publisher metadata records the version the entry was submitted
+          # as. The registry does not reject a mismatch, so nothing else would.
+          meta=$(jq -r '._meta["io.modelcontextprotocol.registry/publisher-provided"].version' server.json)
+          echo "tag=${tag}  server.json: version=${top} npm=${npmv} oci=${oci} meta=${meta}"
           [ "${top}" = "${tag}" ]  || { echo "::error::server.json .version (${top}) != tag (${tag})"; exit 1; }
           [ "${npmv}" = "${tag}" ] || { echo "::error::server.json npm package version (${npmv}) != tag (${tag})"; exit 1; }
           case "${oci}" in *":${tag}") ;; *) echo "::error::server.json oci identifier (${oci}) is not pinned to :${tag}"; exit 1 ;; esac
+          [ "${meta}" = "${tag}" ] || { echo "::error::server.json publisher metadata version (${meta}) != tag (${tag})"; exit 1; }
       - name: Install mcp-publisher
         run: |
           set -euo pipefail
