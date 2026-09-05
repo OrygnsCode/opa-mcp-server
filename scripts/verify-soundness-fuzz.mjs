@@ -113,6 +113,8 @@ const BODIES = [
   ['endswith(input.s, "suffix")', 'endswith'],
   ['true', 'lit_true'],
   ['false', 'lit_false'],
+  ['not true', 'not_true'],
+  ['not false', 'not_false'],
   ['input.x == null', 'eq_null'],
   ['input.n > 0\n\tinput.n < 1', 'frac_range'],
   ['input.x == "a"\n\tinput.x == "b"', 'contradiction'],
@@ -159,7 +161,9 @@ function gen() {
   // Helper references, with and without a default on the helper.
   for (const hd of [null, 'true', 'false']) {
     for (const hh of ['true', 'false']) {
-      for (const [body, bname] of BODIES.slice(0, 6)) {
+      // Every body shape, literals included: the inlining path treats them
+      // differently from a rule body and needs the same coverage.
+      for (const [body, bname] of BODIES) {
         const def = hd === null ? '' : `default helper := ${hd}\n\n`;
         out.push({
           name: `h${id++}_hd${hd ?? 'none'}_hh${hh}_${bname}`,

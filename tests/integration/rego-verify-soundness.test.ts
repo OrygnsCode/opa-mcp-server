@@ -215,8 +215,9 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     name: 'helper and caller reuse the same local name',
     src: 'package t\n\nallow if {\n\tx := input.x\n\tx == "a"\n\thelper\n}\n\nhelper if {\n\ty := input.role\n\ty == "admin"\n}\n',
   },
-  // A bare `false` in a helper body was filtered out with the harmless bare
-  // `true`, so a helper that can never fire inlined as one that always does.
+  // A boolean literal in a helper body was filtered out whatever it said, so a
+  // helper that can never fire inlined as one that always does; and a negated
+  // literal was read as the bare one, so `not false` counted as `false`.
   {
     name: 'helper with a literal false body',
     src: 'package t\n\nallow if {\n\thelper\n}\n\nhelper if {\n\tfalse\n}\n',
@@ -230,8 +231,26 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper := false if {\n\tfalse\n}\n',
   },
   {
-    name: 'helper with a true default and a literal false body',
-    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper if {\n\tfalse\n}\n',
+    name: 'helper whose body is not false',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\nhelper if {\n\tnot false\n}\n',
+  },
+  {
+    name: 'helper whose body is not true',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\nhelper if {\n\tnot true\n}\n',
+  },
+  {
+    name: 'helper with not false before a comparison',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\nhelper if {\n\tnot false\n\tinput.x == "a"\n}\n',
+  },
+  {
+    name: 'helper whose head is false, default is true and body is not false',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper := false if {\n\tnot false\n}\n',
+  },
+  { name: 'rule body not false', src: 'package t\n\nallow if {\n\tnot false\n}\n' },
+  { name: 'rule body not true', src: 'package t\n\nallow if {\n\tnot true\n}\n' },
+  {
+    name: 'rule body not false before a comparison',
+    src: 'package t\n\nallow if {\n\tnot false\n\tinput.x == "a"\n}\n',
   },
   {
     name: 'partial set rule',
