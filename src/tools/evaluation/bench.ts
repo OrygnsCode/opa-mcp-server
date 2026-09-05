@@ -37,13 +37,28 @@ const RegoBenchInput = {
     ),
 };
 
+/** One repetition as OPA reports it: Go's testing.BenchmarkResult. */
+interface BenchRun {
+  /** Iterations run. */
+  N?: number;
+  /** Total nanoseconds across those iterations. */
+  T?: number;
+  MemAllocs?: number;
+  MemBytes?: number;
+  [key: string]: unknown;
+}
+
 export interface RegoBenchOutput {
+  /** Iterations opa ran, `N` in the document it prints. */
   iterations?: number;
-  metrics?: Record<string, unknown>;
-  raw?: unknown;
+  nsPerOp?: number;
+  allocsPerOp?: number;
+  bytesPerOp?: number;
+  /** The document as opa printed it. */
+  raw: BenchRun;
   /**
    * Every repetition, in the order OPA ran them, present only when `count` was
-   * above 1. The fields above come from the fastest of them by nanoseconds per
+   * above 1. The figures above come from the fastest of them by nanoseconds per
    * iteration, which is the run least disturbed by whatever else the machine
    * was doing.
    */
@@ -52,18 +67,27 @@ export interface RegoBenchOutput {
   repetitions?: number;
 }
 
-/** One repetition as OPA reports it: N iterations in T nanoseconds. */
-interface BenchRun {
-  N?: number;
-  T?: number;
-  [key: string]: unknown;
-}
-
 /** Nanoseconds per iteration, or Infinity when the run says nothing useful. */
 function nsPerOp(run: BenchRun): number {
   const n = typeof run.N === 'number' ? run.N : 0;
   const t = typeof run.T === 'number' ? run.T : 0;
   return n > 0 ? t / n : Number.POSITIVE_INFINITY;
+}
+
+/** The per-iteration figures of one run, each present only when derivable. */
+function summarize(run: BenchRun): RegoBenchOutput {
+  const n = typeof run.N === 'number' && run.N > 0 ? run.N : undefined;
+  const per = (total: unknown): number | undefined =>
+    n !== undefined && typeof total === 'number' ? total / n : undefined;
+  const out: RegoBenchOutput = { raw: run };
+  if (n !== undefined) out.iterations = n;
+  const ns = per(run.T);
+  if (ns !== undefined) out.nsPerOp = ns;
+  const allocs = per(run.MemAllocs);
+  if (allocs !== undefined) out.allocsPerOp = allocs;
+  const bytes = per(run.MemBytes);
+  if (bytes !== undefined) out.bytesPerOp = bytes;
+  return out;
 }
 
 export function registerRegoBench(server: McpServer, config: Config): void {
@@ -142,11 +166,11 @@ export function registerRegoBench(server: McpServer, config: Config): void {
           });
         }
 
-        if (runs.length === 1) return ok<RegoBenchOutput>(runs[0]! as RegoBenchOutput);
+        if (runs.length === 1) return ok<RegoBenchOutput>(summarize(runs[0]!));
 
         const fastest = runs.reduce((best, run) => (nsPerOp(run) < nsPerOp(best) ? run : best));
         return ok<RegoBenchOutput>({
-          ...(fastest as RegoBenchOutput),
+          ...summarize(fastest),
           runs,
           repetitions: runs.length,
         });

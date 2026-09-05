@@ -172,6 +172,10 @@ not part of the public surface and may change in minor releases.
   object. Paths are now rendered the way Rego writes them and read back the
   same way.
   The soundness fuzz now carries quoted keys, so it exercises this.
+- `rego_bench` returned the benchmark document as opa prints it, Go's
+  `N`, `T` and `MemAllocs`, under a type that promised `iterations` and
+  `metrics`, so those were never set. It now reports `iterations`, `nsPerOp`,
+  `allocsPerOp` and `bytesPerOp` and keeps the document in `raw`.
 
 ## [0.5.0] - 2026-09-04
 

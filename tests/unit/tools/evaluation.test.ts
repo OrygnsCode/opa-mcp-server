@@ -975,19 +975,35 @@ describe('rego_test', () => {
 // ─── rego_bench ───────────────────────────────────────────────────────────
 
 describe('rego_bench', () => {
-  it('returns the parsed bench output', async () => {
+  it('reports per-iteration figures from the document opa prints', async () => {
+    // opa bench --format=json prints Go's testing.BenchmarkResult; the tool
+    // used to hand it through under names opa never uses.
     mockRun.mockResolvedValueOnce(
-      spawnSuccess(JSON.stringify({ iterations: 1000, metrics: { ns_per_op: 12345 } })),
+      spawnSuccess(
+        JSON.stringify({
+          N: 1000,
+          T: 12_345_000,
+          Bytes: 0,
+          MemAllocs: 12_000,
+          MemBytes: 2_048_000,
+        }),
+      ),
     );
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool<{ iterations?: number; metrics?: Record<string, unknown> }>(
-      server,
-      'rego_bench',
-      { query: 'data.x', paths: [validRegoPath()], count: 1000 },
-    );
+    const env = await callTool<{
+      iterations?: number;
+      nsPerOp?: number;
+      allocsPerOp?: number;
+      bytesPerOp?: number;
+      raw?: { N?: number };
+    }>(server, 'rego_bench', { query: 'data.x', paths: [validRegoPath()], count: 1000 });
     expect(env.ok).toBe(true);
     expect(env.data?.iterations).toBe(1000);
+    expect(env.data?.nsPerOp).toBe(12_345);
+    expect(env.data?.allocsPerOp).toBe(12);
+    expect(env.data?.bytesPerOp).toBe(2048);
+    expect(env.data?.raw?.N).toBe(1000);
     const args = mockRun.mock.calls[0]![1].args;
     expect(args).toContain('--count');
     expect(args).toContain('1000');
@@ -1003,8 +1019,8 @@ describe('rego_bench', () => {
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
     const env = await callTool<{
-      N?: number;
-      T?: number;
+      nsPerOp?: number;
+      raw?: { T?: number };
       runs?: Array<{ T?: number }>;
       repetitions?: number;
     }>(server, 'rego_bench', { query: 'data.x', paths: [validRegoPath()], count: 3 });
@@ -1013,7 +1029,8 @@ describe('rego_bench', () => {
     expect(env.data?.repetitions).toBe(3);
     expect(env.data?.runs).toHaveLength(3);
     // The top-level figures come from the fastest run by ns per iteration.
-    expect(env.data?.T).toBe(1000);
+    expect(env.data?.nsPerOp).toBe(10);
+    expect(env.data?.raw?.T).toBe(1000);
   });
 
   it('omits runs and repetitions for a single document', async () => {
