@@ -22,7 +22,7 @@ import {
   type CounterexampleInput,
 } from './rego-counterexample.js';
 import { describeProperty, type VerifyProperty } from './rego-property-parser.js';
-import { getZ3, withZ3Lock, Z3_SOLVER_MAX_MEMORY_MB } from './rego-z3.js';
+import { getZ3, isZ3UnavailableMessage, withZ3Lock, Z3_SOLVER_MAX_MEMORY_MB } from './rego-z3.js';
 
 // Monotonically increasing counter used to generate a unique prefix for all
 // Z3 constant names within each runVerify call. This prevents sort conflicts
@@ -283,7 +283,7 @@ export async function runVerify(
     const isSortConflict = /sort/i.test(detail) && /incompat/i.test(detail);
     // A dead Z3 says so in its message; that is the one thing the caller can
     // act on (restart), so it goes through verbatim.
-    const z3Down = /Z3 (is unavailable|became unusable)/.test(detail);
+    const z3Down = isZ3UnavailableMessage(detail);
     return inconclusive(
       property,
       z3Down

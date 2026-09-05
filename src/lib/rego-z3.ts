@@ -96,6 +96,15 @@ export function markZ3Unusable(reason: string): void {
 }
 
 /**
+ * Whether an error message is one of the two this module produces once Z3
+ * has been given up on. The engine passes such a message through to the
+ * caller verbatim, since a restart is the one thing they can do about it.
+ */
+export function isZ3UnavailableMessage(detail: string): boolean {
+  return /Z3 (is unavailable|became unusable)/.test(detail);
+}
+
+/**
  * Whether an uncaught error is the WASM heap giving out, rather than some
  * unrelated failure that happened while a solve was running.
  */
