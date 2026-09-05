@@ -61,7 +61,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     {
       title: 'Migrate Rego to v1 syntax',
       description:
-        'Migrate Rego v0 source to Rego v1 syntax in two phases: (1) `opa fmt --rego-v1` auto-fixes reserved keywords (`if`, `contains`, `every`, `in` in rule heads) and adds `import rego.v1`; (2) `opa check --v1-compatible` validates the migrated source and reports any remaining issues that cannot be auto-fixed (e.g. removed builtins, semantic conflicts). Returns the migrated source and a `changed` flag even when check finds remaining errors -- this lets you inspect what changed and fix the remainder manually. If the source is completely unparseable, returns `INVALID_REGO`.',
+        "Migrate Rego v0 source to Rego v1 syntax in two phases: (1) `opa fmt --rego-v1` auto-fixes reserved keywords (`if`, `contains`, `every`, `in` in rule heads) and adds `import rego.v1`; (2) `opa check --v1-compatible` validates the migrated source and reports any remaining issues that cannot be auto-fixed (e.g. removed builtins, semantic conflicts). Returns the migrated source and a `changed` flag even when check finds remaining errors -- this lets you inspect what changed and fix the remainder manually. If the source cannot be parsed, or uses a built-in that v1 removed and so fails type checking in the first phase, returns `INVALID_REGO` with opa's own message.",
       inputSchema: RegoMigrateV1Input,
       annotations: {
         readOnlyHint: true,
@@ -82,10 +82,25 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
           const parsedErrors = tryParseJson<{
             errors?: Array<{ message?: string; code?: string; location?: unknown }>;
           }>(fmtResult.stderr);
+          // opa fmt --rego-v1 type-checks as well as parses, and a built-in that
+          // v1 removed fails there with rego_type_error. Calling that a parse
+          // failure sent people looking for a syntax error that was not there.
+          const errors = parsedErrors?.errors ?? [];
+          const typeErrors = errors.filter((e) => e.code === 'rego_type_error');
+          const parseErrors = errors.filter((e) => e.code === 'rego_parse_error');
+          const isTypeOnly = typeErrors.length > 0 && parseErrors.length === 0;
+          const first = typeErrors[0]?.message;
           return err(
             'INVALID_REGO',
-            'opa fmt --rego-v1 could not parse the source. Fix syntax errors before migrating.',
+            isTypeOnly
+              ? `opa fmt --rego-v1 rejected the source${first ? `: ${first}` : ''}.`
+              : 'opa fmt --rego-v1 could not parse the source. Fix syntax errors before migrating.',
             {
+              ...(isTypeOnly
+                ? {
+                    hint: 'A built-in removed in Rego v1 fails type checking before migration can run. Replace it with its v1 equivalent, then migrate.',
+                  }
+                : {}),
               details: sanitizeInlinePathsDeep(parsedErrors ?? { stderr: fmtResult.stderr.trim() }),
             },
           );

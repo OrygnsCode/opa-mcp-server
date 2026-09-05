@@ -162,6 +162,10 @@ not part of the public surface and may change in minor releases.
   applies; CONTRIBUTING said input fields are `snake_case` when the surface
   is `camelCase`; two prompts sent readers to `rego_describe_policy` for input
   refs, which `rego_infer_input_schema` reports.
+- `rego_migrate_v1` reported a built-in that v1 removed, which fails type
+  checking in the `opa fmt --rego-v1` phase, as a parse failure with advice to
+  fix syntax. The type error opa gives is now the message, with a hint to
+  replace the built-in first; the description says so.
 
 ## [0.5.0] - 2026-09-04
 
