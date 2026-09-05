@@ -178,6 +178,43 @@ describe('rego_playground_share', () => {
     expect(metadata['input']).toBeUndefined();
   });
 
+  it('creates a secret Gist unless public is requested', async () => {
+    process.env['GITHUB_TOKEN'] = 'ghp_test_token';
+    const fetchMock = vi.fn().mockResolvedValueOnce(okFetchResponse(mockGistResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const server = makeServer();
+    registerRegoPlaygroundShare(server, baseConfig);
+    const env = await callTool<RegoPlaygroundShareOutput>(server, 'rego_playground_share', {
+      policy: POLICY,
+    });
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as { public: boolean };
+    expect(body.public).toBe(false);
+    expect(env.data?.public).toBe(false);
+  });
+
+  it('creates a public Gist when asked', async () => {
+    process.env['GITHUB_TOKEN'] = 'ghp_test_token';
+    const fetchMock = vi.fn().mockResolvedValueOnce(okFetchResponse(mockGistResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const server = makeServer();
+    registerRegoPlaygroundShare(server, baseConfig);
+    const env = await callTool<RegoPlaygroundShareOutput>(server, 'rego_playground_share', {
+      policy: POLICY,
+      public: true,
+    });
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as { public: boolean };
+    expect(body.public).toBe(true);
+    expect(env.data?.public).toBe(true);
+  });
+
   it('uses provided description in the Gist body', async () => {
     process.env['GITHUB_TOKEN'] = 'ghp_test_token';
     const fetchMock = vi.fn().mockResolvedValueOnce(okFetchResponse(mockGistResponse()));
@@ -278,22 +315,5 @@ describe('rego_playground_share', () => {
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('GIST_CREATE_FAILED');
     expect(env.error?.message).toMatch(/unparseable/);
-  });
-
-  it('creates a public Gist (public: true)', async () => {
-    process.env['GITHUB_TOKEN'] = 'ghp_test_token';
-    const fetchMock = vi.fn().mockResolvedValueOnce(okFetchResponse(mockGistResponse()));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const server = makeServer();
-    registerRegoPlaygroundShare(server, baseConfig);
-    await callTool(server, 'rego_playground_share', { policy: POLICY });
-
-    const body = JSON.parse(
-      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
-    ) as {
-      public: boolean;
-    };
-    expect(body.public).toBe(true);
   });
 });
