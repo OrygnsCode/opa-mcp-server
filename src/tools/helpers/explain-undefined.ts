@@ -248,8 +248,15 @@ function findBlockingRowFromTrace(rule: AstRule, trace: TraceEvent[]): number | 
   return undefined;
 }
 
-async function evalConditionStandalone(
-  exprText: string,
+/**
+ * Evaluate a prefix of a rule body as a query inside the rule's package. The
+ * prefix carries the locals assigned earlier, and the package makes a bare
+ * reference to a sibling rule resolve, so the answer is the one the rule
+ * itself would get up to that point.
+ */
+async function evalPrefixStandalone(
+  prefixText: string,
+  pkg: string,
   evalBase: {
     source?: string;
     paths?: string[];
@@ -261,11 +268,14 @@ async function evalConditionStandalone(
 ): Promise<Pick<ConditionResult, 'result' | 'note'>> {
   const result = await opa.eval(
     {
-      query: exprText,
+      query: prefixText,
       source: evalBase.source,
       paths: evalBase.paths,
       input: evalBase.input,
       inputPath: evalBase.inputPath,
+      // The parsed path carries the `data` root; the flag takes the package
+      // name as written in the module.
+      package: pkg.replace(/^data\./, '') || undefined,
     },
     signal,
   );
@@ -441,6 +451,8 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         // ── Step 3: find matching rules ───────────────────────────────────
         const queryParsed = queryToPackageAndRule(args.query);
         const matchedRules: AstRule[] = [];
+        /** Package of each matched rule, index-aligned with matchedRules. */
+        const matchedPackages: string[] = [];
 
         for (const ast of asts) {
           const pkgPath = extractPackagePath(ast);
@@ -449,6 +461,7 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             const name = extractRuleHeadName(rule.head);
             if (!queryParsed || name === queryParsed.ruleName) {
               matchedRules.push(rule);
+              matchedPackages.push(pkgPath);
             }
           }
         }
@@ -543,17 +556,39 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             });
           } else {
             // Standalone eval: OPA's indexer eliminated this rule before
-            // entering its body. Evaluate each condition independently.
+            // entering its body. Each condition is judged inside the rule's
+            // package with everything that held before it in scope, so a
+            // local assigned earlier and a bare reference to a sibling rule
+            // both resolve, and a guard behind a failed one is still judged.
+            // Evaluating each condition alone left the dependent ones
+            // unevaluable and named the first non-true one as the blocker,
+            // often a satisfied guard sitting ahead of the real one.
+            const pkg = matchedPackages[ruleIndex] ?? '';
+            const held: string[] = [];
+            let stopped: string | undefined;
             for (const cond of conditions) {
               if (cond.text === '<expression>') {
                 cond.note = 'No location text available; cannot evaluate standalone.';
-                continue;
+                stopped = 'Not evaluated: an earlier condition has no location text.';
+                break;
               }
-              const evalOut = await evalConditionStandalone(cond.text, evalBase, opa, signal);
+              const evalOut = await evalPrefixStandalone(
+                [...held, cond.text].join('; '),
+                pkg,
+                evalBase,
+                opa,
+                signal,
+              );
               cond.result = evalOut.result;
               if (evalOut.note) cond.note = evalOut.note;
+              if (evalOut.result === 'true') held.push(cond.text);
             }
-            const blockingCondition = conditions.find((c) => c.result !== 'true') ?? null;
+            if (stopped !== undefined) {
+              for (const cond of conditions) {
+                if (cond.result === 'unevaluable' && cond.note === undefined) cond.note = stopped;
+              }
+            }
+            const blockingCondition = conditions.find((c) => c.result === 'false') ?? null;
             rules.push({
               ruleIndex,
               isDefault: false,

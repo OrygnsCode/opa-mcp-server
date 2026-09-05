@@ -116,6 +116,12 @@ not part of the public surface and may change in minor releases.
   `bugs` categories; regal ships no `security` category, so that half of the
   sweep matched nothing. The description now says what runs: the `bugs`
   category, plus any custom rules a project places in a `security` category.
+- `rego_explain_undefined`: on the path where OPA's indexer skips the rule, the
+  blocking condition was chosen from each body expression evaluated on its own,
+  so an expression that needs an earlier local or a sibling rule came back
+  unevaluable and was blamed ahead of the guard that really failed. The body is
+  now evaluated as cumulative prefixes inside the rule's package, and the first
+  condition that stops holding is the one reported.
 
 ## [0.5.0] - 2026-09-04
 

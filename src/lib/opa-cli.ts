@@ -128,6 +128,11 @@ export interface EvalInput {
   partial?: boolean;
   /** Refs treated as unknown during partial evaluation, e.g. ["input.user"]. */
   unknowns?: string[];
+  /**
+   * Package the query is evaluated in, passed as `--package`, so a bare
+   * reference to a rule of that package resolves without qualification.
+   */
+  package?: string;
   /** Treat builtin errors as fatal instead of returning undefined. */
   strictBuiltinErrors?: boolean;
   /** Path to a capabilities JSON file. */
@@ -524,6 +529,7 @@ export class OpaCli {
     if (input.partial) args.push('--partial');
     for (const ref of input.unknowns ?? []) args.push('--unknowns', ref);
     if (input.strictBuiltinErrors) args.push('--strict-builtin-errors');
+    if (input.package) args.push('--package', input.package);
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     if (input.schemaDir) args.push('--schema', input.schemaDir);
 
