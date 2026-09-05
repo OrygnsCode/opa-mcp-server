@@ -42,7 +42,13 @@ function regoBlocks(markdown: string): string[] {
 async function check(source: string, name: string): Promise<{ ok: boolean; message: string }> {
   const file = join(workDir, `${name}.rego`);
   await writeFile(file, source);
-  const r = spawnSync(OPA, ['check', '--strict', file], { encoding: 'utf8', windowsHide: true });
+  // Named relatively from its own directory: OPA's loader resolves an
+  // absolute path against the drive the child is on.
+  const r = spawnSync(OPA, ['check', '--strict', `${name}.rego`], {
+    cwd: workDir,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
   return { ok: r.status === 0, message: (r.stdout || r.stderr).slice(0, 400) };
 }
 
