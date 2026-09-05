@@ -17,6 +17,18 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: a Rego module on a different drive from the server's working
+  directory was reported missing. The 0.5.0 drive-letter fix respelled data
+  documents relative to a working directory on their drive but left modules
+  absolute, since a module mounts at its own `package` whatever path it
+  arrives by. OPA still opens the module by the remainder after the colon, a
+  root-relative path it resolves against the drive the child is running on, so
+  a module on any other drive failed with a file-not-found. Every load path now
+  takes part in choosing the working directory; only data documents are
+  respelled.
+
 ## [0.5.0] - 2026-09-04
 
 ### Security
