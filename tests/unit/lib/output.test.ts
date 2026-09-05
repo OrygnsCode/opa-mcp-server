@@ -89,7 +89,49 @@ describe('formatEnvelope — truncation', () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.truncated).toBe(true);
     expect(parsed.error?.code).toBe('UNKNOWN_ERROR');
-    expect(parsed.error?.message).toMatch(/^x{100,}.* \[message truncated\]$/);
+    expect(parsed.error?.message).toMatch(/^x{100,}.* \[truncated\]$/);
+  });
+
+  it('holds the cap when the message is mostly characters JSON escapes', () => {
+    // A newline is two bytes once serialised, a control character six. The
+    // cut is measured on the serialised text, so the cap holds anyway.
+    for (const filler of ['\n', '"', String.fromCharCode(0)]) {
+      const env: ToolEnvelope<never> = {
+        ok: false,
+        error: { code: 'UNKNOWN_ERROR', message: filler.repeat(3000) },
+      };
+      const text = formatEnvelope(env, 1_000).content[0]!.text;
+      expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1_000);
+      const parsed = JSON.parse(text) as ToolEnvelope<unknown>;
+      expect(parsed.error?.code).toBe('UNKNOWN_ERROR');
+      expect(parsed.error?.message).toMatch(/\[truncated\]$/);
+    }
+  });
+
+  it('bounds a huge hint and huge warnings as well', () => {
+    const env: ToolEnvelope<never> = {
+      ok: false,
+      error: { code: 'EVAL_ERROR', message: 'short', hint: 'h'.repeat(5000) },
+      warnings: ['w'.repeat(5000)],
+    };
+    const text = formatEnvelope(env, 1_000).content[0]!.text;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1_000);
+    const parsed = JSON.parse(text) as ToolEnvelope<unknown>;
+    expect(parsed.error?.message).toBe('short');
+    expect(parsed.error?.hint).toMatch(/\[truncated\]$/);
+    expect(parsed.warnings?.[0]).toMatch(/warnings dropped/);
+  });
+
+  it('keeps small details next to a huge message, since dropping them would not help', () => {
+    const env: ToolEnvelope<never> = {
+      ok: false,
+      error: { code: 'EVAL_ERROR', message: 'm'.repeat(3000), details: { exitCode: 2 } },
+    };
+    const text = formatEnvelope(env, 1_000).content[0]!.text;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1_000);
+    const parsed = JSON.parse(text) as ToolEnvelope<unknown>;
+    expect(parsed.error?.details).toEqual({ exitCode: 2 });
+    expect(parsed.error?.message).toMatch(/\[truncated\]$/);
   });
 
   it('leaves an error that fits alone', () => {
