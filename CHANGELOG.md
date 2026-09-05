@@ -102,6 +102,11 @@ not part of the public surface and may change in minor releases.
   `openWorldHint: true`, since a policy can reach the network through
   `http.send`; a client that gates on the hint will ask before running one.
   They keep `readOnlyHint: true`: they write nothing locally.
+- Every tool that evaluates Rego, including the Regal tools that run a
+  project's custom rules, now declares `openWorldHint: true` and no longer
+  claims `readOnlyHint`, since a policy's own `http.send` can reach, and write
+  to, a remote system. A client that gates on the hints will ask before running
+  one; `destructiveHint` stays false.
 
 ## [0.5.0] - 2026-09-04
 

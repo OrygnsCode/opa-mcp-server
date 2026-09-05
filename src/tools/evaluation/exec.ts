@@ -139,7 +139,7 @@ export function registerOpaExec(server: McpServer, config: Config): void {
         'Evaluate a policy decision against one or more input files using `opa exec --format=json`. Unlike `rego_eval` (single input), `opa exec` processes every file independently and returns a per-file result -- ideal for CI pipelines that check many config files against a policy in one call. Supply `bundle` for bundle-based policies or `dataPaths` for raw policy files; these are mutually exclusive. Each file that fails evaluation appears in `results` with an `error` field rather than a `result` field. Set one of `fail`/`failDefined`/`failNonEmpty` to turn the call into a CI gate: the result then reports `failed: true` (instead of erroring) when the gate condition is met.',
       inputSchema: OpaExecInput,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
         // Runs Rego supplied by the caller; a policy can reach the network through http.send.

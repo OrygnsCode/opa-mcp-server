@@ -72,6 +72,7 @@ type ToolHandler = (
 
 interface RegisteredToolLike {
   handler: ToolHandler;
+  annotations?: Record<string, unknown>;
 }
 
 interface ServerWithTools {
@@ -89,6 +90,21 @@ export function getToolHandler(server: McpServer, name: string): ToolHandler {
     throw new Error(`Tool ${name} was not registered on this server.`);
   }
   return entry.handler;
+}
+
+/** A registered tool's annotations, as the SDK will report them in tools/list. */
+export function getToolAnnotations(server: McpServer, name: string): Record<string, unknown> {
+  const registry = (server as unknown as ServerWithTools)._registeredTools;
+  const entry = registry[name];
+  if (!entry) {
+    throw new Error(`Tool ${name} was not registered on this server.`);
+  }
+  return entry.annotations ?? {};
+}
+
+/** Every registered tool name. */
+export function registeredToolNames(server: McpServer): string[] {
+  return Object.keys((server as unknown as ServerWithTools)._registeredTools);
 }
 
 /**

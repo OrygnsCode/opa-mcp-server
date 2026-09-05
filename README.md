@@ -607,14 +607,6 @@ Four things worth knowing if you're going to operate this:
 
 ## Security
 
-Tools that evaluate caller-supplied Rego, `rego_eval` and its variants,
-`rego_test`, `rego_bench`, `opa_exec`, the explain, diff and coverage helpers
-and the conftest tools, declare `openWorldHint: true`: OPA's `http.send` lets a
-policy reach the network, and a client that gates on the hint will ask before
-running one. They keep `readOnlyHint: true`, since they write nothing locally.
-The server does not pass OPA a capabilities file that would disable network
-built-ins.
-
 This server is designed to run **locally**, started by an MCP client on
 the user's own machine, communicating over stdio. It is not designed to
 be exposed on the network.
@@ -637,6 +629,16 @@ be exposed on the network.
   `OPA_MCP_PASSTHROUGH_ENV` opts individual variables back in.
 - `OPA_TOKEN` is never echoed in tool responses or log entries, and is not
   passed to any child process.
+- **Tools that evaluate Rego are annotated open-world and not read-only.**
+  `rego_eval` and its variants, `rego_test`, `rego_test_multiroot`,
+  `rego_bench`, `rego_compile_query`, `opa_exec`, the explain, diff and
+  coverage helpers, the conftest tools, and the Regal tools (`rego_lint`,
+  `rego_security_audit`, `rego_fix`, which run a project's custom rules) all
+  run Rego, and OPA's `http.send` lets a policy reach, and write to, any
+  network address. A client that gates on the hints will ask before running
+  one. No evaluating tool passes or accepts a capabilities file, so
+  `http.send` cannot be restricted for evaluation; `rego_check` and
+  `opa_bundle_build` accept one, which affects only checking and building.
 - Releases are published with
   [npm provenance](https://docs.npmjs.com/generating-provenance-statements);
   the Docker image is built reproducibly from the committed `Dockerfile`.

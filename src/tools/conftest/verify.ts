@@ -86,7 +86,8 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
         'Requires `conftest` on PATH or `CONFTEST_BINARY` set; returns CONFTEST_NOT_FOUND otherwise.',
       inputSchema: ConftestVerifyInput,
       annotations: {
-        readOnlyHint: true,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: true,

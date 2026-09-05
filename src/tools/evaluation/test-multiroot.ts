@@ -453,7 +453,7 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
         "Run `opa test` once per root and aggregate results. Solves the package-conflict problem that occurs when `opa test .` is run on a repo with multiple independent package namespaces (OPA issue #4724). Two modes: `explicit` (supply root list with optional per-root `include` paths for shared libraries) and `scan` (auto-discover leaf test roots using the leaf rule -- a directory is a root only if it directly contains `*_test.rego` files and none of its eligible subdirectories do, preventing OPA's automatic recursion from double-running tests). Use `sharedPaths` in scan mode to add shared library directories to every root's invocation without including them in discovery. Coverage and threshold work per-root; `overallCoveragePct` is the mean across roots that have coverage data.",
       inputSchema: RegoTestMultirootInput,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
         // Runs Rego supplied by the caller; a policy can reach the network through http.send.
