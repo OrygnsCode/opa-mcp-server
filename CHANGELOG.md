@@ -208,6 +208,11 @@ not part of the public surface and may change in minor releases.
   `kind` field, and describes `rego_suggest_fix` as returning suggestions with
   a confidence level; the `opa://builtins` resource says which `opa` binary
   it reflects.
+- `rego_verify`: a field compared as a string, number or boolean and also read
+  as the object holding a deeper field was modelled as two unrelated values,
+  so a rule no input can satisfy was reported satisfiable with a witness OPA
+  rejects. The solver now knows a scalar and a path beneath it are never both
+  present.
 
 ## [0.5.0] - 2026-09-04
 

@@ -118,6 +118,38 @@ export function createInputVars(
   return { vars, presence };
 }
 
+/**
+ * Facts about the shape of any input, added to the solver before the
+ * property. A path with a scalar sort (a string, number or boolean the rule
+ * compared it against) cannot also be an object holding a path beneath it,
+ * so the two are never present together. Without this, `input.a == "x"` and
+ * `input.a.b == "y"` got two independent constants and a rule no input can
+ * satisfy was proved satisfiable, with a witness OPA rejects.
+ */
+export function structuralAxioms(
+  Z3: Z3Context,
+  inputPaths: Map<string, string[]>,
+  sorts: Map<string, Z3Sort>,
+  presence: Map<string, Z3Bool>,
+): Z3Bool[] {
+  const axioms: Z3Bool[] = [];
+  const entries = [...inputPaths.entries()];
+  for (const [parent, parentSegs] of entries) {
+    const sort = sorts.get(parent) ?? 'string';
+    if (sort === 'uninterpreted') continue;
+    const parentPresent = presence.get(parent);
+    if (parentPresent === undefined) continue;
+    for (const [child, childSegs] of entries) {
+      if (childSegs.length <= parentSegs.length) continue;
+      if (!parentSegs.every((seg, i) => childSegs[i] === seg)) continue;
+      const childPresent = presence.get(child);
+      if (childPresent === undefined) continue;
+      axioms.push(Z3.Not(Z3.And(parentPresent, childPresent)));
+    }
+  }
+  return axioms;
+}
+
 /** Every input path an expression reads. Used to build the presence guard. */
 function inputPathsOf(expr: VerifyExpr, out: Set<string>): void {
   const take = (v: VerifyValue | undefined): void => {

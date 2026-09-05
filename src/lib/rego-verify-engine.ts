@@ -15,7 +15,7 @@
 import type { OpaModule } from './rego-ast-types.js';
 import { walkModule } from './rego-ast-walker.js';
 import { inferTypes } from './rego-type-inferencer.js';
-import { createInputVars, encodeRule } from './rego-smt-encoder.js';
+import { createInputVars, structuralAxioms, encodeRule } from './rego-smt-encoder.js';
 import {
   extractCounterexample,
   formatCounterexample,
@@ -186,6 +186,11 @@ export async function runVerify(
       }
 
       signal?.throwIfAborted();
+
+      // What any real input looks like, before asking about this one.
+      for (const axiom of structuralAxioms(Z3, walked.inputPaths, typeResult.sorts, presenceVars)) {
+        solver.add(axiom);
+      }
 
       let solverResult = await solver.check();
 
