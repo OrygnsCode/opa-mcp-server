@@ -17,8 +17,16 @@
  * `--signing-key` or `--capabilities` file is opened directly and works fine
  * absolute, so callers pass only their genuine load paths. And a `.rego`
  * module mounts at its own `package` whatever path it arrived by, so only data
- * documents and the directories holding them move. That is why this stayed
- * invisible: policies loaded correctly and their data silently did not.
+ * documents and the directories holding them are respelled. That is why this
+ * stayed invisible: policies loaded correctly and their data silently did not.
+ *
+ * A module is still opened by the remainder after the colon, which is a
+ * root-relative path OPA resolves against the drive the child is running on.
+ * That works only when the working directory is on the module's drive, which
+ * on a developer machine it usually is and on a CI runner that keeps its
+ * workspace and its temp directory on different drives it is not. So every
+ * load path, module or not, takes part in choosing the working directory;
+ * only the non-module ones are respelled.
  */
 import { existsSync } from 'node:fs';
 import { dirname, extname, isAbsolute, parse, relative, sep } from 'node:path';
@@ -32,9 +40,10 @@ const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
  *
  * A `.rego` module mounts at its own `package` whatever path it arrived by,
  * verified against OPA 1.19: an absolute `p.rego` lands at `data.p` while an
- * absolute `d.json` lands at `data.C`. Modules are therefore left alone, which
- * also keeps the rewrite away from the temp file this server writes for inline
- * source, whose absolute path is matched afterwards to redact it from output.
+ * absolute `d.json` lands at `data.C`. Modules are therefore not respelled,
+ * which also keeps the rewrite away from the temp file this server writes for
+ * inline source, whose absolute path is matched afterwards to redact it from
+ * output. They still count toward the working directory: see `rewriteLoadPaths`.
  */
 function needsRewrite(path: string): boolean {
   return extname(path).toLowerCase() !== '.rego';
@@ -80,19 +89,22 @@ function commonAncestor(paths: string[]): string | undefined {
  * drive letter nothing matches and the arguments come back unchanged.
  */
 export function rewriteLoadPaths(args: string[], loadPaths: readonly string[]): RewrittenArgs {
-  const targets = [
-    ...new Set(loadPaths.filter((p) => DRIVE_PATH.test(p) && needsRewrite(p) && existsSync(p))),
-  ];
-  if (targets.length === 0) return { args };
+  // Every drive-letter load path anchors the working directory, modules
+  // included, since a module is opened relative to the child's drive even
+  // though it mounts by package. Only the non-module ones are respelled.
+  const anchors = [...new Set(loadPaths.filter((p) => DRIVE_PATH.test(p) && existsSync(p)))];
+  if (anchors.length === 0) return { args };
 
-  const drives = [...new Set(targets.map((p) => parse(p).root.toLowerCase()))];
+  const drives = [...new Set(anchors.map((p) => parse(p).root.toLowerCase()))];
   if (drives.length > 1) return { args, conflict: { drives } };
 
   // The ancestor is taken over the containing directories, never the paths
   // themselves: the ancestor of a single file would be that file, and a file
   // cannot be a working directory.
-  const cwd = commonAncestor(targets.map(dirname));
+  const cwd = commonAncestor(anchors.map(dirname));
   if (cwd === undefined || !existsSync(cwd)) return { args };
+
+  const targets = anchors.filter(needsRewrite);
 
   const rewritten = args.map((a) => {
     if (!targets.includes(a)) return a;

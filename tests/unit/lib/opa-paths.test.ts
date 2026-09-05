@@ -55,11 +55,24 @@ describe('rewriteLoadPaths', () => {
     expect(rewriteLoadPaths(args, []).args).toEqual(args);
   });
 
-  it('leaves a .rego module alone, since it mounts by package', () => {
-    // Rewriting modules would also catch the temp file used for inline source,
+  it('does not respell a .rego module, since it mounts by package', () => {
+    // Respelling modules would also catch the temp file used for inline source,
     // whose absolute path is matched afterwards to redact it from output.
     const out = rewriteLoadPaths(['eval', '--data', policyFile], [policyFile]);
     expect(out.args).toEqual(['eval', '--data', policyFile]);
+  });
+
+  it.runIf(WINDOWS)("still runs the child on the module's drive", () => {
+    // OPA opens a module by the remainder after the colon, a root-relative
+    // path it resolves against the drive the child runs on. Left to the
+    // server's own working directory, a module on another drive is not found.
+    const out = rewriteLoadPaths(['eval', '--data', policyFile], [policyFile]);
+    expect(out.cwd).toBe(dirname(policyFile));
+    expect(out.conflict).toBeUndefined();
+  });
+
+  it.runIf(!WINDOWS)('chooses no working directory for a module without a drive letter', () => {
+    const out = rewriteLoadPaths(['eval', '--data', policyFile], [policyFile]);
     expect(out.cwd).toBeUndefined();
   });
 
