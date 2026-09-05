@@ -104,6 +104,27 @@ describe('rego_eval', () => {
     expect(opts.stdin).toBe('{"user":"alice"}');
   });
 
+  it('keeps a string that merely looks like a JSON scalar as a string', async () => {
+    // "42" is the string "42", not the number 42. Parsing every string input
+    // retyped scalars, and a policy comparing input to a string saw a number.
+    for (const [given, stdin] of [
+      ['42', '"42"'],
+      ['true', '"true"'],
+      ['null', '"null"'],
+    ] as const) {
+      mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      await callTool(server, 'rego_eval', {
+        query: 'input',
+        paths: [validRegoPath()],
+        input: given,
+      });
+      const opts = mockRun.mock.calls.at(-1)![1];
+      expect(opts.stdin).toBe(stdin);
+    }
+  });
+
   it('passes a non-JSON string input through as-is', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
     const server = makeServer();

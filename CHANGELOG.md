@@ -43,6 +43,10 @@ not part of the public surface and may change in minor releases.
   ever settling. A child killed from outside the server is reported as
   `SUBPROCESS_KILLED` naming the signal, not as a missing binary. On SIGINT or
   SIGTERM the server now signals the children it started before exiting.
+- `rego_eval`: a string input that happened to parse as JSON, such as `"42"`
+  or `"true"`, was retyped to a number or boolean before evaluation. Strings
+  are now passed as strings; only an object or array that arrived serialised
+  as a string is still repaired, as every other tool does.
 
 ## [0.5.0] - 2026-09-04
 
