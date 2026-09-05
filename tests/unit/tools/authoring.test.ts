@@ -525,6 +525,31 @@ describe('rego_inspect', () => {
 });
 
 describe('rego_capabilities', () => {
+  it('returns full records for the named builtins only, and lists the ones it lacks', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({
+          builtins: [
+            { name: 'http.send', decl: { type: 'function' }, description: 'sends' },
+            { name: 'plus', decl: { type: 'function' } },
+          ],
+          future_keywords: ['every'],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{
+      builtins?: Array<{ name: string }>;
+      builtin_count?: number;
+      missing?: string[];
+    }>(server, 'rego_capabilities', { current: true, builtins: ['http.send', 'nope'] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.builtins?.map((b) => b.name)).toEqual(['http.send']);
+    expect(env.data?.builtin_count).toBe(1);
+    expect(env.data?.missing).toEqual(['nope']);
+  });
+
   it('returns builtin names and count by default (names_only: true)', async () => {
     mockRun.mockResolvedValueOnce(
       spawnSuccess(

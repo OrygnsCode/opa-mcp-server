@@ -193,6 +193,9 @@ not part of the public surface and may change in minor releases.
   the policy compares against. The escapes are decoded now. A backslash in a
   policy literal is escaped on the way into Z3, so a literal that spells such
   an escape itself is no longer read as one.
+- `rego_capabilities` gained a `builtins` filter that returns the full record
+  for a few named builtins, which fits the response cap; `names_only: false`
+  returns every record and is now documented as needing the cap raised.
 
 ## [0.5.0] - 2026-09-04
 
