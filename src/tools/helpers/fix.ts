@@ -192,7 +192,6 @@ export function registerRegoFix(server: McpServer, config: Config): void {
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
-        idempotentHint: true,
         // Runs a project's custom Regal rules, which are Rego with the network built-ins.
         openWorldHint: true,
       },

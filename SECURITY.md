@@ -87,7 +87,9 @@ on the network.
   explain, diff and coverage helpers, the conftest tools, and the Regal tools,
   which run a project's custom rules) declare `openWorldHint: true` and not
   `readOnlyHint`, because OPA's `http.send` lets a policy reach, and write to,
-  any network address. No evaluating tool passes or accepts a capabilities
+  any network address. `opa_query_decision` and `opa_compile_query` are the
+  exception: the remote OPA evaluates a policy it already holds, and their
+  hints describe the call to that server. No evaluating tool passes or accepts a capabilities
   file, so `http.send` cannot be restricted for evaluation; `rego_check` and
   `opa_bundle_build` accept one, which affects only checking and building.
 - Releases are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements);

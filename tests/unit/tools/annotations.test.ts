@@ -92,12 +92,10 @@ describe('tool annotations', () => {
       const a = getToolAnnotations(server, name);
       expect(a['openWorldHint'], name).toBe(true);
       expect(a['readOnlyHint'], name).toBe(false);
-      // A policy chooses its own HTTP method, so neither hint can be promised;
-      // rego_fix is the one tool here whose own writes are the point.
-      if (name !== 'rego_fix') {
-        expect(a['destructiveHint'], name).toBeUndefined();
-        expect(a['idempotentHint'], name).toBeUndefined();
-      }
+      // A policy chooses its own HTTP method, so neither hint can be promised.
+      // rego_fix keeps destructiveHint: its own file writes are the point.
+      if (name !== 'rego_fix') expect(a['destructiveHint'], name).toBeUndefined();
+      expect(a['idempotentHint'], name).toBeUndefined();
     }
   });
 
