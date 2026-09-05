@@ -31,6 +31,16 @@ type Z3Api = Awaited<ReturnType<typeof Z3Init>>;
  */
 export const Z3_MEMORY_MAX_MB = 1024;
 
+/**
+ * The solver's own bound, checked at its checkpoints, where running out
+ * degrades to an "unknown" answer. It sits well below the process ceiling on
+ * purpose: at the same value the allocator's exception won the race, and an
+ * allocation failing inside a destructor ends in an abort rather than an
+ * error. Measured in review: equal caps aborted four times in four; a lower
+ * solver bound answered "unknown" four times in four.
+ */
+export const Z3_SOLVER_MAX_MEMORY_MB = 768;
+
 // Module-level singleton
 let z3InitPromise: Promise<unknown> | null = null;
 let z3Api: Z3Api | undefined;
@@ -38,6 +48,8 @@ let z3Api: Z3Api | undefined;
 let z3Unusable: string | undefined;
 /** Number of Z3 critical sections currently running (0 or 1). */
 let z3Depth = 0;
+/** Rejects the section in flight; set while one is running. */
+let poisonInFlight: ((e: Error) => void) | undefined;
 
 /**
  * Return the shared Z3 Context, initializing WASM on first call.
@@ -77,6 +89,22 @@ export function isZ3Busy(): boolean {
  */
 export function markZ3Unusable(reason: string): void {
   z3Unusable = reason;
+  // A heap abort arrives from the WASM worker and leaves the solve's promise
+  // unsettled for good. Settle it here, so the section releases the lock and
+  // the calls queued behind it are answered instead of hanging.
+  poisonInFlight?.(new Error(`Z3 became unusable during the solve (${reason}).`));
+}
+
+/**
+ * Whether an uncaught error is the WASM heap giving out, rather than some
+ * unrelated failure that happened while a solve was running.
+ */
+export function isZ3Failure(e: unknown): boolean {
+  // A WebAssembly.RuntimeError is named just that; the global is not in this
+  // project's compiler libs, so the name is the check.
+  if (e instanceof Error && e.name === 'RuntimeError') return true;
+  const message = e instanceof Error ? e.message : String(e);
+  return /Aborted\(|memory access out of bounds|out of memory|unreachable executed/i.test(message);
 }
 
 /**
@@ -104,9 +132,13 @@ export async function withZ3Lock<T>(fn: () => Promise<T>): Promise<T> {
   z3LockTail = predecessor.then(() => mine);
   await predecessor;
   z3Depth++;
+  const poisoned = new Promise<never>((_resolve, reject) => {
+    poisonInFlight = reject;
+  });
   try {
-    return await fn();
+    return await Promise.race([fn(), poisoned]);
   } finally {
+    poisonInFlight = undefined;
     z3Depth--;
     release();
   }
@@ -121,5 +153,6 @@ export function resetZ3ForTesting(): void {
   z3Api = undefined;
   z3Unusable = undefined;
   z3Depth = 0;
+  poisonInFlight = undefined;
   z3LockTail = Promise.resolve();
 }

@@ -24,7 +24,7 @@ import { getInstallId } from './lib/install-id.js';
 import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
-import { isZ3Busy, markZ3Unusable } from './lib/rego-z3.js';
+import { isZ3Busy, isZ3Failure, markZ3Unusable } from './lib/rego-z3.js';
 import { terminateChildren } from './lib/subprocess.js';
 import { registerPrompts } from './prompts/index.js';
 import { registerResources } from './resources/index.js';
@@ -168,14 +168,18 @@ export async function main(transport?: Transport): Promise<McpServer> {
     // a bug the process must not paper over.
     process.on('uncaughtException', (e: unknown) => {
       const detail = e instanceof Error ? e.message : String(e);
-      if (isZ3Busy()) {
+      // Only a WASM fault while a solve is running is Z3's; anything else
+      // that happens to land in that window is a bug of its own.
+      if (isZ3Busy() && isZ3Failure(e)) {
         markZ3Unusable(detail);
         logger.error('Z3 failed outside a try/catch; rego_verify is disabled until restart', {
           error: detail,
         });
         return;
       }
-      logger.error('uncaught exception', { error: detail });
+      logger.error('uncaught exception', {
+        error: e instanceof Error ? (e.stack ?? detail) : detail,
+      });
       process.exit(1);
     });
   }

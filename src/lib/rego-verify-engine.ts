@@ -22,7 +22,7 @@ import {
   type CounterexampleInput,
 } from './rego-counterexample.js';
 import { describeProperty, type VerifyProperty } from './rego-property-parser.js';
-import { getZ3, withZ3Lock, Z3_MEMORY_MAX_MB } from './rego-z3.js';
+import { getZ3, withZ3Lock, Z3_SOLVER_MAX_MEMORY_MB } from './rego-z3.js';
 
 // Monotonically increasing counter used to generate a unique prefix for all
 // Z3 constant names within each runVerify call. This prevents sort conflicts
@@ -158,11 +158,11 @@ export async function runVerify(
       // pressure under high call volume.
       const solver = new Z3.Solver();
 
-      // Bounded in time and in memory: past either, Z3 answers "unknown" or
-      // throws, and both become an inconclusive verdict rather than a hang
-      // or a dead server.
+      // Bounded in time and in memory. The solver's memory bound sits below
+      // the process ceiling so that running out answers "unknown" at a
+      // checkpoint instead of failing an allocation; see rego-z3.ts.
       solver.set('timeout', SOLVER_TIMEOUT_MS);
-      solver.set('max_memory', Z3_MEMORY_MAX_MB);
+      solver.set('max_memory', Z3_SOLVER_MAX_MEMORY_MB);
 
       switch (property.kind) {
         case 'always_true':
@@ -210,7 +210,7 @@ export async function runVerify(
       if (solverResult === 'unknown') {
         return inconclusive(
           property,
-          `Z3 solver returned "unknown" (timeout or resource limit reached after ${SOLVER_TIMEOUT_MS}ms). The policy may be too complex for automated verification.`,
+          `Z3 solver returned "unknown": the ${SOLVER_TIMEOUT_MS}ms time limit or the ${Z3_SOLVER_MAX_MEMORY_MB} MB memory limit was reached. The policy may be too complex for automated verification.`,
           unsupportedInRule,
           warnings,
         );
@@ -281,11 +281,16 @@ export async function runVerify(
     if (signal?.aborted) throw e;
     const detail = e instanceof Error ? e.message : String(e);
     const isSortConflict = /sort/i.test(detail) && /incompat/i.test(detail);
+    // A dead Z3 says so in its message; that is the one thing the caller can
+    // act on (restart), so it goes through verbatim.
+    const z3Down = /Z3 (is unavailable|became unusable)/.test(detail);
     return inconclusive(
       property,
-      isSortConflict
-        ? 'The rule constrains an input field to conflicting types (for example, compared against both a number and a string), which cannot be encoded for SMT solving.'
-        : 'Verification could not be completed due to an internal encoding or solver error.',
+      z3Down
+        ? detail
+        : isSortConflict
+          ? 'The rule constrains an input field to conflicting types (for example, compared against both a number and a string), which cannot be encoded for SMT solving.'
+          : 'Verification could not be completed due to an internal encoding or solver error.',
       [
         ...unsupportedInRule,
         {
