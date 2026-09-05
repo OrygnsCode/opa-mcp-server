@@ -10,8 +10,8 @@
  * Exit code mapping (same as conftest_test):
  *   null  -- binary not found → CONFTEST_NOT_FOUND
  *   0     -- all tests pass
- *   1     -- one or more test failures
- *   2+    -- command error
+ *   1+    -- test failures when stdout holds results, a command error when it
+ *            does not
  */
 import { z } from 'zod';
 
@@ -117,14 +117,10 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
         const subprocessFailure = mapSubprocessFailure(result, 'conftest');
         if (subprocessFailure) return subprocessFailure;
 
-        if (result.exitCode === 0 || result.exitCode === 1) {
-          const results = parseConftestResults(result.stdout);
-          if (results === null) {
-            return err('UNKNOWN_ERROR', 'conftest verify produced no parseable JSON output.', {
-              details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
-            });
-          }
-
+        // Results on stdout are an outcome whatever the exit code; see
+        // conftest_test for the measured codes.
+        const results = parseConftestResults(result.stdout);
+        if (results !== null) {
           // conftest prints `null` and exits 0 when it finds no test rules.
           // A clean pass over nothing is not a pass.
           if (results.length === 0) {
@@ -147,7 +143,7 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
         const detail = result.stderr.trim() || result.stdout.trim();
         return err(
           'UNKNOWN_ERROR',
-          `conftest verify failed with exit code ${result.exitCode}: ${detail}`,
+          `conftest verify failed with exit code ${result.exitCode}: ${detail || 'no output'}`,
           { details: { exitCode: result.exitCode, stderr: result.stderr.trim() } },
         );
       });

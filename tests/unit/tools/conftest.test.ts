@@ -164,6 +164,32 @@ describe('conftest_test', () => {
     expect(env.data?.summary.passed).toBe(0);
   });
 
+  it('returns ok=true, passed=false on exit 2 (a denial under --fail-on-warn)', async () => {
+    // conftest 0.69.0 exits 2 when failures and warnings coincide under
+    // --fail-on-warn, with the full results on stdout. That is a denial to
+    // report, not a broken tool.
+    const results: ConftestFileResult[] = [
+      makeFileResult({
+        filename: failingConfig,
+        failures: [{ msg: 'Container must not run as root' }],
+        warnings: [{ msg: 'Missing resource limits' }],
+      }),
+    ];
+    mockRun.mockResolvedValueOnce({ ...okSpawn, exitCode: 2, stdout: JSON.stringify(results) });
+
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [failingConfig],
+      failOnWarn: true,
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.summary.failed).toBe(1);
+    expect(env.data?.summary.warnings).toBe(1);
+  });
+
   it('counts warnings correctly in summary', async () => {
     const results: ConftestFileResult[] = [
       makeFileResult({
