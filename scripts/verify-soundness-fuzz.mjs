@@ -113,6 +113,8 @@ const BODIES = [
   ['endswith(input.s, "suffix")', 'endswith'],
   ['true', 'lit_true'],
   ['false', 'lit_false'],
+  ['not true', 'not_true'],
+  ['not false', 'not_false'],
   ['input.x == null', 'eq_null'],
   ['input.n > 0\n\tinput.n < 1', 'frac_range'],
   ['input.x == "a"\n\tinput.x == "b"', 'contradiction'],
@@ -159,7 +161,9 @@ function gen() {
   // Helper references, with and without a default on the helper.
   for (const hd of [null, 'true', 'false']) {
     for (const hh of ['true', 'false']) {
-      for (const [body, bname] of BODIES.slice(0, 6)) {
+      // Every body shape, literals included: the inlining path treats them
+      // differently from a rule body and needs the same coverage.
+      for (const [body, bname] of BODIES) {
         const def = hd === null ? '' : `default helper := ${hd}\n\n`;
         out.push({
           name: `h${id++}_hd${hd ?? 'none'}_hh${hh}_${bname}`,
@@ -237,8 +241,20 @@ function parse(src) {
 }
 
 // ── run ───────────────────────────────────────────────────────────────────
-const policies = gen();
-console.log(`  generated ${policies.length} policies, ${policies.length * 3} verdicts to check`);
+// `--shard k/n` runs every n-th policy starting at k, so a long corpus can be
+// split across runs that each fit a bounded session; the shards together
+// cover the whole corpus exactly once.
+const shardArg = process.argv.find((a) => a.startsWith('--shard='))?.slice('--shard='.length);
+const [shardIndex, shardCount] = shardArg ? shardArg.split('/').map(Number) : [0, 1];
+if (!(shardCount >= 1 && shardIndex >= 0 && shardIndex < shardCount)) {
+  console.error('usage: --shard=k/n with 0 <= k < n');
+  process.exit(2);
+}
+const corpus = gen();
+const policies = corpus.filter((_, i) => i % shardCount === shardIndex);
+console.log(
+  `  generated ${corpus.length} policies; this shard ${shardIndex + 1}/${shardCount} checks ${policies.length} (${policies.length * 3} verdicts)`,
+);
 
 let total = 0,
   inconc = 0,

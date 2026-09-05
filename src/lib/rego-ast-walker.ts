@@ -142,12 +142,16 @@ function walkRule(
   }
 
   for (const bodyExpr of rule.body) {
-    // A bare boolean body term. `true` adds no constraint, but `false` makes the
-    // clause unsatisfiable: skipping it left an empty body, which the encoder
-    // reads as "always true" and turns into a false PROVEN.
-    if (!Array.isArray(bodyExpr.terms) && bodyExpr.terms.type === 'boolean') {
-      if (bodyExpr.terms.value === false) {
-        exprs.push({ kind: 'contradiction', reason: 'literal false in rule body' });
+    // A bare boolean body term, possibly negated. One that holds (`true`,
+    // `not false`) adds no constraint; one that does not (`false`, `not true`)
+    // makes the clause unsatisfiable. Skipping the latter left an empty body,
+    // which the encoder reads as "always true" and turns into a false PROVEN.
+    if (isBooleanLiteral(bodyExpr)) {
+      if (!booleanLiteralHolds(bodyExpr)) {
+        exprs.push({
+          kind: 'contradiction',
+          reason: 'a boolean literal in the rule body never holds',
+        });
       }
       continue;
     }
@@ -524,9 +528,24 @@ function inlineRule(
   const newStack = new Set(inliningStack);
   newStack.add(targetName);
 
-  const bodyExprs = targetRule.body.filter(
-    (e) => !(!Array.isArray(e.terms) && e.terms.type === 'boolean'),
-  );
+  // A boolean literal that never holds (`false`, `not true`) makes the
+  // helper's body unsatisfiable, exactly as it does in a rule body (see
+  // walkRule). It used to be dropped along with the harmless ones, which left
+  // an always-true body behind and verified a helper that can never fire as
+  // one that always does.
+  if (targetRule.body.some((e) => isBooleanLiteral(e) && !booleanLiteralHolds(e))) {
+    // Under negation the reference holds exactly when the body fails, which
+    // here is always.
+    if (negateInlinedBody) return [];
+    return [
+      {
+        kind: 'contradiction',
+        reason: `Helper '${targetName}' has a boolean literal in its body that never holds.`,
+      },
+    ];
+  }
+
+  const bodyExprs = targetRule.body.filter((e) => !isBooleanLiteral(e));
 
   if (bodyExprs.length === 0) {
     // An empty body always holds, so a helper whose default is the only true
@@ -601,6 +620,21 @@ function inlineRule(
         ];
 
   return negateInlinedBody ? [{ kind: 'negation', inner: body }] : body;
+}
+
+/** A body expression that is a bare boolean term, negated or not. */
+function isBooleanLiteral(expr: OpaExpression): boolean {
+  return !Array.isArray(expr.terms) && expr.terms.type === 'boolean';
+}
+
+/**
+ * Whether a bare boolean term holds: `true` and `not false` do, `false` and
+ * `not true` do not. Reading `not false` as the literal `false` proved a rule
+ * that always fires never true.
+ */
+function booleanLiteralHolds(expr: OpaExpression): boolean {
+  const value = Array.isArray(expr.terms) ? undefined : expr.terms.value;
+  return expr.negated === true ? value === false : value === true;
 }
 
 /**

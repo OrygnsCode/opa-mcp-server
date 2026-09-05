@@ -92,6 +92,12 @@ not part of the public surface and may change in minor releases.
   during a solve, that call and any queued behind it fail with a reason,
   verification stays disabled until the server restarts, and the server
   stays up.
+- `rego_verify`: a helper whose body contains a literal `false` was inlined as
+  an always-true body, so a rule that can never fire was reported proven always
+  true, and a negated literal (`not false`, `not true`) was read as the bare
+  one in helpers and rule bodies alike. Boolean literals are now read as what
+  they say, and a helper with a true default and a body that never holds is
+  recognised as always holding.
 
 ## [0.5.0] - 2026-09-04
 
