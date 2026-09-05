@@ -11,6 +11,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
+import { parseJsonValues } from '../../lib/json-stream.js';
 import {
   mapSubprocessFailure,
   tryParseJson,
@@ -31,13 +32,38 @@ const RegoBenchInput = {
     .int()
     .positive()
     .optional()
-    .describe("Number of benchmark iterations. Defaults to OPA's built-in default."),
+    .describe(
+      "Number of times to repeat the benchmark (`--count N`). Defaults to OPA's built-in default of one. Every repetition is returned in `runs`; the top-level figures come from the fastest of them.",
+    ),
 };
 
 export interface RegoBenchOutput {
   iterations?: number;
   metrics?: Record<string, unknown>;
   raw?: unknown;
+  /**
+   * Every repetition, in the order OPA ran them, present only when `count` was
+   * above 1. The fields above come from the fastest of them by nanoseconds per
+   * iteration, which is the run least disturbed by whatever else the machine
+   * was doing.
+   */
+  runs?: BenchRun[];
+  /** How many repetitions ran, present only when more than one did. */
+  repetitions?: number;
+}
+
+/** One repetition as OPA reports it: N iterations in T nanoseconds. */
+interface BenchRun {
+  N?: number;
+  T?: number;
+  [key: string]: unknown;
+}
+
+/** Nanoseconds per iteration, or Infinity when the run says nothing useful. */
+function nsPerOp(run: BenchRun): number {
+  const n = typeof run.N === 'number' ? run.N : 0;
+  const t = typeof run.T === 'number' ? run.T : 0;
+  return n > 0 ? t / n : Number.POSITIVE_INFINITY;
 }
 
 export function registerRegoBench(server: McpServer, config: Config): void {
@@ -92,18 +118,39 @@ export function registerRegoBench(server: McpServer, config: Config): void {
         if (subprocessFailure) return subprocessFailure;
 
         if (result.exitCode !== 0) {
+          // `opa bench --format=json` writes its diagnostics to stdout as an
+          // `errors` array and leaves stderr empty, so reporting stderr alone
+          // handed back an error with nothing in it.
+          const diagnostics = tryParseJson<{ errors?: unknown }>(result.stdout);
           return err('EVAL_ERROR', 'opa bench exited with an error.', {
-            details: { stderr: result.stderr.trim() },
+            details: {
+              ...(diagnostics?.errors !== undefined
+                ? { errors: diagnostics.errors }
+                : { stdout: result.stdout.trim() }),
+              stderr: result.stderr.trim(),
+            },
           });
         }
 
-        const parsed = tryParseJson<RegoBenchOutput>(result.stdout);
-        if (parsed === undefined) {
+        // With `--count N` OPA prints one JSON document per repetition, back to
+        // back, which `JSON.parse` rejects outright.
+        const runs = parseJsonValues<BenchRun>(result.stdout).filter(
+          (v): v is BenchRun => typeof v === 'object' && v !== null && !Array.isArray(v),
+        );
+        if (runs.length === 0) {
           return err('UNKNOWN_ERROR', 'opa bench produced no parseable JSON output.', {
             details: { stdout: result.stdout.trim() },
           });
         }
-        return ok<RegoBenchOutput>(parsed);
+
+        if (runs.length === 1) return ok<RegoBenchOutput>(runs[0]! as RegoBenchOutput);
+
+        const fastest = runs.reduce((best, run) => (nsPerOp(run) < nsPerOp(best) ? run : best));
+        return ok<RegoBenchOutput>({
+          ...(fastest as RegoBenchOutput),
+          runs,
+          repetitions: runs.length,
+        });
       });
     },
   );
