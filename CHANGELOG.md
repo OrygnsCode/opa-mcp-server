@@ -120,8 +120,9 @@ not part of the public surface and may change in minor releases.
   blocking condition was chosen from each body expression evaluated on its own,
   so an expression that needs an earlier local or a sibling rule came back
   unevaluable and was blamed ahead of the guard that really failed. The body is
-  now evaluated as cumulative prefixes inside the rule's package, and the first
-  condition that stops holding is the one reported.
+  now evaluated as cumulative prefixes inside the rule's package, with its
+  imports, and the first condition that stops holding is the one reported; the
+  conditions after it are left unevaluated, as on the traced path.
 
 ## [0.5.0] - 2026-09-04
 

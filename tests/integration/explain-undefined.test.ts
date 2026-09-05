@@ -147,6 +147,7 @@ describe('rego_explain_undefined integration (real OPA binary)', () => {
     expect(env.ok).toBe(true);
     expect(env.data?.queryResult).toBe('undefined');
     const rule = ruleWithConditions(env);
+    expect(rule.source).toBe('standalone-eval');
     const byText = (needle: string) => rule.conditions.find((c) => c.text.includes(needle))!;
     expect(byText('u := input.user').result).toBe('true');
     expect(byText('u == "alice"').result).toBe('true');
@@ -174,10 +175,67 @@ describe('rego_explain_undefined integration (real OPA binary)', () => {
     });
     expect(env.ok).toBe(true);
     const rule = ruleWithConditions(env);
+    expect(rule.source).toBe('standalone-eval');
     const byText = (needle: string) => rule.conditions.find((c) => c.text.includes(needle))!;
     expect(byText('is_admin').result).toBe('true');
     expect(byText('tier').result).toBe('false');
     expect(rule.blockingCondition!.text).toContain('tier');
+  });
+
+  it('standalone: a condition through an import is judged, and is the blocker when it fails', async () => {
+    // --package alone does not bring the module's imports; without them
+    // `roles.admin[...]` is unsafe as a query, came back unevaluable, and the
+    // tier guard behind it was blamed instead.
+    const policy = [
+      'package authz',
+      'import rego.v1',
+      'import data.roles',
+      'allow if {',
+      '\troles.admin[input.user]',
+      '\tinput.tier == "gold"',
+      '}',
+    ].join('\n');
+    const server = makeServer();
+    registerRegoExplainUndefined(server, config);
+    const env = await callTool<ExplainOutput>(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: policy,
+      input: { user: 'alice', tier: 'free' },
+    });
+    expect(env.ok).toBe(true);
+    const rule = ruleWithConditions(env);
+    expect(rule.source).toBe('standalone-eval');
+    const byText = (needle: string) => rule.conditions.find((c) => c.text.includes(needle))!;
+    // No data.roles was supplied, so the reference is undefined: a real blocker.
+    expect(byText('roles.admin').result).toBe('false');
+    expect(rule.blockingCondition!.text).toContain('roles.admin');
+    expect(byText('tier').result).toBe('unevaluable');
+  });
+
+  it('standalone: an import alias resolves in the query', async () => {
+    const policy = [
+      'package a.b.c',
+      'import rego.v1',
+      'import input.tier as t',
+      'allow if {',
+      '\tinput.user == "alice"',
+      '\tt == "gold"',
+      '}',
+    ].join('\n');
+    const server = makeServer();
+    registerRegoExplainUndefined(server, config);
+    const env = await callTool<ExplainOutput>(server, 'rego_explain_undefined', {
+      query: 'data.a.b.c.allow',
+      source: policy,
+      input: { user: 'alice', tier: 'free' },
+    });
+    expect(env.ok).toBe(true);
+    const rule = ruleWithConditions(env);
+    expect(rule.source).toBe('standalone-eval');
+    const byText = (needle: string) => rule.conditions.find((c) => c.text.includes(needle))!;
+    expect(byText('alice').result).toBe('true');
+    expect(byText('t == "gold"').result).toBe('false');
+    expect(rule.blockingCondition!.text).toContain('t == "gold"');
   });
 
   it('a sibling rule that does not hold is itself the blocker, on either path', async () => {
@@ -287,8 +345,14 @@ describe('rego_explain_undefined with a default rule', () => {
     // were then evaluated.
     expect(clauses[0]?.blockingCondition?.text).toBe('input.user.role == "admin"');
     expect(clauses[1]?.blockingCondition?.text).toBe('input.action == "read"');
+    // Conditions up to and including the blocker are judged; the ones after
+    // it are not reached, as on the traced path.
     for (const c of clauses) {
-      expect(c.conditions.every((cond) => cond.result !== 'unevaluable')).toBe(true);
+      const blocker = c.conditions.findIndex((cond) => cond.result === 'false');
+      expect(blocker).toBeGreaterThanOrEqual(0);
+      for (const cond of c.conditions.slice(0, blocker + 1)) {
+        expect(cond.result).not.toBe('unevaluable');
+      }
     }
   }, 60_000);
 
