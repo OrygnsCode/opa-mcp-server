@@ -398,21 +398,21 @@ Package, sign, and verify deployable bundles. Wrap `opa build`, `opa sign`, and 
 Talk to a running OPA server over its REST API. Require `OPA_URL` to
 point at a reachable server.
 
-| Tool                 | What it does                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `opa_list_policies`  | List policies registered on the server.                                                                            |
-| `opa_get_policy`     | Get a single policy by ID.                                                                                         |
-| `opa_put_policy`     | Upload or replace a policy.                                                                                        |
-| `opa_delete_policy`  | Delete a policy by ID.                                                                                             |
-| `opa_get_data`       | Read a path from the data hierarchy.                                                                               |
-| `opa_put_data`       | Write to a path in the data hierarchy.                                                                             |
-| `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.                                                                          |
-| `opa_delete_data`    | Delete a document from the data hierarchy.                                                                         |
-| `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input.                                                             |
-| `opa_compile_query`  | Partially evaluate a query against the running server.                                                             |
-| `opa_health`         | Liveness / readiness check.                                                                                        |
-| `opa_status`         | Server configuration as reported by `GET /v1/config`. Bundle and decision-log status (`/v1/status`) is not exposed |
-| `opa_config`         | Server configuration (without secrets).                                                                            |
+| Tool                 | What it does                                                                                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `opa_list_policies`  | List the policy IDs registered on the server, with a count. `includeSource` and `includeAst` add the Rego text or the parsed AST.                                           |
+| `opa_get_policy`     | Get a single policy by ID. Returns the Rego source; `includeAst` adds OPA's parsed AST.                                                                                     |
+| `opa_put_policy`     | Upload or replace a policy.                                                                                                                                                 |
+| `opa_delete_policy`  | Delete a policy by ID.                                                                                                                                                      |
+| `opa_get_data`       | Read a path from the data hierarchy.                                                                                                                                        |
+| `opa_put_data`       | Write to a path in the data hierarchy.                                                                                                                                      |
+| `opa_patch_data`     | Apply a JSON Patch to the data hierarchy.                                                                                                                                   |
+| `opa_delete_data`    | Delete a document from the data hierarchy.                                                                                                                                  |
+| `opa_query_decision` | POST to a `/v1/data/...` decision endpoint with input.                                                                                                                      |
+| `opa_compile_query`  | Partially evaluate a query against the running server.                                                                                                                      |
+| `opa_health`         | Liveness / readiness check. A server that answers reports `healthy: true` or `healthy: false` with OPA's reason; `OPA_UNREACHABLE` means it could not be reached at all.    |
+| `opa_status`         | The same `GET /v1/config` document as `opa_config`, under a `status` key. Bundle and decision-log status (`/v1/status`) is not exposed. Service header values are redacted. |
+| `opa_config`         | Server configuration from `GET /v1/config`. OPA drops the `credentials` block but returns service headers verbatim, so header values are redacted here and the names kept.  |
 
 ### Category E: Higher-level helpers
 
@@ -442,12 +442,12 @@ YAML/JSON/HCL/TOML/INI against Rego policies using
 [conftest](https://www.conftest.dev/). Requires `conftest` on `PATH` or
 `CONFTEST_BINARY` set; all four tools return `CONFTEST_NOT_FOUND` otherwise.
 
-| Tool              | What it does                                                                                                                                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `conftest_test`   | Evaluate config files or an inline document against Rego policies with `conftest test`. Per-file, per-namespace results with arrays always present, and a summary that counts files by name. Parser names are a closed set.               |
-| `conftest_verify` | Run the `test_*` rules in a conftest policy directory with `conftest verify`. Reports per-rule results and `NO_TESTS_FOUND` when there are none.                                                                                          |
-| `conftest_pull`   | Pull a policy bundle from an OCI registry or Git repo into a local directory with `conftest pull`. The target directory need not exist; conftest creates it.                                                                              |
-| `conftest_push`   | Package a local policy directory as an OCI artifact and push to a registry with `conftest push`. Registry credentials come from the host environment (`docker login`, ORAS keychain, etc.) -- credentials are never passed through tools. |
+| Tool              | What it does                                                                                                                                                                                                                                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `conftest_test`   | Evaluate config files or an inline document against Rego policies with `conftest test`. Per-file, per-namespace results with arrays always present, and a summary that counts files by name. Parser names are a closed set.                                                                                                    |
+| `conftest_verify` | Run the `test_*` rules in a conftest policy directory with `conftest verify`. Reports per-rule results and `NO_TESTS_FOUND` when there are none.                                                                                                                                                                               |
+| `conftest_pull`   | Pull a policy bundle from an OCI registry or Git repo into a local directory with `conftest pull`. The target directory need not exist; conftest creates it, and empties it first, so do not point it at one holding anything else. Omitting `policy` uses the conftest default, which must itself sit inside an allowed root. |
+| `conftest_push`   | Package a local policy directory as an OCI artifact and push to a registry with `conftest push`. Registry credentials come from the host environment (`docker login`, ORAS keychain, etc.) -- credentials are never passed through tools.                                                                                      |
 
 #### Featured: `conftest_test` with inline config
 

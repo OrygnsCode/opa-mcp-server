@@ -19,6 +19,56 @@ not part of the public surface and may change in minor releases.
 
 ### Security
 
+- `opa_config` described its output as sanitized with secrets excluded. OPA
+  drops the `credentials` block from `GET /v1/config` but returns
+  `services.*.headers` verbatim, and a header is the ordinary place to put an
+  API key or a bearer token for a bundle service, so a live credential was
+  handed to whatever agent called the tool. `opa_status` returns the same
+  document and had the same exposure. Header values are now replaced with a
+  marker and the header names kept, so the document still says what the server
+  is configured to send.
+- `rego_verify` returned `proven` and `unsatisfiable` for claims that are false,
+  on ordinary policy shapes, and reported no unsupported constructs while doing
+  it, so nothing distinguished a real proof from a wrong one. A `proven` verdict
+  was not usable as evidence that a policy cannot be bypassed. Every released
+  version is affected. Five causes, each enough on its own: clauses whose head
+  shape the encoder does not support were dropped rather than reported, and a
+  rule with every clause dropped encoded to an empty body, which is vacuously
+  true; head values were discarded, so `allow := false if { ... }` was encoded as
+  though the head were true; `default` was not encoded at all, so
+  `default allow := true` with a non-matching body answered `never_true`; input
+  references were modelled as always present, so a body reading `input.x` was
+  treated as defined when `x` is absent; and locals were scoped by clause index
+  alone, so a helper and its caller sharing a variable name collapsed into one
+  symbol. Encoding now fails closed: a clause holding anything the encoder cannot
+  represent makes the verdict `inconclusive` rather than silently shrinking the
+  formula. That costs coverage, and about one generated policy in sixteen now
+  answers `inconclusive` where it previously gave a confident wrong answer.
+  Numbers encode as reals rather than integers, so `input.n > 0` with
+  `input.n < 1` is satisfiable at 0.5 instead of being falsely refuted.
+  Verification also ran without a mutex on the shared solver context.
+- `conftest_test` joined the `inlineConfigParser` value into the temp file name
+  for inline config without checking it, so a value carrying `../` segments
+  placed the inline config, whose content the caller also chooses, at any path
+  the server could write. Parser names are now a closed set (conftest 0.69's
+  nineteen), enforced in the schema and again in the handler, and the parser is
+  passed to conftest explicitly rather than through the file name.
+- Path validation followed links only for paths that already existed, so a
+  write destination that did not exist yet, such as an `opa_bundle_build` output
+  or a `conftest_pull` policy directory, was accepted on its spelling alone. A
+  junction or symbolic link inside an allowed root that pointed outside it made
+  such a write land outside the roots. A path is now judged by the real location
+  of its nearest existing ancestor with the missing segments re-attached, a
+  dangling link is refused, and roots and paths are compared in canonical form,
+  which also ends false rejections for a root spelled through a link (macOS
+  `/var`), a Windows short name, or a different letter case.
+- `conftest_pull` and `conftest_push` skipped the allow-list entirely when
+  `policy` was omitted. Both tools document that the policy directory must sit
+  inside `OPA_MCP_ALLOWED_PATHS`, but the omitted case fell through to the
+  conftest default, resolved against the working directory of the server:
+  `conftest_pull` wrote policy files there, outside any allowed root. The
+  default is now resolved and checked like an explicit path, and refused with
+  `PATH_NOT_ALLOWED` when it falls outside.
 - `opa_bundle_sign` wrote `.signatures.json` into the server's working directory,
   outside `OPA_MCP_ALLOWED_PATHS`, and reported `signed: true` while the bundle it
   was asked to sign stayed unsigned. `opa sign` puts the file wherever
@@ -29,37 +79,87 @@ not part of the public surface and may change in minor releases.
   disk. A `.signatures.json` already present as a symbolic link is refused
   rather than written through. The response carries the path written, the
   algorithm, and the number of files covered.
-- Path validation followed links only for paths that already existed, so a
-  write destination that did not exist yet, such as an `opa_bundle_build` output
-  or a `conftest_pull` policy directory, was accepted on its spelling alone. A
-  junction or symbolic link inside an allowed root that pointed outside it made
-  such a write land outside the roots. A path is now judged by the real location
-  of its nearest existing ancestor with the missing segments re-attached, a
-  dangling link is refused, and roots and paths are compared in canonical form,
-  which also ends false rejections for a root spelled through a link (macOS
-  `/var`), a Windows short name, or a different letter case.
-- `conftest_test` joined the `inlineConfigParser` value into the temp file name
-  for inline config without checking it, so a value carrying `../` segments
-  placed the inline config, whose content the caller also chooses, at any path
-  the server could write. Parser names are now a closed set (conftest 0.69's
-  nineteen), enforced in the schema and again in the handler, and the parser is
-  passed to conftest explicitly rather than through the file name.
-- `opa_config` described its output as sanitized with secrets excluded. OPA
-  drops the `credentials` block from `GET /v1/config` but returns
-  `services.*.headers` verbatim, and a header is the ordinary place to put an
-  API key or a bearer token for a bundle service, so a live credential was
-  handed to whatever agent called the tool. `opa_status` returns the same
-  document and had the same exposure. Header values are now replaced with a
-  marker and the header names kept, so the document still says what the server
-  is configured to send.
-- `conftest_test` joined the `inlineConfigParser` value into the temp file name
-  for inline config without checking it, so a value carrying `../` segments
-  placed the inline config, whose content the caller also chooses, at any path
-  the server could write. Parser names are now a closed set (conftest 0.69's
-  nineteen), enforced in the schema and again in the handler, and the parser is
-  passed to conftest explicitly rather than through the file name.
 
 ### Fixed
+
+Results that were wrong without saying so:
+
+- The five OPA data tools read a key containing a dot as two path segments and
+  returned a different document than the one asked for, with nothing to signal
+  the substitution. `opa_get_data` on `hosts/example.com` fetched
+  `/v1/data/hosts/example/com`; the same substitution applied to
+  `opa_put_data`, `opa_patch_data`, `opa_delete_data` and `opa_query_decision`,
+  so a write or a delete could land on the wrong document. A path containing a
+  slash now treats slash as its only separator, and a path without one is read
+  as dotted. Segments are percent-encoded: a key holding `?` or `#` truncated
+  the request URL at that character and read the parent document, and keys
+  holding a space, a percent sign or non-ASCII characters were unreachable.
+- `opa_patch_data` documented an empty path for patching the root of the data
+  hierarchy, but the schema required at least one character and the path it
+  built for the root is one OPA answers with a redirect. Omitting both `path`
+  and `segments` now patches the root.
+- `opa_exec` did not evaluate the rule it was asked for. Its `decision`
+  description told callers to pass a fully-qualified Rego reference such as
+  `data.authz.allow`, but `opa exec --decision` names a decision by
+  slash-separated path with no `data.` prefix. Any other spelling is accepted by
+  the flag and resolves to nothing, so every input file came back with
+  `opa_undefined_error`, which under a `deny`-style policy reads as a clean
+  pass. Both spellings are now converted to the path OPA expects, and a
+  reference with nothing left to name is rejected as `INVALID_INPUT`.
+- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
+  a passing test. OPA marks such a record with an `error` object and does not set
+  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
+  and a suite whose tests all raised (a rule conflict, for instance) was reported
+  as fully passing with zero failures. Both tools now report `errored`
+  separately, and the multiroot aggregate carries `totalErrored`.
+- Windows: a data document passed by absolute path was loaded under its drive
+  letter instead of where the policy expected it. OPA reads every load path as
+  an optional `prefix:path` pair and splits on the first colon, so
+  `C:\policies\data.json` mounted at `data.C` and a rule reading `data.tier`
+  found nothing, while the tool reported success. `opa test` on a suite whose
+  tests read data reported those tests as failing. Load paths are now passed
+  relative to a directory the `opa` process runs in, which is the only spelling
+  OPA reads correctly. Rego modules are unaffected either way, because a module
+  mounts at its own `package` rather than at its path, which is why policies
+  worked and only their data did not. Nothing changes on macOS or Linux, whose
+  absolute paths carry no drive letter. Load paths spanning two drives are now
+  reported as an error, since OPA cannot load documents from two drives in one
+  invocation.
+- The ABAC example in the `opa://patterns` resource failed to evaluate on the
+  case it exists to handle. It expressed "hide secret resources from other
+  organizations" as a second rule assigning `allow := false`, which in Rego is a
+  conflict rather than an override: a user reading their own secret resource
+  from another organization got `eval_conflict_error` instead of a denial. The
+  denial is now a condition the permissive rules consult. The pitfalls list,
+  which recommended the broken form, says why it does not work.
+- The Terraform example in the `opa://patterns` resource did not reject a
+  full-admin IAM policy. It tested `"*" in statement.Action`, which requires
+  `Action` to be a collection, and AWS accepts a bare string there, in
+  `Resource`, and for `Statement` itself. Of the four ways to spell
+  `Allow * on *`, the rule caught one; the most common form,
+  `{"Action": "*", "Resource": "*"}`, was allowed. Each position is now widened
+  to a set before the wildcard test. Scoped policies and `Deny` statements are
+  still allowed, so the rule has not become indiscriminate.
+- `rego_test` with `coverage` or `threshold` reported `One or more tests
+  failed` for a suite where none did. A suite holding a `todo_` test exits
+  non-zero under `--coverage` with an empty stderr, and the coverage report is
+  on stdout as asked for. The report was discarded and the run called a
+  failure. A non-zero exit with a parseable report and no failure lines is now
+  the coverage result it is, and a report OPA did produce is kept in the error
+  details when tests really did fail.
+- `rego_coverage_gaps` reported `testsPassed`, `testsFailed` and
+  `testsSkipped` as zero on every call. OPA emits no per-test records in
+  coverage mode, so the three counts could never be anything else, and three
+  zeros read as "no tests ran" rather than "not reported". They are now
+  omitted unless OPA supplied records.
+- `opa_health` reported a reachable server as `OPA_UNREACHABLE`. A server that
+  answers `/health?bundles=true` with `one or more bundles are not activated`
+  is running; the caller was told no server was found and to go start one, and
+  OPA's own reason was buried in a stringified error. Such a response is now a
+  result, `healthy: false` with `reason`. A 401 maps to `OPA_AUTH_FAILED`, and
+  `OPA_UNREACHABLE` is left for a server that could not be reached.
+
+Tools that did not work as documented:
 
 - `opa_bundle_verify` passed `--verification-key` to `opa eval`, which has no
   such flag, so verification always failed with "unknown flag" and was reported
@@ -88,85 +188,36 @@ not part of the public surface and may change in minor releases.
   summaries count files by name, since conftest emits one entry per namespace
   or per test rule. `summary.successes` and `summary.failures` are added to
   `conftest_test`. `exceptions` are messages, not strings, matching conftest.
-- CI installs conftest for the integration job, so the real-binary conftest
-  tests run there instead of skipping.
-- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
-  a passing test. OPA marks such a record with an `error` object and does not set
-  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
-  and a suite whose tests all raised (a rule conflict, for instance) was reported
-  as fully passing with zero failures. Both tools now report `errored`
-  separately, and the multiroot aggregate carries `totalErrored`.
-- An `install-id` file that existed but held no id was a permanent trap. The
-  read found no id, the exclusive create failed because the file was there, and
-  the fallback read found no id again, on every run for the life of the machine.
-  Such an install pinged anonymously forever and was never counted. The file is
-  now rewritten when it holds no usable id; a brand-new file is still created
-  exclusively so two first runs cannot both claim it. A file can end up empty
-  after a crash or a full disk during the first run.
-- CI no longer reports itself as an install. The suites start the real server,
-  which pings on startup, and every runner has a fresh home directory, so each
-  job minted a new install id.
-- Windows: a data document passed by absolute path was loaded under its drive
-  letter instead of where the policy expected it. OPA reads every load path as
-  an optional `prefix:path` pair and splits on the first colon, so
-  `C:\policies\data.json` mounted at `data.C` and a rule reading `data.tier`
-  found nothing, while the tool reported success. `opa test` on a suite whose
-  tests read data reported those tests as failing. Load paths are now passed
-  relative to a directory the `opa` process runs in, which is the only spelling
-  OPA reads correctly. Rego modules are unaffected either way, because a module
-  mounts at its own `package` rather than at its path, which is why policies
-  worked and only their data did not. Nothing changes on macOS or Linux, whose
-  absolute paths carry no drive letter. Load paths spanning two drives are now
-  reported as an error, since OPA cannot load documents from two drives in one
-  invocation.
-- `rego_lint`, `rego_fix` and `rego_security_audit` ignored the linted project's
-  own `.regal/config.yaml`, and applied any configuration sitting above the
-  server's working directory to every call instead. Regal discovers its
-  configuration by walking up from its own working directory rather than from
-  the files it is given, and it was spawned without one, so it inherited the
-  server's, which for a stdio server is wherever the client launched it. Rules a
-  project had turned off were reported anyway, and inline source, which belongs
-  to no project, picked up whatever happened to be above the server. Regal now
-  runs in the directory of what it is linting, and inline source runs in its own
-  temp directory. An explicit `configFile` still takes precedence.
-- The ABAC example in the `opa://patterns` resource failed to evaluate on the
-  case it exists to handle. It expressed "hide secret resources from other
-  organizations" as a second rule assigning `allow := false`, which in Rego is a
-  conflict rather than an override: a user reading their own secret resource
-  from another organization got `eval_conflict_error` instead of a denial. The
-  denial is now a condition the permissive rules consult. The pitfalls list,
-  which recommended the broken form, says why it does not work.
-- The Terraform example in the `opa://patterns` resource did not reject a
-  full-admin IAM policy. It tested `"*" in statement.Action`, which requires
-  `Action` to be a collection, and AWS accepts a bare string there, in
-  `Resource`, and for `Statement` itself. Of the four ways to spell
-  `Allow * on *`, the rule caught one; the most common form,
-  `{"Action": "*", "Resource": "*"}`, was allowed. Each position is now widened
-  to a set before the wildcard test. Scoped policies and `Deny` statements are
-  still allowed, so the rule has not become indiscriminate. These snippets are
-  documentation users copy, so the mistake shipped as advice.
-- The server did nothing when it was reached through a symbolic link. Its
-  entry-point check compared `import.meta.url` with `process.argv[1]` as
-  strings, and Node resolves symlinks for a module's own URL while leaving
-  `argv[1]` as it was invoked, so the two differed and neither the CLI flags nor
-  the transport ran: the process started and exited in silence. npm's `bin`
-  entry is a symlink on macOS and Linux. The comparison is now between real
-  paths, so how the file was reached no longer matters.
-- The five OPA data tools read a key containing a dot as two path segments and
-  returned a different document than the one asked for, with nothing to signal
-  the substitution. `opa_get_data` on `hosts/example.com` fetched
-  `/v1/data/hosts/example/com`; the same substitution applied to
-  `opa_put_data`, `opa_patch_data`, `opa_delete_data` and `opa_query_decision`,
-  so a write or a delete could land on the wrong document. A path containing a
-  slash now treats slash as its only separator, and a path without one is read
-  as dotted.
-- Path segments are now percent-encoded. A key holding `?` or `#` truncated the
-  request URL at that character and read the parent document; keys holding a
-  space, a percent sign or non-ASCII characters were unreachable.
-- `opa_patch_data` documented an empty path for patching the root of the data
-  hierarchy, but the schema required at least one character and the path it
-  built for the root is one OPA answers with a redirect. Omitting both `path`
-  and `segments` now patches the root.
+- `conftest_pull` did not write to the directory it was given. Conftest resolves
+  `--policy` against the working directory rather than honouring an absolute
+  path, and the tool resolves the caller's path against the allow-list before
+  handing it over, so the path was always absolute. On Windows the pull failed
+  outright, reporting a path of the form `.\C:\...`. `conftest_push` had the
+  same handling and read from the same path on whichever drive it happened to
+  start on. Both now run from the parent directory and name the target
+  relatively.
+- `rego_test` with `count` above 1 reported the suite as having no tests. OPA
+  prints one pretty-printed JSON array per repetition, back to back, which is
+  neither a single JSON value nor one record per line, so nothing parsed and the
+  tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
+  are now read and collapsed to one record per test carrying its worst outcome,
+  so a test that fails intermittently is reported as failing.
+- `rego_test` did not populate `parameterizedGroups`. OPA reports a
+  `test_x[case]` rule as a single record carrying the per-case outcomes in
+  `sub_results`, not as one record per case, so looking for a bracketed test
+  name found nothing on any OPA 1.x run. A rule whose cases mostly passed was
+  reported as one failing test with no indication of which case failed. The
+  cases are now grouped under the rule name, and the bracketed form older
+  versions emitted is still read.
+- `rego_bench` failed with `UNKNOWN_ERROR` for any `count` above 1. OPA prints
+  one JSON document per repetition, back to back, which is not a single JSON
+  value, so nothing parsed. Every repetition is now returned in `runs`, and the
+  top-level figures come from the fastest of them per iteration.
+- `rego_bench` reported a failed benchmark with an empty error. `opa bench
+  --format=json` writes its diagnostics to stdout as an `errors` array and
+  leaves stderr empty, and the tool reported only stderr, so a query with a
+  syntax error came back as `EVAL_ERROR` with nothing in it. The diagnostics
+  are now included.
 - `opa_list_policies` returned nothing but a truncation notice on a server
   holding more than a couple of dozen policies. OPA answers the policy
   endpoints with each policy's parsed AST alongside its source, and the AST is
@@ -178,6 +229,13 @@ not part of the public surface and may change in minor releases.
 - `opa_get_policy` returned the AST alongside the source, which nothing had
   asked for: a 477-byte policy came back as a 19 KB response. The AST is now
   behind `includeAst`.
+- The server did nothing when it was reached through a symbolic link. Its
+  entry-point check compared `import.meta.url` with `process.argv[1]` as
+  strings, and Node resolves symlinks for a module's own URL while leaving
+  `argv[1]` as it was invoked, so the two differed and neither the CLI flags nor
+  the transport ran: the process started and exited in silence. npm's `bin`
+  entry is a symlink on macOS and Linux. The comparison is now between real
+  paths, so how the file was reached no longer matters.
 - `rego_explain_undefined` had nothing to say about a policy written with
   `default allow := false`. A default gives the query a value, so it is never
   undefined and the tool returned that value and stopped, skipping the
@@ -190,14 +248,19 @@ not part of the public surface and may change in minor releases.
   never evaluated standalone: each came back with every condition
   `unevaluable` and no blocking condition. The event's own location is now
   used.
-- `opa_exec` never evaluated the rule it was asked for. Its `decision`
-  description told callers to pass a fully-qualified Rego reference such as
-  `data.authz.allow`, but `opa exec --decision` names a decision by
-  slash-separated path with no `data.` prefix. Any other spelling is accepted by
-  the flag and resolves to nothing, so every input file came back with
-  `opa_undefined_error`, which under a `deny`-style policy reads as a clean
-  pass. Both spellings are now converted to the path OPA expects, and a
-  reference with nothing left to name is rejected as `INVALID_INPUT`.
+- `rego_lint`, `rego_fix` and `rego_security_audit` ignored the linted project's
+  own `.regal/config.yaml`, and applied any configuration sitting above the
+  server's working directory to every call instead. Regal discovers its
+  configuration by walking up from its own working directory rather than from
+  the files it is given, and it was spawned without one, so it inherited the
+  server's, which for a stdio server is wherever the client launched it. Rules a
+  project had turned off were reported anyway, and inline source, which belongs
+  to no project, picked up whatever happened to be above the server. Regal now
+  runs in the directory of what it is linting, and inline source runs in its own
+  temp directory. An explicit `configFile` still takes precedence.
+
+Configuration and environment:
+
 - An empty or blank environment variable was treated as a real value.
   `OPA_BINARY=""`, which is what a shell leaves behind when it expands an
   unset variable, is not the literal default `opa`, so binary resolution
@@ -209,103 +272,13 @@ not part of the public surface and may change in minor releases.
   only a process warning, so a large value set to mean "effectively no
   timeout" timed out every subprocess and every HTTP call immediately. Values
   above 2147483647 are now refused at startup with a message saying why.
-- `opa_health` reported a reachable server as `OPA_UNREACHABLE`. A server that
-  answers `/health?bundles=true` with `one or more bundles are not activated`
-  is running; the caller was told no server was found and to go start one, and
-  OPA's own reason was buried in a stringified error. Such a response is now a
-  result: `healthy: false` with `reason`, which is what the output type always
-  allowed and never produced. A 401 maps to `OPA_AUTH_FAILED`, and
-  `OPA_UNREACHABLE` is left for a server that could not be reached.
-- `rego_test` with `coverage` or `threshold` reported `One or more tests
-  failed` for a suite where none did. A suite holding a `todo_` test exits
-  non-zero under `--coverage` with an empty stderr, and the coverage report is
-  on stdout as asked for. The report was discarded and the run called a
-  failure. A non-zero exit with a parseable report and no failure lines is now
-  the coverage result it is, and a report OPA did produce is kept in the error
-  details when tests really did fail.
-- `rego_coverage_gaps` reported `testsPassed`, `testsFailed` and
-  `testsSkipped` as zero on every call. OPA emits no per-test records in
-  coverage mode, so the three counts could never be anything else, and three
-  zeros read as "no tests ran" rather than "not reported". They are now
-  omitted unless OPA supplied records.
-- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
-  a passing test. OPA marks such a record with an `error` object and does not set
-  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
-  and a suite whose tests all raised (a rule conflict, for instance) was reported
-  as fully passing with zero failures. Both tools now report `errored`
-  separately, and the multiroot aggregate carries `totalErrored`.
-- `rego_test` with `count` above 1 reported the suite as having no tests. OPA
-  prints one pretty-printed JSON array per repetition, back to back, which is
-  neither a single JSON value nor one record per line, so nothing parsed and the
-  tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
-  are now read and collapsed to one record per test carrying its worst outcome,
-  so a test that fails intermittently is reported as failing.
-- `rego_test` never populated `parameterizedGroups`. OPA reports a
-  `test_x[case]` rule as a single record carrying the per-case outcomes in
-  `sub_results`, not as one record per case, so looking for a bracketed test
-  name found nothing on any OPA 1.x run. A rule whose cases mostly passed was
-  reported as one failing test with no indication of which case failed, even
-  though OPA had already worked it out. The cases are now grouped under the
-  rule name, and the bracketed form older versions emitted is still read.
-- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
-  a passing test. OPA marks such a record with an `error` object and does not set
-  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
-  and a suite whose tests all raised (a rule conflict, for instance) was reported
-  as fully passing with zero failures. Both tools now report `errored`
-  separately, and the multiroot aggregate carries `totalErrored`.
-- `rego_test` with `count` above 1 reported the suite as having no tests. OPA
-  prints one pretty-printed JSON array per repetition, back to back, which is
-  neither a single JSON value nor one record per line, so nothing parsed and the
-  tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
-  are now read and collapsed to one record per test carrying its worst outcome,
-  so a test that fails intermittently is reported as failing.
-- `rego_bench` failed with `UNKNOWN_ERROR` for any `count` above 1. OPA prints
-  one JSON document per repetition, back to back, which is not a single JSON
-  value, so nothing parsed. Every repetition is now returned in `runs`, and the
-  top-level figures come from the fastest of them per iteration.
-- `rego_bench` reported a failed benchmark with an empty error. `opa bench
-  --format=json` writes its diagnostics to stdout as an `errors` array and
-  leaves stderr empty, and the tool reported only stderr, so a query with a
-  syntax error came back as `EVAL_ERROR` with nothing in it. The diagnostics
-  are now included.
-
-- `rego_test` and `rego_test_multiroot` counted a test OPA could not evaluate as
-  a passing test. OPA marks such a record with an `error` object and does not set
-  `fail`, so deriving the pass count as `total - failed - skipped` absorbed it,
-  and a suite whose tests all raised (a rule conflict, for instance) was reported
-  as fully passing with zero failures. Both tools now report `errored`
-  separately, and the multiroot aggregate carries `totalErrored`.
-- `rego_test` with `count` above 1 reported the suite as having no tests. OPA
-  prints one pretty-printed JSON array per repetition, back to back, which is
-  neither a single JSON value nor one record per line, so nothing parsed and the
-  tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
-  are now read and collapsed to one record per test carrying its worst outcome,
-  so a test that fails intermittently is reported as failing.
-- `conftest_pull` never wrote to the directory it was given. Conftest resolves
-  `--policy` against the working directory rather than honouring an absolute
-  path, and the tool resolves the caller's path against the allow-list before
-  handing it over, so the path was always absolute. On Windows the pull failed
-  outright, reporting a path of the form `.\C:\...`. `conftest_push` had the
-  same handling and read from the same path on whichever drive it happened to
-  start on. Both now run from the parent directory and name the target
-  relatively.
-- `conftest_pull` and `conftest_push` skipped the allow-list entirely when
-  `policy` was omitted. Both tools document that the policy directory must sit
-  inside `OPA_MCP_ALLOWED_PATHS`, but the omitted case fell through to the
-  conftest default, resolved against the working directory of the server:
-  `conftest_pull` wrote policy files there, outside any allowed root. The
-  default is now resolved and checked like an explicit path, and refused with
-  `PATH_NOT_ALLOWED` when it falls outside.
-- `conftest_test` and `conftest_verify` threw `UNKNOWN_ERROR` on every clean run.
-  conftest omits every empty array from its JSON, so a passing file arrives with
-  no `failures` key and the summary code dereferenced it. Results now always
-  carry their arrays, `conftest_verify` reports `NO_TESTS_FOUND` for a policy
-  directory with no test rules (conftest prints `null` there), and both
-  summaries count files by name, since conftest emits one entry per namespace
-  or per test rule. `summary.successes` and `summary.failures` are added to
-  `conftest_test`. `exceptions` are messages, not strings, matching conftest.
-- CI installs conftest for the integration job, so the real-binary conftest
-  tests run there instead of skipping.
+- An `install-id` file that existed but held no id was a permanent trap. The
+  read found no id, the exclusive create failed because the file was there, and
+  the fallback read found no id again, on every run for the life of the machine.
+  The file is now rewritten when it holds no usable id; a brand-new file is
+  still created exclusively so two first runs cannot both claim it. A file can
+  end up empty after a crash or a full disk during the first run.
+- The test suites no longer emit telemetry pings.
 
 ### Added
 
@@ -331,61 +304,41 @@ not part of the public surface and may change in minor releases.
 
 ### Changed
 
-- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
-  root and `totalErrored` overall.
-- `OPA_MCP_ALLOWED_PATHS` now refuses a relative entry, which the documentation
-  has always said it did. A relative root was resolved against the server's
-  working directory, so for a stdio server the same configuration permitted
-  different directories depending on how the client launched it.
-- `opa-mcp --help` lists `OPA_MCP_MAX_SUBPROCESS_BYTES`,
-  `OPA_MCP_PASSTHROUGH_ENV` and `OPA_MCP_NO_TELEMETRY`, which were documented
-  but absent from the output an invalid-configuration message points at.
+- `rego_test` output gains `errored`, `repetitions` (present only when more
+  than one repetition ran; OPA stops repeating at the first run that fails, so
+  this can be lower than the requested `count`) and `caseCounts` (present only
+  when the run had a parameterized test; the top-level counts still follow OPA
+  and treat such a rule as one test however many cases it holds).
+  `rego_test_multiroot` gains `errored` per root and `totalErrored` overall.
 - `opa_list_policies` output gains `count`.
 - `rego_explain_undefined` output: `queryResult` gains `default`, and `value`
   is populated for it. On a query that is genuinely defined the tool now also
   runs `opa parse`, which is how it tells a default apart from a rule that
   matched.
-- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
-  root and `totalErrored` overall.
-- `rego_test` output gains `repetitions`, present only when more than one
-  repetition ran. OPA stops repeating at the first run that fails, so this can be
-  lower than the requested `count`.
-- `rego_test` output gains `caseCounts`, present only when the run had a
-  parameterized test. The top-level counts still follow OPA and treat such a
-  rule as one test however many cases it holds.
-- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
-  root and `totalErrored` overall.
-- `rego_test` output gains `repetitions`, present only when more than one
-  repetition ran. OPA stops repeating at the first run that fails, so this can be
-  lower than the requested `count`.
-- `rego_test` output gains `errored`; `rego_test_multiroot` gains `errored` per
-  root and `totalErrored` overall.
-- `rego_test` output gains `repetitions`, present only when more than one
-  repetition ran. OPA stops repeating at the first run that fails, so this can be
-  lower than the requested `count`.
+- `OPA_MCP_ALLOWED_PATHS` now refuses a relative entry, as documented. A
+  relative root was resolved against the server's working directory, so for a
+  stdio server the same configuration permitted different directories depending
+  on how the client launched it.
+- `opa-mcp --help` lists `OPA_MCP_MAX_SUBPROCESS_BYTES`,
+  `OPA_MCP_PASSTHROUGH_ENV` and `OPA_MCP_NO_TELEMETRY`, which were documented
+  but absent from the output an invalid-configuration message points at.
 - The 0.4.0 entry below, the README and the source comment all described the
-  child-process allow-list as containing no secret. That overstated it:
-  `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` are on the list and a proxy URL
-  can embed a username and password, which any evaluated policy can read
-  through `opa.runtime().env`. All three now say so. No behaviour changed; the
-  exposure was there in 0.4.0 as shipped and is unchanged by this correction.
-
-### Documentation
-
-- The child-process environment allow-list is described accurately. It carries
-  no cloud or repository credential, but it does carry the proxy and TLS-trust
-  variables, so a proxy URL that embeds credentials is readable by evaluated
-  policy. The README previously said it contained no secret.
-- Corrected: `opa_status` returns `GET /v1/config`, not bundle or decision-log
-  status; `rego_describe_policy` does not report input references, so the two
-  prompts that told the model to use it for that now name
-  `rego_infer_input_schema`; `rego_lint` returns a flat list of violations
-  rather than findings grouped by category; `rego_capabilities` reflects the
-  resolved `opa` binary rather than the bundled one; `rego_explain_decision`
-  returns a structured summary rather than a natural-language explanation, and
-  the extension manifest no longer says the helper tools use AI; the MCPB
-  bundle has no bundled-binary fallback; unit tests run on macOS only on Node
-  22.
+  child-process allow-list as containing no secret. It carries no cloud or
+  repository credential, but `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` are on
+  it and a proxy URL can embed a username and password, which any evaluated
+  policy can read through `opa.runtime().env`. All three now say so. No
+  behaviour changed; the exposure was there in 0.4.0 as shipped and is
+  unchanged by this correction.
+- Documentation corrected where it did not match the tools: `opa_status`
+  returns `GET /v1/config`, not bundle or decision-log status;
+  `rego_describe_policy` does not report input references, so the two prompts
+  that told the model to use it for that now name `rego_infer_input_schema`;
+  `rego_lint` returns a flat list of violations rather than findings grouped by
+  category; `rego_capabilities` reflects the resolved `opa` binary rather than
+  the bundled one; `rego_explain_decision` returns a structured summary rather
+  than a natural-language explanation, and the extension manifest no longer
+  says the helper tools use AI; the MCPB bundle has no bundled-binary fallback;
+  unit tests run on macOS only on Node 22.
 - Four error codes that nothing returns are no longer listed as codes a caller
   can expect: `REGAL_VERSION_TOO_OLD`, `DEPENDENCY_CONFLICT`,
   `VERIFY_INCONCLUSIVE` and `Z3_INIT_ERROR`. They remain reserved in the type.
