@@ -241,8 +241,20 @@ function parse(src) {
 }
 
 // ── run ───────────────────────────────────────────────────────────────────
-const policies = gen();
-console.log(`  generated ${policies.length} policies, ${policies.length * 3} verdicts to check`);
+// `--shard k/n` runs every n-th policy starting at k, so a long corpus can be
+// split across runs that each fit a bounded session; the shards together
+// cover the whole corpus exactly once.
+const shardArg = process.argv.find((a) => a.startsWith('--shard='))?.slice('--shard='.length);
+const [shardIndex, shardCount] = shardArg ? shardArg.split('/').map(Number) : [0, 1];
+if (!(shardCount >= 1 && shardIndex >= 0 && shardIndex < shardCount)) {
+  console.error('usage: --shard=k/n with 0 <= k < n');
+  process.exit(2);
+}
+const corpus = gen();
+const policies = corpus.filter((_, i) => i % shardCount === shardIndex);
+console.log(
+  `  generated ${corpus.length} policies; this shard ${shardIndex + 1}/${shardCount} checks ${policies.length} (${policies.length * 3} verdicts)`,
+);
 
 let total = 0,
   inconc = 0,
