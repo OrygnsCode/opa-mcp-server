@@ -70,6 +70,11 @@ not part of the public surface and may change in minor releases.
   exit code with results on stdout is now an outcome, and only output without
   results is treated as a command error, whose message now carries conftest's
   own text; `conftest_verify` shares that last part.
+- `rego_playground_share` created public Gists, listed on the account and
+  searchable, while the README described them as secret. Anyone who shared a
+  policy with it should assume the policy was public from the moment it was
+  posted. Gists are now secret unless `public: true` is passed: reachable by
+  their link, listed nowhere.
 
 ## [0.5.0] - 2026-09-04
 

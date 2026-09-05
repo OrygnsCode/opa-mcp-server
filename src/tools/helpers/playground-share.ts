@@ -1,6 +1,6 @@
 /**
- * `rego_playground_share` -- publish a Rego policy as a public GitHub Gist
- * and return a shareable URL.
+ * `rego_playground_share` -- publish a Rego policy as a GitHub Gist, secret
+ * unless asked otherwise, and return a shareable URL.
  *
  * Why Gist and not the OPA playground? Every endpoint on
  * play.openpolicyagent.org requires a GitHub OAuth session cookie -- there is
@@ -43,6 +43,14 @@ const RegoPlaygroundShareInput = {
     .string()
     .optional()
     .describe('Short description for the Gist (shown on github.com/gists).'),
+  public: z
+    .boolean()
+    .optional()
+    .describe(
+      'Make the Gist public: listed on the account and searchable. Off by default, ' +
+        'which creates a secret Gist that anyone holding the link can read but that is ' +
+        'not listed anywhere.',
+    ),
 };
 
 // ─── Output types ─────────────────────────────────────────────────────────────
@@ -83,7 +91,8 @@ export function registerRegoPlaygroundShare(server: McpServer, _config: Config):
       title: 'Share Rego policy as a GitHub Gist',
       description:
         'Share a Rego policy with teammates or create a reproducible example by publishing it ' +
-        'as a public GitHub Gist. Returns { gistUrl, rawPolicyUrl, id }: the gistUrl renders ' +
+        'as a GitHub Gist, secret unless `public: true` is passed, so only people holding the ' +
+        'link can read it. Returns { gistUrl, rawPolicyUrl, id }: the gistUrl renders ' +
         'the policy with syntax highlighting on github.com; the rawPolicyUrl can be passed ' +
         'directly to OPA (`opa eval -d <rawPolicyUrl> <query>`) or used as a data source in ' +
         'Conftest. When query, input, or data are supplied, a metadata.json file is bundled ' +
@@ -99,7 +108,7 @@ export function registerRegoPlaygroundShare(server: McpServer, _config: Config):
         openWorldHint: true,
       },
     },
-    async ({ policy, query, input, data, description }, { signal }) => {
+    async ({ policy, query, input, data, description, public: listed }, { signal }) => {
       return withToolEnvelope(_config, async () => {
         // ── Token check ────────────────────────────────────────────────────
         const token = process.env['GITHUB_TOKEN'];
@@ -131,9 +140,11 @@ export function registerRegoPlaygroundShare(server: McpServer, _config: Config):
           files['metadata.json'] = { content: JSON.stringify(metadata, null, 2) };
         }
 
+        // Secret unless asked: a secret Gist is reachable by its link but not
+        // listed or searchable. The README always said so; the code did not.
         const body: GistCreateBody = {
           description: description ?? 'OPA Rego policy',
-          public: true,
+          public: listed === true,
           files,
         };
 
