@@ -61,7 +61,7 @@ export function registerRegoParseAst(server: McpServer, config: Config): void {
         const ast = tryParseJson(result.stdout);
         if (ast === undefined) {
           return err('UNKNOWN_ERROR', 'opa parse produced no parseable JSON on stdout.', {
-            details: { stdout: result.stdout.trim() },
+            details: sanitizeInlinePathsDeep({ stdout: result.stdout.trim() }),
           });
         }
         return ok<RegoParseAstOutput>({ ast });

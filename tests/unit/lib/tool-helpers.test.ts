@@ -112,11 +112,14 @@ describe('sanitizeInlinePathsDeep', () => {
 });
 
 describe('sanitizeInlineText', () => {
+  const sep = String.fromCharCode(92);
+  const win = (...parts: string[]): string => parts.join(sep);
+
   it('replaces the temp path inside a diagnostic line, on either separator', () => {
     expect(
       sanitizeInlineText('1 error occurred: /tmp/orygn-opa-mcp-xyz789/input.rego:3: bad'),
     ).toBe('1 error occurred: <inline>:3: bad');
-    const win = [
+    const p = win(
       'C:',
       'Users',
       'op',
@@ -125,8 +128,34 @@ describe('sanitizeInlineText', () => {
       'Temp',
       'orygn-regal-mcp-ab12',
       'input.rego',
-    ].join(String.fromCharCode(92));
-    expect(sanitizeInlineText(`${win}:1:1 x`)).toBe('<inline>:1:1 x');
+    );
+    expect(sanitizeInlineText(`${p}:1:1 x`)).toBe('<inline>:1:1 x');
+  });
+
+  it('replaces the whole path when a directory on it holds a space', () => {
+    // A Windows temp directory sits under the user's profile.
+    const p = win(
+      'C:',
+      'Users',
+      'Daniel Okwor',
+      'AppData',
+      'Local',
+      'Temp',
+      'orygn-opa-mcp-ab12',
+      'input.rego',
+    );
+    expect(sanitizeInlineText(`1 error occurred: ${p}:3:5: rego_parse_error`)).toBe(
+      '1 error occurred: <inline>:3:5: rego_parse_error',
+    );
+    expect(sanitizeInlineText('at /Users/a b/Library/Caches/orygn-opa-mcp-q/input.rego:1')).toBe(
+      'at <inline>:1',
+    );
+  });
+
+  it('keeps the text around a path that is the whole of a string', () => {
+    expect(sanitizeInlineText('error: could not open /tmp/orygn-opa-mcp-x1/input.rego')).toBe(
+      'error: could not open <inline>',
+    );
   });
 
   it('leaves other paths alone', () => {

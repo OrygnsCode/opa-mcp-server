@@ -26,27 +26,27 @@ export function sanitizeInlinePath(file: string): string {
 }
 
 /**
- * Recursively rewrite every temp-file path -- in both string values and object
- * keys -- to the `<inline>` sentinel. OPA writes inline source to a temp file,
- * so trace (`explanation`), coverage, and profile output reference that path;
- * this normalizes the whole structure so callers never see an absolute temp
- * path. Only our own temp paths match the pattern, so real user file paths pass
- * through untouched.
- */
-/**
  * The temp path as it appears inside a longer diagnostic, such as
- * `1 error occurred: /tmp/orygn-opa-mcp-x/input.rego:3: ...`. Everything
- * from the start of the path to the file name is replaced.
+ * `1 error occurred: /tmp/orygn-opa-mcp-x/input.rego:3: ...`. Segments are
+ * delimited by separators rather than by whitespace, since a Windows temp
+ * directory sits under the user's profile and a user name can hold a space.
+ * Everything from the drive or root to the file name is replaced.
  */
 const EMBEDDED_INLINE_TEMP_PATH =
-  /(?:[A-Za-z]:)?[^\s"'`]*?orygn-(?:opa|regal)-mcp-[^\s/\\]+[/\\]input\.rego/gi;
+  /(?:[A-Za-z]:)?(?:[\\/][^\\/:*?"<>|\r\n]+)*?[\\/]orygn-(?:opa|regal)-mcp-[^\\/\r\n]+[\\/]input\.rego/gi;
 
-/** Replace the temp path whether it is the whole string or sits inside one. */
+/** Replace the temp path wherever it sits inside `text`. */
 export function sanitizeInlineText(text: string): string {
-  if (INLINE_TEMP_PATH_PATTERN.test(text)) return '<inline>';
   return text.replace(EMBEDDED_INLINE_TEMP_PATH, '<inline>');
 }
 
+/**
+ * Recursively rewrite every temp-file path, in string values and object
+ * keys, to the `<inline>` sentinel. OPA writes inline source to a temp file,
+ * so trace, coverage and profile output and every diagnostic reference that
+ * path; this normalizes the whole structure so callers never see an absolute
+ * temp path. Only a path shaped like this server's own temp files matches.
+ */
 export function sanitizeInlinePathsDeep(value: unknown): unknown {
   if (typeof value === 'string') return sanitizeInlineText(value);
   if (Array.isArray(value)) return value.map(sanitizeInlinePathsDeep);
