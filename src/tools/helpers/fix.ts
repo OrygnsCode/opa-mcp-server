@@ -82,11 +82,13 @@ export interface RegoFixOutput {
  * Parse the plain-text output of `regal fix --no-color` into a structured
  * result. The format produced by regal 0.30.0 is:
  *
- *   No fixes to apply.
+ *   No fixes to apply.        (dry run)
+ *   No fixes applied.         (real run)
  *
  * or:
  *
- *   X fix(es) to apply:
+ *   X fix(es) to apply:       (dry run)
+ *   X fix(es) applied:        (real run)
  *   In project root: <absolute-root>
  *   <filename>[-> <new-relative-path>]:
  *   - <rule-name>
@@ -95,11 +97,13 @@ export interface RegoFixOutput {
 export function parseFixOutput(stdout: string): { fixCount: number; fixedFiles: FixedFile[] } {
   const text = stdout.trim();
 
-  if (!text || text === 'No fixes to apply.') {
+  if (!text || text === 'No fixes to apply.' || text === 'No fixes applied.') {
     return { fixCount: 0, fixedFiles: [] };
   }
 
-  const countMatch = /(\d+) fix(?:es)? to apply/.exec(text);
+  // A real run says "applied" where a dry run says "to apply". Reading only
+  // the dry-run form reported every real run as having changed nothing.
+  const countMatch = /(\d+) fix(?:es)? (?:to apply|applied)/.exec(text);
   if (!countMatch) return { fixCount: 0, fixedFiles: [] };
   const fixCount = parseInt(countMatch[1] ?? '0', 10);
 

@@ -48,6 +48,35 @@ describe('parseFixOutput()', () => {
     expect(parseFixOutput('  \n  ').fixCount).toBe(0);
   });
 
+  it('returns zero fixCount for "No fixes applied.", the real-run wording', () => {
+    const result = parseFixOutput('No fixes applied.');
+    expect(result.fixCount).toBe(0);
+    expect(result.fixedFiles).toEqual([]);
+  });
+
+  it('reads a real run, which says "applied" where a dry run says "to apply"', () => {
+    const real = [
+      '2 fixes applied:',
+      'In project root: /tmp/proj',
+      'p.rego -> p/p.rego:',
+      '- directory-package-mismatch',
+      '- opa-fmt',
+    ].join('\n');
+    const dry = real.replace('2 fixes applied:', '2 fixes to apply:');
+    const fromReal = parseFixOutput(real);
+    expect(fromReal.fixCount).toBe(2);
+    expect(fromReal.fixedFiles).toHaveLength(1);
+    expect(fromReal.fixedFiles[0]?.rules).toEqual(['directory-package-mismatch', 'opa-fmt']);
+    expect(fromReal).toEqual(parseFixOutput(dry));
+  });
+
+  it('reads a single applied fix', () => {
+    const { fixCount } = parseFixOutput(
+      ['1 fix applied:', 'In project root: /tmp/proj', 'p.rego:', '- opa-fmt'].join('\n'),
+    );
+    expect(fixCount).toBe(1);
+  });
+
   it('parses a single in-place fix (no file move)', () => {
     const stdout = [
       '1 fix to apply:',

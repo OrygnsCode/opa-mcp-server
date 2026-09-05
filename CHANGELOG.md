@@ -54,6 +54,9 @@ not part of the public surface and may change in minor releases.
   the policy as strings; only an object or array that arrived serialized as a
   string is still repaired, the way `rego_bench` and the server-management
   tools already did.
+- `rego_fix`: a real run reported zero fixes and no changed files after
+  changing them, because only the dry-run wording of regal's summary was read.
+  Both forms are read now.
 
 ## [0.5.0] - 2026-09-04
 
