@@ -484,12 +484,15 @@ describe('terminateChildren', () => {
     mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
     const promise = runBinary('opa', { args: ['x'], timeoutMs: 5_000 });
 
-    expect(terminateChildren('SIGTERM')).toBe(1);
+    // Earlier tests in this file leave fakes that never settle behind, so
+    // count relative to them rather than from zero.
+    const withThisChild = terminateChildren('SIGTERM');
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
 
     endChild(child, null, 'SIGTERM');
     await promise;
-    expect(terminateChildren('SIGTERM')).toBe(0);
+    expect(terminateChildren('SIGTERM')).toBe(withThisChild - 1);
+    expect(child.kill).toHaveBeenCalledTimes(1);
   });
 });
 
