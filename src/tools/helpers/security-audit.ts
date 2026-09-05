@@ -87,31 +87,20 @@ export interface RegoSecurityAuditOutput {
  * Remediation hints keyed by Regal rule title. The values give a
  * specific, actionable fix rather than repeating the violation message.
  */
+// Hints for the rules the sweep can report: regal's bugs category. Keys for
+// rules regal does not ship, or ships in categories the sweep does not
+// enable, were removed rather than left to suggest the sweep knew about them.
 const REMEDIATION_HINTS: Record<string, string> = {
-  'credentials-in-body':
-    'Remove credentials from the HTTP request body literal. Use OPA environment variables or a data bundle to inject secrets at runtime.',
-  'http-send-using-http':
-    'Replace the http:// URL with https:// to prevent credentials or tokens from being transmitted in plaintext.',
-  'jwt-credentials-in-source':
-    'Move JWT tokens and signing keys out of policy source into data bundles or OPA environment variables.',
-  'no-defined-entrypoint':
-    'Add an @entrypoint annotation to the rule that serves as the policy decision point so automated analysis can identify the entry.',
   'constant-condition':
     'The condition is always true or always false; remove it or fix the logic so the rule body reflects a real runtime check.',
   'deprecated-builtin':
     'Replace the deprecated builtin with its current equivalent before upgrading OPA, where deprecated functions may be removed.',
   'duplicate-rule':
     'Remove the duplicate rule definition. Multiple conflicting definitions cause non-deterministic evaluation and can mask security gaps.',
-  'impossible-if':
-    'The rule condition can never be satisfied; it will never contribute to the decision. Review the logic for a typo or inverted condition.',
   'impossible-not':
     'The negation is of a condition that is always false, so not(...) is always true. Review whether the rule is overly permissive.',
   'inconsistent-args':
     'The function is called with a different number of arguments than its definition. The extra or missing argument silently makes the call undefined.',
-  'unresolved-import':
-    'The import path does not match any package in the bundle. Remove or fix the import to ensure the policy loads correctly.',
-  'unreachable-rule':
-    'The rule can never be evaluated given the existing rules. It may represent dead code that masks a missing test case.',
   'rule-shadows-builtin':
     'Rename the local variable to avoid shadowing the OPA builtin. Shadowed builtins silently change semantics.',
   'sprintf-arguments-mismatch':
