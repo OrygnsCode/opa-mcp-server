@@ -74,14 +74,15 @@ describe('parseFixOutput()', () => {
     expect(parseFixOutput('No fixes applied.')).toEqual({ fixCount: 0, fixedFiles: [] });
   });
 
-  it('folds a file listed again under its new location into the entry that moved it', () => {
-    // Two root blocks: the in-place fixes under a blank root by absolute
-    // path at the file's new location, then the move under the real root.
-    // One physical file, reported once by its original path.
+  it('reports a moved file once when every block that touched it lists the move', () => {
+    // Captured from regal 0.30.0 when directory-package-mismatch fires on a
+    // file that also needs other fixes: the in-place fixes come first under a
+    // blank root with the move spelled absolutely, then the move again under
+    // the real root. One physical file.
     const stdout = [
       '3 fixes applied:',
       'In project root: ',
-      '/tmp/proj/p/p.rego:',
+      '/tmp/proj/p.rego -> /tmp/proj/p/p.rego:',
       '- opa-fmt',
       '- no-whitespace-comment',
       '',
@@ -93,11 +94,26 @@ describe('parseFixOutput()', () => {
     expect(fixCount).toBe(3);
     expect(fixedFiles).toHaveLength(1);
     const [file] = fixedFiles;
-    expect(file!.path.endsWith('p.rego')).toBe(true);
-    // The original path is the one before the move, so it has no p/ directory.
-    expect(file!.path.replace(/[\\/]/g, '/').endsWith('/p/p.rego')).toBe(false);
-    expect(file!.newPath!.replace(/[\\/]/g, '/').endsWith('/p/p.rego')).toBe(true);
-    expect(file!.rules).toEqual(['directory-package-mismatch', 'opa-fmt', 'no-whitespace-comment']);
+    const posix = (p: string) => p.replace(/[\\/]/g, '/');
+    expect(posix(file!.path).endsWith('/tmp/proj/p.rego')).toBe(true);
+    expect(posix(file!.newPath!).endsWith('/tmp/proj/p/p.rego')).toBe(true);
+    expect(file!.rules).toEqual(['opa-fmt', 'no-whitespace-comment', 'directory-package-mismatch']);
+  });
+
+  it("folds an entry listed at a moved file's destination into the move", () => {
+    const stdout = [
+      '2 fixes applied:',
+      'In project root: ',
+      '/tmp/proj/p/p.rego:',
+      '- opa-fmt',
+      '',
+      'In project root: /tmp/proj',
+      'p.rego -> p/p.rego:',
+      '- directory-package-mismatch',
+    ].join('\n');
+    const { fixedFiles } = parseFixOutput(stdout);
+    expect(fixedFiles).toHaveLength(1);
+    expect(fixedFiles[0]!.rules).toEqual(['directory-package-mismatch', 'opa-fmt']);
   });
 
   it('reads the count from the first line only', () => {

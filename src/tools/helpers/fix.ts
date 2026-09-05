@@ -147,15 +147,28 @@ export function parseFixOutput(stdout: string): { fixCount: number; fixedFiles: 
 }
 
 /**
- * Fold an entry listed under a file's new location into the entry that moved
- * it, so a moved file is reported once, by its original path, with every rule
- * that touched it.
+ * Report a moved file once. regal lists a file that moves in every block that
+ * touched it, with the arrow each time, so entries are grouped by original
+ * path with their rules joined. An entry listed at a moved file's destination
+ * without the arrow is folded into the move as well.
  */
 function foldMoved(entries: FixedFile[]): FixedFile[] {
-  const movers = new Map<string, FixedFile>();
-  for (const e of entries) if (e.newPath) movers.set(normalize(e.newPath), e);
-  const out: FixedFile[] = [];
+  const byPath = new Map<string, FixedFile>();
   for (const e of entries) {
+    const key = normalize(e.path);
+    const seen = byPath.get(key);
+    if (seen === undefined) {
+      byPath.set(key, { ...e, rules: [...e.rules] });
+      continue;
+    }
+    for (const r of e.rules) if (!seen.rules.includes(r)) seen.rules.push(r);
+    if (seen.newPath === undefined && e.newPath !== undefined) seen.newPath = e.newPath;
+  }
+  const merged = [...byPath.values()];
+  const movers = new Map<string, FixedFile>();
+  for (const e of merged) if (e.newPath) movers.set(normalize(e.newPath), e);
+  const out: FixedFile[] = [];
+  for (const e of merged) {
     const mover = e.newPath ? undefined : movers.get(normalize(e.path));
     if (mover) {
       for (const r of e.rules) if (!mover.rules.includes(r)) mover.rules.push(r);
