@@ -426,24 +426,16 @@ describe('opa_bundle_sign', () => {
     expect(call.cwd).toBe(dirname(realBundleDir));
   });
 
-  it('signs an archive by absolute path, beside itself', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
-    await writeFakeSignatures(workDir);
-    const realArchive = await realpath(outputBundle);
-    const env = await callTool<{ signaturesPath: string }>(serverWithWorkDir(), 'opa_bundle_sign', {
+  it('refuses an archive without running opa, pointing at opa_bundle_build', async () => {
+    const env = await callTool(serverWithWorkDir(), 'opa_bundle_sign', {
       bundle: outputBundle,
       signingKey,
     });
-    expect(env.ok, JSON.stringify(env.error)).toBe(true);
-    // The output directory is the archive's directory as given, not its real
-    // path, so a temp root that is a symlink or a short name still passes
-    // the allowed-roots check (macOS /var, Windows 8.3 names on CI runners).
-    expect(env.data?.signaturesPath).toBe(join(dirname(outputBundle), '.signatures.json'));
-
-    const call = mockRun.mock.calls[0]![1];
-    expect(call.args.slice(-2)).toEqual(['--', realArchive]);
-    expect(call.args[call.args.indexOf('--output-file-path') + 1]).toBe(dirname(outputBundle));
-    expect(call.cwd).toBeUndefined();
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.hint).toMatch(/opa_bundle_build/);
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(existsSync(join(dirname(outputBundle), '.signatures.json'))).toBe(false);
   });
 
   it('reports the signature file it observed, with algorithm, file count and claims', async () => {
@@ -518,45 +510,6 @@ describe('opa_bundle_sign', () => {
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('INVALID_BUNDLE');
     expect(env.error?.message).toMatch(/covered no files/);
-  });
-
-  it('rejects outputDir for a directory bundle without calling opa', async () => {
-    const out = join(workDir, `out-${Math.random().toString(36).slice(2)}`);
-    await mkdir(out);
-    const env = await callTool(serverWithWorkDir(), 'opa_bundle_sign', {
-      bundle: bundleDir,
-      signingKey,
-      outputDir: out,
-    });
-    expect(env.error?.code).toBe('INVALID_INPUT');
-    expect(env.error?.message).toMatch(/archives only/);
-    expect(mockRun).not.toHaveBeenCalled();
-  });
-
-  it('honours outputDir for an archive', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
-    const out = join(workDir, `out-${Math.random().toString(36).slice(2)}`);
-    await mkdir(out);
-    await writeFakeSignatures(out);
-    const env = await callTool<{ signaturesPath: string }>(serverWithWorkDir(), 'opa_bundle_sign', {
-      bundle: outputBundle,
-      signingKey,
-      outputDir: out,
-    });
-    expect(env.ok, JSON.stringify(env.error)).toBe(true);
-    expect(env.data?.signaturesPath).toBe(join(out, '.signatures.json'));
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args[args.indexOf('--output-file-path') + 1]).toBe(out);
-  });
-
-  it('rejects an outputDir outside the allowed roots without calling opa', async () => {
-    const env = await callTool(serverWithWorkDir(), 'opa_bundle_sign', {
-      bundle: outputBundle,
-      signingKey,
-      outputDir: '/outside',
-    });
-    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
-    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it('rejects an outputDir that is not a directory without calling opa', async () => {

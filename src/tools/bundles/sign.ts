@@ -55,12 +55,6 @@ const OpaBundleSignInput = {
     .describe(
       'Path to a JSON file of extra claims to sign, such as {"keyid": "...", "scope": "..."}. Must be inside an allowed root.',
     ),
-  outputDir: z
-    .string()
-    .optional()
-    .describe(
-      "For an archive, the directory that receives `.signatures.json`; defaults to the archive's own directory. Must exist and be inside an allowed root. Not accepted for a directory bundle, which is signed in place.",
-    ),
 };
 
 export interface OpaBundleSignOutput {
@@ -92,9 +86,9 @@ export function registerOpaBundleSign(server: McpServer, config: Config): void {
     {
       title: 'Sign OPA bundle',
       description:
-        'Sign a bundle directory or `.tar.gz` archive with `opa sign`. ' +
+        'Sign a bundle directory with `opa sign`. ' +
         'A directory is signed in place: `.signatures.json` is written into it and files are recorded as `<directory name>/<file>`, so the signed directory verifies wherever it is placed as long as its name is unchanged, with `opa_bundle_verify` or with `opa build` or `opa run --bundle <name>` from its parent. ' +
-        "For an archive the signature is written beside it, into `outputDir` or the archive's own directory, and the archive is not modified; a signed archive comes from `opa_bundle_build` with `signingKey`. " +
+        'An archive is refused: OPA reads the signature from inside it, so a signed archive comes from `opa_bundle_build` with `signingKey`. ' +
         'The key is a PEM private key (RSA or ECDSA); for HMAC algorithms pass a file holding the secret. Extra claims such as `keyid` and `scope` come from `claimsFile`. ' +
         'Returns the path written, the algorithm, and the number of files covered.',
       inputSchema: OpaBundleSignInput,
@@ -120,34 +114,20 @@ export function registerOpaBundleSign(server: McpServer, config: Config): void {
         // symlink or junction root, so a linked bundle would sign as an empty
         // file list; the real path is what gets signed.
         const realBundle = await realpath(resolvedBundle!);
-        const isDirectory = (await stat(realBundle)).isDirectory();
-
-        let outputDir: string;
-        if (isDirectory) {
-          if (input.outputDir !== undefined) {
-            return err(
-              'INVALID_INPUT',
-              `outputDir applies to archives only. A directory bundle is signed in place, since OPA reads ${SIGNATURES_FILE} from inside the bundle and cannot use a detached one.`,
-              { details: { bundle: input.bundle } },
-            );
-          }
-          outputDir = realBundle;
-        } else {
-          // The archive's own directory is derived from the path as given,
-          // not from the real path: an allowed root that is itself a symlink
-          // or a Windows short name (a macOS /var, an 8.3 temp directory)
-          // would otherwise fail the syntactic containment check against its
-          // own canonical form. Validation resolves the symlink itself.
-          const requested = input.outputDir ?? dirname(resolvedBundle!);
-          const outputValidation = validatePaths([requested], config, { mustExist: true });
-          if (!outputValidation.ok) return outputValidation.error;
-          outputDir = outputValidation.resolved[0]!;
-          if (!(await stat(outputDir)).isDirectory()) {
-            return err('INVALID_INPUT', 'outputDir must be an existing directory.', {
-              details: { outputDir },
-            });
-          }
+        if (!(await stat(realBundle)).isDirectory()) {
+          // OPA reads the signature from inside an archive. A file written
+          // beside it is never consulted, so signing an archive after the
+          // fact only ever produced a `signed: true` over nothing.
+          return err(
+            'INVALID_INPUT',
+            'opa_bundle_sign signs bundle directories. An archive cannot be signed after it is built: OPA reads .signatures.json from inside the archive, and a file written beside it is not consulted.',
+            {
+              hint: 'Build a signed archive with opa_bundle_build and signingKey, or sign the directory and build the archive from it.',
+              details: { bundle: input.bundle },
+            },
+          );
         }
+        const outputDir = realBundle;
 
         const signaturesPath = join(outputDir, SIGNATURES_FILE);
 
@@ -165,11 +145,11 @@ export function registerOpaBundleSign(server: McpServer, config: Config): void {
         const startedAt = Date.now();
 
         const signInput: SignInput = {
-          bundle: isDirectory ? basename(realBundle) : realBundle,
+          bundle: basename(realBundle),
           signingKey: resolvedKey!,
           outputDir,
+          cwd: dirname(realBundle),
         };
-        if (isDirectory) signInput.cwd = dirname(realBundle);
         if (input.signingAlg !== undefined) signInput.signingAlg = input.signingAlg;
         if (resolvedClaims !== undefined) signInput.claimsFile = resolvedClaims;
         const result = await opa.sign(signInput, signal);
