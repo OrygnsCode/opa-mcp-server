@@ -85,6 +85,11 @@ not part of the public surface and may change in minor releases.
   policy with it should assume the policy was public from the moment it was
   posted. Gists are now secret unless `public: true` is passed: reachable by
   their link, listed nowhere.
+- `rego_verify`: a policy that exhausted the Z3 WASM heap took the whole
+  server down, since the abort surfaced outside every try/catch. Z3 is now
+  capped at 1 GiB so it raises an ordinary error first, which becomes an
+  inconclusive verdict; should the heap still abort during a solve, the server
+  disables verification and stays up.
 
 ## [0.5.0] - 2026-09-04
 
