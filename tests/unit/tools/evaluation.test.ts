@@ -323,6 +323,87 @@ describe('rego_test', () => {
     expect(env.data).toMatchObject({ passed: 0, errored: 2, total: 2 });
   });
 
+  it('groups the cases OPA reports under a parameterized rule', async () => {
+    // OPA reports a `test_x[case]` rule as one record carrying `sub_results`,
+    // not one record per case. Looking for a bracketed name meant the grouping
+    // never fired and the per-case outcomes were passed through untouched: one
+    // failing test, no indication of which case failed.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        2,
+        '',
+        JSON.stringify([
+          {
+            package: 'data.p',
+            name: 'test_allow',
+            fail: true,
+            duration: 10,
+            sub_results: {
+              admin_allowed: { name: 'admin_allowed' },
+              broken: { name: 'broken', fail: true },
+              todo_case: { name: 'todo_case', skip: true },
+            },
+          },
+        ]),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      total: number;
+      failed: number;
+      caseCounts?: { total: number; passed: number; failed: number; skipped: number };
+      parameterizedGroups?: Record<string, Array<{ name?: string; fail?: boolean }>>;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    // The top-level counts stay OPA's: one rule, one failure.
+    expect(env.data?.total).toBe(1);
+    expect(env.data?.failed).toBe(1);
+    expect(env.data?.caseCounts).toEqual({ total: 3, passed: 1, failed: 1, skipped: 1 });
+
+    const group = env.data?.parameterizedGroups?.['test_allow'];
+    expect(group).toHaveLength(3);
+    expect(group?.find((c) => c.name === 'broken')?.fail).toBe(true);
+    expect(group?.find((c) => c.name === 'admin_allowed')?.fail).toBeUndefined();
+  });
+
+  it('still reads the bracketed names older OPA emitted', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        2,
+        '',
+        JSON.stringify([
+          { package: 'data.p', name: 'test_allow[{"k":"a"}]', duration: 1 },
+          { package: 'data.p', name: 'test_allow[{"k":"b"}]', fail: true, duration: 1 },
+        ]),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      caseCounts?: { total: number; failed: number };
+      parameterizedGroups?: Record<string, unknown[]>;
+    }>(server, 'rego_test', { paths: [validRegoPath()] });
+    expect(env.data?.parameterizedGroups?.['test_allow']).toHaveLength(2);
+    expect(env.data?.caseCounts).toMatchObject({ total: 2, failed: 1 });
+  });
+
+  it('omits the grouping when no test is parameterized', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify([{ package: 'data.p', name: 'test_a', duration: 1 }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ caseCounts?: unknown; parameterizedGroups?: unknown }>(
+      server,
+      'rego_test',
+      { paths: [validRegoPath()] },
+    );
+    expect(env.data?.parameterizedGroups).toBeUndefined();
+    expect(env.data?.caseCounts).toBeUndefined();
+  });
+
   it('reads the repeated arrays opa prints for count > 1', async () => {
     // opa test --count N prints one pretty-printed array per repetition, back
     // to back. That is neither one JSON value nor NDJSON, and reading only the
