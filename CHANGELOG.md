@@ -52,6 +52,12 @@ not part of the public surface and may change in minor releases.
   document and had the same exposure. Header values are now replaced with a
   marker and the header names kept, so the document still says what the server
   is configured to send.
+- `conftest_test` joined the `inlineConfigParser` value into the temp file name
+  for inline config without checking it, so a value carrying `../` segments
+  placed the inline config, whose content the caller also chooses, at any path
+  the server could write. Parser names are now a closed set (conftest 0.69's
+  nineteen), enforced in the schema and again in the handler, and the parser is
+  passed to conftest explicitly rather than through the file name.
 
 ### Fixed
 
@@ -275,6 +281,31 @@ not part of the public surface and may change in minor releases.
   tool returned `NO_TESTS_FOUND` for a suite that had just run. The repetitions
   are now read and collapsed to one record per test carrying its worst outcome,
   so a test that fails intermittently is reported as failing.
+- `conftest_pull` never wrote to the directory it was given. Conftest resolves
+  `--policy` against the working directory rather than honouring an absolute
+  path, and the tool resolves the caller's path against the allow-list before
+  handing it over, so the path was always absolute. On Windows the pull failed
+  outright, reporting a path of the form `.\C:\...`. `conftest_push` had the
+  same handling and read from the same path on whichever drive it happened to
+  start on. Both now run from the parent directory and name the target
+  relatively.
+- `conftest_pull` and `conftest_push` skipped the allow-list entirely when
+  `policy` was omitted. Both tools document that the policy directory must sit
+  inside `OPA_MCP_ALLOWED_PATHS`, but the omitted case fell through to the
+  conftest default, resolved against the working directory of the server:
+  `conftest_pull` wrote policy files there, outside any allowed root. The
+  default is now resolved and checked like an explicit path, and refused with
+  `PATH_NOT_ALLOWED` when it falls outside.
+- `conftest_test` and `conftest_verify` threw `UNKNOWN_ERROR` on every clean run.
+  conftest omits every empty array from its JSON, so a passing file arrives with
+  no `failures` key and the summary code dereferenced it. Results now always
+  carry their arrays, `conftest_verify` reports `NO_TESTS_FOUND` for a policy
+  directory with no test rules (conftest prints `null` there), and both
+  summaries count files by name, since conftest emits one entry per namespace
+  or per test rule. `summary.successes` and `summary.failures` are added to
+  `conftest_test`. `exceptions` are messages, not strings, matching conftest.
+- CI installs conftest for the integration job, so the real-binary conftest
+  tests run there instead of skipping.
 
 ### Added
 

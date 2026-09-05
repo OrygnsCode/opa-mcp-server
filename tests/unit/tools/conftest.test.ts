@@ -14,7 +14,7 @@
  */
 import { mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -833,16 +833,19 @@ describe('conftest_pull', () => {
 
   // ── Happy paths ─────────────────────────────────────────────────────────────
 
-  it('returns ok=true with url and default policyDir on success', async () => {
+  it('returns ok=true and reports the resolved policy directory', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool<ConftestPullOutput>(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool<ConftestPullOutput>(server, 'conftest_pull', {
+      url: testUrl,
+      policy: policyDir,
+    });
 
     expect(env.ok).toBe(true);
     expect(env.data?.url).toBe(testUrl);
-    expect(env.data?.policyDir).toBe('policy');
+    expect(env.data?.policyDir).toBe(policyDir);
   });
 
   it('returns the provided policy directory in output', async () => {
@@ -869,22 +872,25 @@ describe('conftest_pull', () => {
       policy: policyDir,
     });
 
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args[0]).toBe('pull');
-    expect(args).toContain(testUrl);
-    expect(args).toContain('--policy');
-    expect(args).toContain(policyDir);
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args[0]).toBe('pull');
+    expect(call.args).toContain(testUrl);
+    expect(call.args).toContain('--policy');
+    // conftest resolves --policy against the working directory, so the
+    // directory is named relatively and the run starts in its parent.
+    expect(call.args).toContain(basename(policyDir));
+    expect(call.args).not.toContain(policyDir);
+    expect(call.cwd).toBe(dirname(policyDir));
   });
 
-  it('omits --policy arg when policy is not provided', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
-
+  it('refuses the implicit default when it falls outside the allowed roots', async () => {
+    // Omitting `policy` meant conftest's own default, resolved against the
+    // working directory of the server, and the tool ran without checking it.
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    await callTool(server, 'conftest_pull', { url: testUrl });
-
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).not.toContain('--policy');
+    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it('allows policy dir that does not yet exist (conftest creates it)', async () => {
@@ -921,7 +927,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('CONFTEST_NOT_FOUND');
   });
@@ -931,7 +937,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
     expect(env.error?.message).toMatch(/exit code 1/);
@@ -942,7 +948,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('TIMEOUT');
   });
@@ -952,7 +958,7 @@ describe('conftest_pull', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_pull', { url: testUrl });
+    const env = await callTool(server, 'conftest_pull', { url: testUrl, policy: policyDir });
 
     expect(env.error?.code).toBe('CANCELLED');
   });
@@ -965,16 +971,19 @@ describe('conftest_push', () => {
 
   // ── Happy paths ─────────────────────────────────────────────────────────────
 
-  it('returns ok=true with repository and default policyDir on success', async () => {
+  it('returns ok=true and reports the resolved policy directory', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool<ConftestPushOutput>(server, 'conftest_push', { repository });
+    const env = await callTool<ConftestPushOutput>(server, 'conftest_push', {
+      repository,
+      policy: policyDir,
+    });
 
     expect(env.ok).toBe(true);
     expect(env.data?.repository).toBe(repository);
-    expect(env.data?.policyDir).toBe('policy');
+    expect(env.data?.policyDir).toBe(policyDir);
   });
 
   it('returns the provided policyDir in output', async () => {
@@ -1001,22 +1010,25 @@ describe('conftest_push', () => {
       policy: policyDir,
     });
 
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args[0]).toBe('push');
-    expect(args).toContain(repository);
-    expect(args).toContain('--policy');
-    expect(args).toContain(policyDir);
+    const call = mockRun.mock.calls[0]![1];
+    expect(call.args[0]).toBe('push');
+    expect(call.args).toContain(repository);
+    expect(call.args).toContain('--policy');
+    // conftest resolves --policy against the working directory, so the
+    // directory is named relatively and the run starts in its parent.
+    expect(call.args).toContain(basename(policyDir));
+    expect(call.args).not.toContain(policyDir);
+    expect(call.cwd).toBe(dirname(policyDir));
   });
 
-  it('omits --policy arg when policy is not provided', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
-
+  it('refuses the implicit default when it falls outside the allowed roots', async () => {
+    // Omitting `policy` meant conftest's own default, resolved against the
+    // working directory of the server, and the tool ran without checking it.
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    await callTool(server, 'conftest_push', { repository });
-
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).not.toContain('--policy');
+    const env = await callTool(server, 'conftest_push', { repository });
+    expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   // ── Path validation ─────────────────────────────────────────────────────────
@@ -1049,7 +1061,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('CONFTEST_NOT_FOUND');
   });
@@ -1059,7 +1071,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('UNKNOWN_ERROR');
     expect(env.error?.message).toMatch(/exit code 1/);
@@ -1070,7 +1082,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('TIMEOUT');
   });
@@ -1080,7 +1092,7 @@ describe('conftest_push', () => {
 
     const server = makeServer();
     registerConftestTools(server, baseConfig);
-    const env = await callTool(server, 'conftest_push', { repository });
+    const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('CANCELLED');
   });
