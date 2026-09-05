@@ -108,6 +108,10 @@ not part of the public surface and may change in minor releases.
   to, a remote system. A client that gates on the hints will ask before running
   one. The destructive and idempotent hints on those tools are left to the
   spec's defaults, since a policy chooses its own HTTP method.
+- Docker: the `opa` and `regal` downloads in the image build are now checked
+  against the digests published with their releases. The image was described
+  as reproducible while nothing verified those downloads; the wording now says
+  what the build does.
 
 ## [0.5.0] - 2026-09-04
 

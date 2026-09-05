@@ -644,7 +644,8 @@ be exposed on the network.
   and building.
 - Releases are published with
   [npm provenance](https://docs.npmjs.com/generating-provenance-statements);
-  the Docker image is built reproducibly from the committed `Dockerfile`.
+  the Docker image is built from the committed `Dockerfile`, with pinned
+  versions of `opa` and `regal` checked against their published digests.
 
 To report a vulnerability, follow [SECURITY.md](./SECURITY.md). **Please
 do not open a public issue for security problems.**
