@@ -342,6 +342,23 @@ describe('Timeouts', () => {
     );
   });
 
+  it('does not blame the timer for a refusal that lands after it fired', async () => {
+    // The connection attempt fails on its own just as the deadline passes:
+    // the timer has aborted, but the rejection is not an abort.
+    fetchMock.mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          (init as RequestInit).signal?.addEventListener('abort', () => {
+            setTimeout(() => reject(new TypeError('fetch failed')), 0);
+          });
+        }),
+    );
+    const client = new OpaClient({ ...baseConfig, httpTimeoutMs: 20 });
+    await expect(client.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(
+      OpaUnreachableError,
+    );
+  });
+
   it('still reports a refused connection as unreachable', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
     const client = new OpaClient({ ...baseConfig, httpTimeoutMs: 50 });

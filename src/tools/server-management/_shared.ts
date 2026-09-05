@@ -118,7 +118,7 @@ export function mapOpaClientError(
   }
   if (e instanceof OpaTimeoutError) {
     return err('TIMEOUT', `OPA at ${e.url} did not answer within ${e.timeoutMs} ms.`, {
-      hint: 'The server was reached but did not finish in time. Check its load and the size of the request, or raise OPA_MCP_HTTP_TIMEOUT_MS.',
+      hint: 'Either OPA is up but slow, or nothing is answering at OPA_URL and the connection attempt is being dropped rather than refused, which looks the same from here. Check OPA_URL and the server load, or raise OPA_MCP_HTTP_TIMEOUT_MS.',
       details: { url: e.url, timeoutMs: e.timeoutMs },
     });
   }
