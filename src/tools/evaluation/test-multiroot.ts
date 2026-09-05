@@ -456,7 +456,8 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
     async (

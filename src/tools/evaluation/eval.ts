@@ -25,7 +25,8 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
     async (args, { signal }) => {
@@ -44,7 +45,8 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
     async (args, { signal }) => {
@@ -65,7 +67,8 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
     async (args, { signal }) => {
@@ -86,7 +89,8 @@ export function registerRegoEval(server: McpServer, config: Config): void {
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: false,
+        // Runs Rego supplied by the caller; a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
     async (args, { signal }) => {

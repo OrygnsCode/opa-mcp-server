@@ -98,6 +98,10 @@ not part of the public surface and may change in minor releases.
   one in helpers and rule bodies alike. Boolean literals are now read as what
   they say, and a helper with a true default and a body that never holds is
   recognised as always holding.
+- Every tool that evaluates caller-supplied Rego now declares
+  `openWorldHint: true`, since a policy can reach the network through
+  `http.send`; a client that gates on the hint will ask before running one.
+  They keep `readOnlyHint: true`: they write nothing locally.
 
 ## [0.5.0] - 2026-09-04
 

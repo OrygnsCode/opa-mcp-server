@@ -82,6 +82,12 @@ on the network.
   payloads are truncated rather than streamed back unbounded.
 - Stdout is reserved for the MCP protocol; logs go to a file.
 - `OPA_TOKEN` is never echoed in tool responses or log entries.
+- Tools that evaluate caller-supplied Rego (`rego_eval` and its variants,
+  `rego_test`, `rego_bench`, `opa_exec`, the explain, diff and coverage
+  helpers, and the conftest tools) declare `openWorldHint: true`, because
+  OPA's `http.send` lets a policy reach the network. They keep
+  `readOnlyHint: true`: they write nothing locally. The server does not
+  pass OPA a capabilities file that would disable network built-ins.
 - Releases are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements);
   the Docker image is built reproducibly via GitHub Actions.
 

@@ -607,6 +607,14 @@ Four things worth knowing if you're going to operate this:
 
 ## Security
 
+Tools that evaluate caller-supplied Rego, `rego_eval` and its variants,
+`rego_test`, `rego_bench`, `opa_exec`, the explain, diff and coverage helpers
+and the conftest tools, declare `openWorldHint: true`: OPA's `http.send` lets a
+policy reach the network, and a client that gates on the hint will ask before
+running one. They keep `readOnlyHint: true`, since they write nothing locally.
+The server does not pass OPA a capabilities file that would disable network
+built-ins.
+
 This server is designed to run **locally**, started by an MCP client on
 the user's own machine, communicating over stdio. It is not designed to
 be exposed on the network.
