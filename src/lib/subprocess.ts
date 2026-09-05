@@ -98,7 +98,11 @@ const KILL_ESCALATION_MS = 2_000;
  * has no groups, fall back to the child alone.
  */
 function signalTree(child: ChildProcess, sig: NodeJS.Signals): void {
-  if (process.platform !== 'win32' && child.pid !== undefined) {
+  // The group is addressed by the child's pid, which the kernel may hand to
+  // an unrelated process once the child has been reaped. Past that point only
+  // the handle is safe to use, and Node's kill on a dead handle is a no-op.
+  const unreaped = child.exitCode === null && child.signalCode === null;
+  if (unreaped && process.platform !== 'win32' && child.pid !== undefined) {
     try {
       process.kill(-child.pid, sig);
       return;
@@ -107,6 +111,23 @@ function signalTree(child: ChildProcess, sig: NodeJS.Signals): void {
     }
   }
   child.kill(sig);
+}
+
+/** Children that have been spawned and have not settled yet. */
+const liveChildren = new Set<ChildProcess>();
+
+/**
+ * Signal every child still running. A child sits in its own process group on
+ * POSIX, so a signal that stops the server does not reach it on its own; the
+ * server calls this on the way out. Returns how many were signalled.
+ */
+export function terminateChildren(sig: NodeJS.Signals = 'SIGTERM'): number {
+  let n = 0;
+  for (const child of liveChildren) {
+    signalTree(child, sig);
+    n++;
+  }
+  return n;
 }
 
 /** Accumulates a stream's chunks up to a byte ceiling. */
@@ -190,6 +211,9 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     let settled = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    /** Set once 'exit' has fired: the child is gone, only its pipes remain. */
+    let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    liveChildren.add(child);
 
     // Whether the child has actually ended. `child.killed` is not that: Node
     // sets it as soon as a signal was sent, whether or not the child obeyed,
@@ -198,6 +222,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     const alive = (): boolean => child.exitCode === null && child.signalCode === null;
 
     const killChild = (): void => {
+      if (settled) return;
       signalTree(child, 'SIGTERM');
       killTimer = setTimeout(() => {
         if (alive()) signalTree(child, 'SIGKILL');
@@ -205,20 +230,26 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     };
 
     const timer = setTimeout(() => {
+      // The child is already gone and only the drain is pending: settle from
+      // what was captured. Calling that a timeout would be wrong.
+      if (exited) {
+        finishFromCapture();
+        return;
+      }
       timedOut = true;
       killChild();
     }, opts.timeoutMs);
 
-    if (opts.signal) {
-      opts.signal.addEventListener(
-        'abort',
-        () => {
-          aborted = true;
-          killChild();
-        },
-        { once: true },
-      );
-    }
+    // Once the child has exited there is nothing to cancel, and a listener
+    // left behind after settling would signal a pid the kernel may have
+    // handed to someone else. rego_test_multiroot passes one signal through
+    // a whole sequence of runs, so the listener has to go when the run does.
+    const onAbort = (): void => {
+      if (settled || exited) return;
+      aborted = true;
+      killChild();
+    };
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     const clearTimers = (): void => {
       clearTimeout(timer);
@@ -235,15 +266,44 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
       if (settled) return;
       settled = true;
       clearTimers();
+      liveChildren.delete(child);
+      opts.signal?.removeEventListener('abort', onAbort);
       resolvePromise(result);
     };
 
-    child.stdout?.on('data', (chunk: Buffer) => {
-      if (stdout.push(chunk)) killChild();
-    });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      if (stderr.push(chunk)) killChild();
-    });
+    /**
+     * Build the result from the capture and let go of the pipes. Used once the
+     * child has exited but something it left behind still holds its stdio.
+     */
+    const finishFromCapture = (): void => {
+      if (settled || !exited) return;
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish(exited.code, exited.signal);
+    };
+
+    // (Re)start the wait for 'close'. Bytes can still be sitting in the pipe
+    // at 'exit', and on a loaded machine the reads that deliver them may
+    // queue behind an expired timer; each chunk that arrives pushes the
+    // grace out again, and the deadline above bounds the whole thing.
+    const armDrain = (): void => {
+      if (drainTimer) clearTimeout(drainTimer);
+      drainTimer = setTimeout(finishFromCapture, PIPE_DRAIN_GRACE_MS);
+    };
+
+    const onData = (buf: CappedBuffer, chunk: Buffer): void => {
+      const overflowed = buf.push(chunk);
+      if (exited) {
+        // Nothing left to kill; a writer that outlived the child is either
+        // done, or has just been cut off by the cap.
+        if (overflowed) finishFromCapture();
+        else armDrain();
+        return;
+      }
+      if (overflowed) killChild();
+    };
+    child.stdout?.on('data', (chunk: Buffer) => onData(stdout, chunk));
+    child.stderr?.on('data', (chunk: Buffer) => onData(stderr, chunk));
 
     // Killing a child mid-write can surface an EPIPE on the pipe. Without a
     // listener that is an unhandled 'error' event, which would take the whole
@@ -261,6 +321,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
         aborted,
         durationMs: Date.now() - start,
         outputTruncated: false,
+        signal: null,
       });
     });
 
@@ -300,11 +361,8 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     child.on('exit', (code, signal) => {
       // A spawn failure settles on 'error' and may still be followed by 'exit'.
       if (settled) return;
-      drainTimer = setTimeout(() => {
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-        finish(code, signal);
-      }, PIPE_DRAIN_GRACE_MS);
+      exited = { code, signal };
+      armDrain();
     });
     child.on('close', (code, signal) => finish(code, signal));
 

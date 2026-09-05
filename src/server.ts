@@ -24,6 +24,7 @@ import { getInstallId } from './lib/install-id.js';
 import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
+import { terminateChildren } from './lib/subprocess.js';
 import { registerPrompts } from './prompts/index.js';
 import { registerResources } from './resources/index.js';
 import { registerTools } from './tools/index.js';
@@ -146,6 +147,19 @@ export async function main(transport?: Transport): Promise<McpServer> {
   // not when a test passes in its own transport.
   if (!transport) {
     process.stderr.write(formatStartupBanner(config, process.stderr.isTTY === true) + '\n');
+  }
+
+  // A child sits in its own process group (see lib/subprocess.ts), so a
+  // signal that stops the server does not reach it by itself. Not when a
+  // test drives the server through its own transport: the runner owns the
+  // signals then.
+  if (!transport) {
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(sig, () => {
+        terminateChildren('SIGTERM');
+        process.exit(sig === 'SIGINT' ? 130 : 143);
+      });
+    }
   }
 
   const connectTo = transport ?? new StdioServerTransport();

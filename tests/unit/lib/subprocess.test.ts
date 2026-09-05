@@ -16,7 +16,7 @@ vi.mock('node:child_process', () => ({
 
 import { spawn } from 'node:child_process';
 
-import { runBinary } from '../../../src/lib/subprocess.js';
+import { runBinary, terminateChildren } from '../../../src/lib/subprocess.js';
 
 const mockSpawn = vi.mocked(spawn);
 let killSpy: ReturnType<typeof vi.spyOn>;
@@ -257,6 +257,10 @@ describe('runBinary — timeout escalation (deterministic)', () => {
   });
 
   it('does not send SIGKILL when the child exited after SIGTERM', async () => {
+    // The escalation guard is exercised by the test above: its fake child
+    // has `killed` flipped by kill(), the way a real one does, so the old
+    // `!child.killed` guard never fires there. This test covers the
+    // cooperative case ending with the signal on the result.
     const child = makeChild();
     mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
 
@@ -280,18 +284,66 @@ describe('runBinary — timeout escalation (deterministic)', () => {
 
   it.runIf(process.platform !== 'win32')(
     'signals the process group before falling back to the child',
-    () => {
+    async () => {
       const child = makeChild();
       mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
 
-      void runBinary('opa', { args: ['hang'], timeoutMs: 1_000 });
+      const promise = runBinary('opa', { args: ['hang'], timeoutMs: 1_000 });
       vi.advanceTimersByTime(1_000);
 
       expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM');
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
       expect(mockSpawn.mock.calls[0]![2]).toMatchObject({ detached: true });
+
+      endChild(child, null, 'SIGTERM');
+      await promise;
     },
   );
+
+  it.runIf(process.platform !== 'win32')(
+    'never signals a process group once the child has been reaped',
+    async () => {
+      const child = makeChild();
+      mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+      const controller = new AbortController();
+      const promise = runBinary('opa', {
+        args: ['x'],
+        timeoutMs: 5_000,
+        signal: controller.signal,
+      });
+
+      // Reaped, close still pending: the pid may already belong to someone else.
+      child.exitCode = 0;
+      child.emit('exit', 0, null);
+      controller.abort();
+      expect(killSpy).not.toHaveBeenCalled();
+      expect(child.kill).not.toHaveBeenCalled();
+
+      child.emit('close', 0, null);
+      const result = await promise;
+      expect(result.aborted).toBe(false);
+      expect(result.exitCode).toBe(0);
+    },
+  );
+
+  it('drops the abort listener once settled', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+    const controller = new AbortController();
+    const promise = runBinary('opa', {
+      args: ['fast'],
+      timeoutMs: 5_000,
+      signal: controller.signal,
+    });
+    endChild(child, 0, null);
+    await promise;
+
+    // One signal threaded through a sequence of runs must not reach the
+    // earlier, finished ones.
+    controller.abort();
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(killSpy).not.toHaveBeenCalled();
+  });
 
   it('cancels the kill timer chain when the child closes before the deadline', async () => {
     const child = makeChild();
@@ -369,6 +421,46 @@ describe('runBinary — pipes held open after exit', () => {
     expect(child.stdout.destroy).not.toHaveBeenCalled();
   });
 
+  it('re-arms the drain grace on data that arrives after exit', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['slow-drain'], timeoutMs: 30_000 });
+    child.exitCode = 0;
+    child.emit('exit', 0, null);
+    vi.advanceTimersByTime(800);
+    child.stdout.emit('data', Buffer.from('late'));
+    // 1.6s after exit but only 0.8s after the last chunk: still draining.
+    vi.advanceTimersByTime(800);
+    expect(child.stdout.destroy).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+
+    const result = await promise;
+    expect(result.stdout).toBe('late');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('settles from the capture when the deadline passes after exit, and it is not a timeout', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    const promise = runBinary('opa', { args: ['wrapper'], timeoutMs: 1_500 });
+    child.stdout.emit('data', Buffer.from('out'));
+    child.exitCode = 0;
+    child.emit('exit', 0, null);
+    // A writer that outlived the child keeps pushing the grace out; the
+    // deadline still bounds it.
+    vi.advanceTimersByTime(900);
+    child.stdout.emit('data', Buffer.from('!'));
+    vi.advanceTimersByTime(600);
+
+    const result = await promise;
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('out!');
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
   it('reports the signal that ended the child', async () => {
     const child = makeChild();
     mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
@@ -383,6 +475,21 @@ describe('runBinary — pipes held open after exit', () => {
     expect(result.timedOut).toBe(false);
     expect(result.aborted).toBe(false);
     expect(child.kill).not.toHaveBeenCalled();
+  });
+});
+
+describe('terminateChildren', () => {
+  it('signals every live child and forgets the ones that settled', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+    const promise = runBinary('opa', { args: ['x'], timeoutMs: 5_000 });
+
+    expect(terminateChildren('SIGTERM')).toBe(1);
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+
+    endChild(child, null, 'SIGTERM');
+    await promise;
+    expect(terminateChildren('SIGTERM')).toBe(0);
   });
 });
 
