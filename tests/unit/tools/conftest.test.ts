@@ -3,7 +3,8 @@
  *
  * runBinary is mocked so no real conftest binary is required. Tests verify:
  *   - happy-path argv construction and output parsing
- *   - exit-code mapping (0 = pass, 1 = fail, 2+ = command error)
+ *   - exit-code mapping (0 = pass; 1 and 2 = failures when results are present;
+ *     no results on stdout = command error)
  *   - summary field arithmetic across multi-file results
  *   - all INVALID_INPUT mutual-exclusion guards
  *   - path validation (PATH_NOT_ALLOWED, PATH_NOT_FOUND)
@@ -550,7 +551,7 @@ describe('conftest_test', () => {
     expect(env.error?.code).toBe('CANCELLED');
   });
 
-  it('maps exit code 2 to UNKNOWN_ERROR', async () => {
+  it('maps a non-zero exit with no results on stdout to UNKNOWN_ERROR', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(2, 'policy directory not found'));
 
     const server = makeServer();
@@ -781,7 +782,7 @@ describe('conftest_verify', () => {
     expect(env.error?.code).toBe('CANCELLED');
   });
 
-  it('maps exit code 2 to UNKNOWN_ERROR', async () => {
+  it('maps a non-zero exit with no results on stdout to UNKNOWN_ERROR', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(2, 'no test files found'));
 
     const server = makeServer();

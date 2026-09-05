@@ -7,11 +7,14 @@
  * the policy directory. Use this to confirm that the policies themselves
  * are correct before deploying them.
  *
- * Exit code mapping (same as conftest_test):
+ * Exit code mapping:
  *   null  -- binary not found → CONFTEST_NOT_FOUND
  *   0     -- all tests pass
- *   1+    -- test failures when stdout holds results, a command error when it
+ *   1     -- test failures when stdout holds results, a command error when it
  *            does not
+ * `conftest verify` has no --fail-on-warn, so the exit code 2 that
+ * conftest_test handles does not occur here; the results-on-stdout rule is
+ * shared so a command error reaches the caller with conftest's own message.
  */
 import { z } from 'zod';
 

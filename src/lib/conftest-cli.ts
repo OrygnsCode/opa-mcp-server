@@ -6,10 +6,12 @@
  * other tools work without Conftest installed. If absent, conftest tools
  * return a structured `CONFTEST_NOT_FOUND` error with an install hint.
  *
- * Conftest exit codes:
+ * Conftest exit codes, measured with 0.69.0:
  *   0  -- all tests pass (or no failures, only warnings)
- *   1  -- one or more test failures
- *   2+ -- command error (bad args, policy not found, parse error, etc.)
+ *   1  -- failures, or warnings under --fail-on-warn, or a command error (bad
+ *         args, policy not found, parse error); the two are told apart by
+ *         whether stdout holds results
+ *   2  -- failures together with warnings under --fail-on-warn
  *
  * All structured output is obtained via `--output=json`; raw text output
  * is never parsed.
