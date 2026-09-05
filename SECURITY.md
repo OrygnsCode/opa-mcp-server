@@ -93,7 +93,9 @@ on the network.
   file, so `http.send` cannot be restricted for evaluation; `rego_check` and
   `opa_bundle_build` accept one, which affects only checking and building.
 - Releases are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements);
-  the Docker image is built reproducibly via GitHub Actions.
+  the Docker image is built in GitHub Actions from the committed
+  `Dockerfile`, with pinned `opa` and `regal` binaries checked against
+  their published digests.
 
 ## Hardening recommendations for operators
 

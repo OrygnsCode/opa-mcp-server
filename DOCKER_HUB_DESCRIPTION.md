@@ -22,7 +22,8 @@ pinned versions of `opa` and `regal` inside the container. No host install of OP
 required.
 
 That is the main reason to use this image over `npm install -g @orygn/opa-mcp` -- you get a
-reproducible, self-contained runtime with no version-skew risk.
+self-contained runtime with pinned, digest-checked binaries and no
+version-skew risk.
 
 > **Note on conftest:** The `conftest_*` tools (policy testing for Kubernetes, Terraform, Helm,
 > Dockerfile, and other configuration formats) require the `conftest` binary. It is **not**
@@ -119,7 +120,8 @@ curated pattern library).
 - Subprocesses run with `shell: false` and a hard timeout.
 - File tools refuse paths outside `OPA_MCP_ALLOWED_PATHS`.
 - `OPA_TOKEN` is never echoed in tool responses or log output.
-- Image is built reproducibly from the committed Dockerfile.
+- Image is built from the committed Dockerfile; `opa` and `regal` are pinned
+  and checked against their published digests.
 
 ---
 

@@ -37,27 +37,34 @@ ARG TARGETARCH
 
 RUN apk add --no-cache curl ca-certificates
 
-# OPA static binary (linux_amd64 / linux_arm64_static).
+# OPA static binary (linux_amd64 / linux_arm64_static), checked against the
+# digest published beside the release. Bump the digests with the version.
 RUN set -eux; \
     case "${TARGETARCH}" in \
-      amd64) OPA_ASSET="opa_linux_amd64_static" ;; \
-      arm64) OPA_ASSET="opa_linux_arm64_static" ;; \
+      amd64) OPA_ASSET="opa_linux_amd64_static"; \
+             OPA_SHA256="1dd5c5591ff856f5e20a1d66bafae9511ddf3c5552ed3b5070c70b2b6580ee3f" ;; \
+      arm64) OPA_ASSET="opa_linux_arm64_static"; \
+             OPA_SHA256="06680087ed236c8c6aaa021660d83178db829a2ad30bdb3482481fada6791b2a" ;; \
       *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /usr/local/bin/opa \
       "https://openpolicyagent.org/downloads/v${OPA_VERSION}/${OPA_ASSET}"; \
+    echo "${OPA_SHA256}  /usr/local/bin/opa" | sha256sum -c -; \
     chmod +x /usr/local/bin/opa; \
     /usr/local/bin/opa version
 
-# Regal binary.
+# Regal binary, checked against the release's checksums.txt.
 RUN set -eux; \
     case "${TARGETARCH}" in \
-      amd64) REGAL_ASSET="regal_Linux_x86_64" ;; \
-      arm64) REGAL_ASSET="regal_Linux_arm64" ;; \
+      amd64) REGAL_ASSET="regal_Linux_x86_64"; \
+             REGAL_SHA256="c7d30504a46fbf6d93c88385cea498aa00d032279f606c3ff27a412960523341" ;; \
+      arm64) REGAL_ASSET="regal_Linux_arm64"; \
+             REGAL_SHA256="8d62165cdda1d856b6b48fb88489b1959d67f398dc3b2dcb8793a5b2ea53c9d3" ;; \
       *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /usr/local/bin/regal \
       "https://github.com/StyraInc/regal/releases/download/v${REGAL_VERSION}/${REGAL_ASSET}"; \
+    echo "${REGAL_SHA256}  /usr/local/bin/regal" | sha256sum -c -; \
     chmod +x /usr/local/bin/regal; \
     /usr/local/bin/regal version
 
