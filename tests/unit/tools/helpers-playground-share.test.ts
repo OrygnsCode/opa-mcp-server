@@ -185,12 +185,15 @@ describe('rego_playground_share', () => {
 
     const server = makeServer();
     registerRegoPlaygroundShare(server, baseConfig);
-    await callTool(server, 'rego_playground_share', { policy: POLICY });
+    const env = await callTool<RegoPlaygroundShareOutput>(server, 'rego_playground_share', {
+      policy: POLICY,
+    });
 
     const body = JSON.parse(
       (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
     ) as { public: boolean };
     expect(body.public).toBe(false);
+    expect(env.data?.public).toBe(false);
   });
 
   it('creates a public Gist when asked', async () => {
@@ -200,12 +203,16 @@ describe('rego_playground_share', () => {
 
     const server = makeServer();
     registerRegoPlaygroundShare(server, baseConfig);
-    await callTool(server, 'rego_playground_share', { policy: POLICY, public: true });
+    const env = await callTool<RegoPlaygroundShareOutput>(server, 'rego_playground_share', {
+      policy: POLICY,
+      public: true,
+    });
 
     const body = JSON.parse(
       (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
     ) as { public: boolean };
     expect(body.public).toBe(true);
+    expect(env.data?.public).toBe(true);
   });
 
   it('uses provided description in the Gist body', async () => {

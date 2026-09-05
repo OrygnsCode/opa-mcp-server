@@ -62,6 +62,8 @@ export interface RegoPlaygroundShareOutput {
   rawPolicyUrl: string;
   /** GitHub Gist ID. */
   id: string;
+  /** True when the Gist was created public (listed), false when secret. */
+  public: boolean;
 }
 
 // ─── GitHub Gist API types ────────────────────────────────────────────────────
@@ -190,6 +192,7 @@ export function registerRegoPlaygroundShare(server: McpServer, _config: Config):
           gistUrl: gist.html_url,
           rawPolicyUrl,
           id: gist.id,
+          public: listed === true,
         });
       });
     },
