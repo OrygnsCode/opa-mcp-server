@@ -10,14 +10,57 @@
  */
 import type { Config } from '../config.js';
 
+/**
+ * The URL with any username and password removed. OPA_URL is shown in error
+ * envelopes and in the startup log; a credential embedded in it must not
+ * travel with it. Returns the input unchanged when it holds none, or does
+ * not parse.
+ */
+export function redactUrlCredentials(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.username === '' && parsed.password === '') return url;
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/** Whether the URL carries a username or password. */
+export function urlHasCredentials(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.username !== '' || parsed.password !== '';
+  } catch {
+    return false;
+  }
+}
+
 export class OpaUnreachableError extends Error {
-  constructor(
-    public readonly url: string,
-    cause?: unknown,
-  ) {
-    super(`OPA server unreachable at ${url}`);
+  public readonly url: string;
+  constructor(url: string, cause?: unknown) {
+    const shown = redactUrlCredentials(url);
+    super(`OPA server unreachable at ${shown}`);
     this.name = 'OpaUnreachableError';
+    this.url = shown;
     if (cause !== undefined) this.cause = cause;
+  }
+}
+
+/**
+ * OPA_URL holds a username and password. The HTTP client refuses such a
+ * URL outright, so every call failed as "unreachable" with a hint to start a
+ * server; the real fix is to move the secret to OPA_TOKEN.
+ */
+export class OpaUrlCredentialsError extends Error {
+  public readonly url: string;
+  constructor(url: string) {
+    const shown = redactUrlCredentials(url);
+    super(`OPA_URL holds a username and password, which the HTTP client refuses (${shown})`);
+    this.name = 'OpaUrlCredentialsError';
+    this.url = shown;
   }
 }
 
@@ -105,6 +148,12 @@ export class OpaClient {
       if (!headers['Content-Type']) {
         headers['Content-Type'] = 'application/json';
       }
+    }
+
+    // Refused up front, with its own error: fetch rejects a URL that carries
+    // credentials with a TypeError that used to land in the unreachable branch.
+    if (urlHasCredentials(this.config.opaUrl)) {
+      throw new OpaUrlCredentialsError(this.config.opaUrl);
     }
 
     const controller = new AbortController();
