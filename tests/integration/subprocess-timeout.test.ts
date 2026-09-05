@@ -194,26 +194,29 @@ describe('runBinary against children that do not cooperate', () => {
       // reaches stdout and there is nothing to probe.
       const result = await runBinary(NODE, { args: ['-e', script], timeoutMs: 3_000 });
       const grandchild = Number.parseInt(result.stdout.trim(), 10);
-      expect(result.timedOut).toBe(true);
-      expect(grandchild).toBeGreaterThan(0);
-
-      // Give the signal a moment to land, then probe: signal 0 throws ESRCH
-      // once the process is gone.
-      await new Promise((r) => setTimeout(r, 500));
-      let alive = true;
       try {
-        process.kill(grandchild, 0);
-      } catch {
-        alive = false;
-      }
-      if (alive) {
+        expect(result.timedOut).toBe(true);
+        expect(grandchild).toBeGreaterThan(0);
+
+        // Give the signal a moment to land, then probe: signal 0 throws ESRCH
+        // once the process is gone.
+        await new Promise((r) => setTimeout(r, 500));
+        let alive = true;
         try {
-          process.kill(grandchild, 'SIGKILL');
+          process.kill(grandchild, 0);
         } catch {
-          // raced with its own exit
+          alive = false;
+        }
+        expect(alive).toBe(false);
+      } finally {
+        if (Number.isInteger(grandchild) && grandchild > 0) {
+          try {
+            process.kill(grandchild, 'SIGKILL');
+          } catch {
+            // already gone
+          }
         }
       }
-      expect(alive).toBe(false);
     },
     15_000,
   );

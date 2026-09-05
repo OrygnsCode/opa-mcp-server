@@ -92,6 +92,14 @@ const PIPE_DRAIN_GRACE_MS = 1_000;
 const KILL_ESCALATION_MS = 2_000;
 
 /**
+ * Ceiling on the drain after 'exit', however often late data re-arms it. The
+ * deadline bounds the drain while it is still pending; once it has fired, a
+ * writer that survived the group signal could otherwise keep the result open
+ * for as long as it kept writing.
+ */
+const PIPE_DRAIN_MAX_MS = 5 * PIPE_DRAIN_GRACE_MS;
+
+/**
  * Signal the child, and on POSIX its whole process group, so a grandchild
  * started by a wrapper script dies with it. The child is spawned as a group
  * leader for this purpose; when the group is already gone, or the platform
@@ -213,6 +221,8 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     let drainTimer: ReturnType<typeof setTimeout> | undefined;
     /** Set once 'exit' has fired: the child is gone, only its pipes remain. */
     let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    /** Absolute time by which the drain finishes regardless of late data. */
+    let drainUntil = 0;
     liveChildren.add(child);
 
     // Whether the child has actually ended. `child.killed` is not that: Node
@@ -288,7 +298,12 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
     // grace out again, and the deadline above bounds the whole thing.
     const armDrain = (): void => {
       if (drainTimer) clearTimeout(drainTimer);
-      drainTimer = setTimeout(finishFromCapture, PIPE_DRAIN_GRACE_MS);
+      const left = drainUntil - Date.now();
+      if (left <= 0) {
+        finishFromCapture();
+        return;
+      }
+      drainTimer = setTimeout(finishFromCapture, Math.min(PIPE_DRAIN_GRACE_MS, left));
     };
 
     const onData = (buf: CappedBuffer, chunk: Buffer): void => {
@@ -362,6 +377,7 @@ export async function runBinary(binary: string, opts: SpawnOptions): Promise<Spa
       // A spawn failure settles on 'error' and may still be followed by 'exit'.
       if (settled) return;
       exited = { code, signal };
+      drainUntil = Date.now() + PIPE_DRAIN_MAX_MS;
       armDrain();
     });
     child.on('close', (code, signal) => finish(code, signal));

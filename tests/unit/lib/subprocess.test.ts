@@ -461,6 +461,32 @@ describe('runBinary — pipes held open after exit', () => {
     expect(child.kill).not.toHaveBeenCalled();
   });
 
+  it('finishes the drain at its ceiling however often late data re-arms it', async () => {
+    const child = makeChild();
+    mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+
+    // Deadline long gone; the child is dead; a writer it left behind trickles.
+    const promise = runBinary('opa', { args: ['trickle'], timeoutMs: 60_000 });
+    child.exitCode = 0;
+    child.emit('exit', 0, null);
+    // The stream is destroyed inside the timer that crosses the ceiling, so
+    // the advance in which that happens is observable synchronously.
+    let finishedAt = -1;
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(700);
+      if (finishedAt === -1 && child.stdout.destroy.mock.calls.length > 0)
+        finishedAt = (i + 1) * 700;
+      child.stdout.emit('data', Buffer.from('.'));
+    }
+    // Re-armed every 700ms for 8.4s, the drain still finished in the advance
+    // that crossed the 5s ceiling.
+    expect(finishedAt).toBe(5_600);
+    const result = await promise;
+    expect(result.exitCode).toBe(0);
+    expect(result.timedOut).toBe(false);
+    expect(child.stdout.destroy).toHaveBeenCalled();
+  });
+
   it('reports the signal that ended the child', async () => {
     const child = makeChild();
     mockSpawn.mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);

@@ -42,7 +42,7 @@ not part of the public surface and may change in minor releases.
   wrapper script that left a grandchild holding the pipes kept the result from
   ever settling. A child killed from outside the server is reported as
   `SUBPROCESS_KILLED` naming the signal, not as a missing binary. On SIGINT or
-  SIGTERM the server now terminates the children it started before exiting.
+  SIGTERM the server now signals the children it started before exiting.
 
 ## [0.5.0] - 2026-09-04
 
