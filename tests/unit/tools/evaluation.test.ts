@@ -90,7 +90,8 @@ describe('rego_eval', () => {
 
   it('parses a JSON string passed as input (LLM serialization mistake)', async () => {
     // LLMs often pass JSON as a string: input: '{"user":"alice"}' instead of
-    // input: {user: "alice"}. We parse it so OPA gets an object on stdin.
+    // input: {user: "alice"}. coerceJsonArg in opa-cli repairs it, so OPA gets
+    // an object on stdin.
     mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
@@ -102,6 +103,24 @@ describe('rego_eval', () => {
     const opts = mockRun.mock.calls[0]![1];
     expect(opts.args).toContain('--stdin-input');
     expect(opts.stdin).toBe('{"user":"alice"}');
+  });
+
+  // "42" is the string "42", not the number 42, and '"alice"' is a string
+  // holding quotes, not alice. Parsing every string input retyped scalars and
+  // unwrapped quoted strings, and a policy comparing input to a string saw
+  // something else.
+  it.each([
+    ['42', '"42"'],
+    ['true', '"true"'],
+    ['null', '"null"'],
+    ['"alice"', '"\\"alice\\""'],
+  ])('keeps the string input %j as a string on stdin', async (given, stdin) => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_eval', { query: 'input', paths: [validRegoPath()], input: given });
+    const opts = mockRun.mock.calls[0]![1];
+    expect(opts.stdin).toBe(stdin);
   });
 
   it('passes a non-JSON string input through as-is', async () => {

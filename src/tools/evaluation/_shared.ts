@@ -105,15 +105,11 @@ export async function runEval(
   }
 
   if (args.input !== undefined) {
-    let resolvedInput: unknown = args.input;
-    if (typeof resolvedInput === 'string') {
-      try {
-        resolvedInput = JSON.parse(resolvedInput) as unknown;
-      } catch {
-        // Not a JSON string -- pass as-is (intentional string input).
-      }
-    }
-    evalInput.input = resolvedInput;
+    // Passed through as given. A JSON object or array that arrived as a string
+    // is repaired at the opa-cli boundary by coerceJsonArg, the same way for
+    // every tool; parsing it here as well retyped a string such as "42" or
+    // "true" into a number or boolean, and the policy saw a different input.
+    evalInput.input = args.input;
   } else if (args.inputPath) {
     const inputPathValidation = validatePaths([args.inputPath], config, { mustExist: true });
     if (!inputPathValidation.ok) return inputPathValidation.error;
