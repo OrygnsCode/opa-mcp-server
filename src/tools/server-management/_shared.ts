@@ -9,6 +9,7 @@ import {
   OpaAuthError,
   OpaCancelledError,
   OpaHttpError,
+  OpaTimeoutError,
   OpaUnreachableError,
 } from '../../lib/opa-client.js';
 import type { ToolEnvelope, ToolErrorCode } from '../../types.js';
@@ -114,6 +115,12 @@ export function mapOpaClientError(
 ): ToolEnvelope<never> {
   if (e instanceof OpaCancelledError) {
     return err('CANCELLED', 'OPA request was cancelled by the client.');
+  }
+  if (e instanceof OpaTimeoutError) {
+    return err('TIMEOUT', `OPA at ${e.url} did not answer within ${e.timeoutMs} ms.`, {
+      hint: 'Either OPA is up but slow, or nothing is answering at OPA_URL and the connection attempt is being dropped rather than refused, which looks the same from here. Check OPA_URL and the server load, or raise OPA_MCP_HTTP_TIMEOUT_MS.',
+      details: { url: e.url, timeoutMs: e.timeoutMs },
+    });
   }
   if (e instanceof OpaUnreachableError) {
     return err('OPA_UNREACHABLE', `OPA server unreachable at ${e.url}`, {

@@ -259,7 +259,7 @@ variable is optional; defaults are sensible for a local OPA on
 | `OPA_MCP_LOG_LEVEL`            | `info`                       | One of `debug`, `info`, `warn`, `error`.                                                                                                                                                                                                                                                     |
 | `OPA_MCP_MAX_RESPONSE_BYTES`   | `100000`                     | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker.                                                                                                                                                                                         |
 | `OPA_MCP_TIMEOUT_MS`           | `30000`                      | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`.                                                                                                                                                                           |
-| `OPA_MCP_HTTP_TIMEOUT_MS`      | `15000`                      | Timeout for HTTP requests to the OPA REST API.                                                                                                                                                                                                                                               |
+| `OPA_MCP_HTTP_TIMEOUT_MS`      | `15000`                      | Timeout for each request to the OPA REST API, from the connection attempt to the last byte of the response; reported as `TIMEOUT`.                                                                                                                                                           |
 | `OPA_MCP_NO_TELEMETRY`         | _(unset)_                    | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. The install ID is stored at `~/.orygn/opa-mcp/install-id` and is generated once on first run. No policy content or file paths are ever sent.                      |
 | `OPA_MCP_MAX_SUBPROCESS_BYTES` | `33554432` (32 MiB)          | Maximum bytes captured from a subprocess's stdout and stderr, counted separately. On overflow the stream is clamped, the child is stopped, and the tool returns `OUTPUT_TOO_LARGE`. Distinct from `OPA_MCP_MAX_RESPONSE_BYTES`, which trims the reply after the output is already in memory. |
 | `OPA_MCP_PASSTHROUGH_ENV`      | _(unset)_                    | Comma-separated variable names to pass through to `opa`, `regal` and `conftest`. Everything else is withheld. **Anything named here is readable by any policy the server evaluates**, via `opa.runtime().env`, so use it only for values that are safe in that position.                     |
@@ -693,6 +693,13 @@ path(s) you want the server to read from, comma-separated.
 
 `OPA_URL` (default `http://localhost:8181`) must point at a running OPA
 server (`opa run --server ...`). Check with `curl $OPA_URL/health`.
+
+**`TIMEOUT` when calling `opa_*` tools.**
+
+The request did not finish within `OPA_MCP_HTTP_TIMEOUT_MS` (default 15 s).
+Either OPA is up but slow, or nothing is answering at `OPA_URL` and the
+connection attempt is being dropped rather than refused, which looks the
+same from here. Check `OPA_URL` and the server's load, or raise the limit.
 
 **`directory-package-mismatch` violation when linting inline source.**
 

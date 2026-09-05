@@ -7,7 +7,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { OpaAuthError, OpaHttpError, OpaUnreachableError } from '../../../src/lib/opa-client.js';
+import {
+  OpaAuthError,
+  OpaHttpError,
+  OpaTimeoutError,
+  OpaUnreachableError,
+} from '../../../src/lib/opa-client.js';
 import {
   mapOpaClientError,
   parseOpaDataPath,
@@ -123,6 +128,15 @@ describe('parseOpaDataPath', () => {
 });
 
 describe('mapOpaClientError', () => {
+  it('maps OpaTimeoutError to TIMEOUT, naming the limit, not to unreachable', () => {
+    const env = mapOpaClientError(new OpaTimeoutError('http://opa.example.com', 15_000));
+    expect(env.error?.code).toBe('TIMEOUT');
+    expect(env.error?.message).toContain('15000 ms');
+    expect(env.error?.hint).toMatch(/OPA_MCP_HTTP_TIMEOUT_MS/);
+    expect(env.error?.hint).not.toMatch(/opa run --server/);
+    expect(env.error?.details).toMatchObject({ url: 'http://opa.example.com', timeoutMs: 15_000 });
+  });
+
   it('maps OpaUnreachableError with url + cause and helpful hint', () => {
     const err = new OpaUnreachableError('http://opa.example.com', new Error('refused'));
     const env = mapOpaClientError(err);

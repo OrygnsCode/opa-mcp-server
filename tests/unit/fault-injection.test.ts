@@ -124,7 +124,7 @@ describe('OpaClient under fault: HTTP response shape lies', () => {
 // ─── Network failures during body read ────────────────────────────────────
 
 describe('OpaClient under fault: network/body failures', () => {
-  it('maps a body-stream read error to OpaUnreachableError via the catch path', async () => {
+  it('surfaces a body-stream read error as itself, not as an unreachable server', async () => {
     // Simulate fetch returning a Response whose .json() rejects mid-read
     // (proxy hangup after headers were sent).
     const failingResponse = new Response('partial', {
@@ -137,7 +137,7 @@ describe('OpaClient under fault: network/body failures', () => {
     });
     fetchMock.mockResolvedValueOnce(failingResponse);
     const client = new OpaClient(baseConfig);
-    await expect(client.request({ method: 'GET', path: '/x' })).rejects.toThrow();
+    await expect(client.request({ method: 'GET', path: '/x' })).rejects.toThrow(TypeError);
   });
 
   it('handles fetch rejecting with a non-Error value', async () => {

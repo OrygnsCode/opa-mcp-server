@@ -13,6 +13,7 @@ import {
   OpaAuthError,
   OpaClient,
   OpaHttpError,
+  OpaTimeoutError,
   OpaUnreachableError,
 } from '../../../src/lib/opa-client.js';
 
@@ -302,12 +303,60 @@ describe('Timeouts', () => {
       (_url, init) =>
         new Promise((_resolve, reject) => {
           (init as RequestInit).signal?.addEventListener('abort', () => {
-            const err = new Error('aborted');
-            err.name = 'AbortError';
-            reject(err);
+            reject(new DOMException('This operation was aborted', 'AbortError'));
           });
         }),
     );
+    const client = new OpaClient({ ...baseConfig, httpTimeoutMs: 50 });
+    // The server may well be up: this is a timeout, not an unreachable host.
+    const failure = await client.request({ method: 'GET', path: '/x' }).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(OpaTimeoutError);
+    expect((failure as OpaTimeoutError).timeoutMs).toBe(50);
+    expect((failure as OpaTimeoutError).url).toBe(baseConfig.opaUrl);
+  });
+
+  it('bounds a response whose body stalls after the headers arrived', async () => {
+    // Headers come back at once; the body never does. The timer used to be
+    // cleared as soon as fetch resolved, so this waited forever.
+    fetchMock.mockImplementation((_url, init) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () =>
+          new Promise((_resolve, reject) => {
+            (init as RequestInit).signal?.addEventListener('abort', () => {
+              reject(new DOMException('This operation was aborted', 'AbortError'));
+            });
+          }),
+        text: () => Promise.resolve(''),
+      } as unknown as Response),
+    );
+    const client = new OpaClient({ ...baseConfig, httpTimeoutMs: 50 });
+    await expect(client.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(
+      OpaTimeoutError,
+    );
+  });
+
+  it('does not blame the timer for a refusal that lands after it fired', async () => {
+    // The connection attempt fails on its own just as the deadline passes:
+    // the timer has aborted, but the rejection is not an abort.
+    fetchMock.mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          (init as RequestInit).signal?.addEventListener('abort', () => {
+            setTimeout(() => reject(new TypeError('fetch failed')), 0);
+          });
+        }),
+    );
+    const client = new OpaClient({ ...baseConfig, httpTimeoutMs: 20 });
+    await expect(client.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(
+      OpaUnreachableError,
+    );
+  });
+
+  it('still reports a refused connection as unreachable', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
     const client = new OpaClient({ ...baseConfig, httpTimeoutMs: 50 });
     await expect(client.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(
       OpaUnreachableError,

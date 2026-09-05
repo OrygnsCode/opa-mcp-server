@@ -4,7 +4,8 @@
  * Used by tools in the `opa_*` server-management category. CLI-only
  * tools (`rego_*`) do not touch this module.
  *
- * Connection failures map to `OPA_UNREACHABLE`; 401s map to `OPA_AUTH_FAILED`.
+ * Connection failures map to `OPA_UNREACHABLE`, the client's own timeout to
+ * `TIMEOUT`, and 401s to `OPA_AUTH_FAILED`.
  * Per-tool error mapping happens at the call site.
  */
 import type { Config } from '../config.js';
@@ -34,6 +35,17 @@ export class OpaHttpError extends Error {
   ) {
     super(`OPA returned HTTP ${status}`);
     this.name = 'OpaHttpError';
+  }
+}
+
+/** The server did not answer within `httpTimeoutMs`. It may well be up. */
+export class OpaTimeoutError extends Error {
+  constructor(
+    public readonly url: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(`OPA at ${url} did not answer within ${timeoutMs} ms`);
+    this.name = 'OpaTimeoutError';
   }
 }
 
@@ -111,23 +123,48 @@ export class OpaClient {
       init.body = bodyToSend;
     }
 
+    // The client's own timer and the caller's signal both surface as an
+    // abort. Which one fired decides the answer: a cancellation, a server
+    // that is up but slow, or no server at all. Reporting the slow case as
+    // unreachable sent people to start a server that was already running.
+    // The caller's signal is trusted as is (a caller may abort with a reason
+    // of its own); the timer is blamed only for a rejection that is an abort,
+    // so a refusal or a parse error that lands just after it fired keeps its
+    // own name.
+    const isAbort = (e: unknown): boolean => e instanceof Error && e.name === 'AbortError';
+    const classifyAbort = (e: unknown): Error | undefined => {
+      if (opts.signal?.aborted) return new OpaCancelledError();
+      if (controller.signal.aborted && isAbort(e)) {
+        return new OpaTimeoutError(this.config.opaUrl, this.config.httpTimeoutMs);
+      }
+      return undefined;
+    };
+
     let response: Response;
+    let payload: unknown;
     try {
-      response = await fetch(url, init);
-    } catch (e) {
-      if (opts.signal?.aborted) throw new OpaCancelledError();
-      throw new OpaUnreachableError(this.config.opaUrl, e);
+      try {
+        response = await fetch(url, init);
+      } catch (e) {
+        throw classifyAbort(e) ?? new OpaUnreachableError(this.config.opaUrl, e);
+      }
+
+      if (response.status === 401) {
+        throw new OpaAuthError();
+      }
+
+      // The body is read under the same timer: a server that sends headers
+      // and then stalls is as slow as one that never answers.
+      const contentType = response.headers.get('content-type') ?? '';
+      const isJson = contentType.includes('application/json');
+      try {
+        payload = isJson ? await response.json() : await response.text();
+      } catch (e) {
+        throw classifyAbort(e) ?? e;
+      }
     } finally {
       clearTimeout(timer);
     }
-
-    if (response.status === 401) {
-      throw new OpaAuthError();
-    }
-
-    const contentType = response.headers.get('content-type') ?? '';
-    const isJson = contentType.includes('application/json');
-    const payload: unknown = isJson ? await response.json() : await response.text();
 
     if (!response.ok) {
       throw new OpaHttpError(response.status, payload);

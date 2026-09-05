@@ -57,6 +57,10 @@ not part of the public surface and may change in minor releases.
 - `rego_fix`: a real run reported zero fixes and no changed files after
   changing them, because only the dry-run wording of regal's summary was read.
   Both forms are read now.
+- `opa_*` server tools: a request that OPA did not answer within
+  `OPA_MCP_HTTP_TIMEOUT_MS` was reported as `OPA_UNREACHABLE`, with a hint to
+  start a server that was already running. It is now `TIMEOUT`, naming the
+  limit, and the timer covers the response body as well as the headers.
 
 ## [0.5.0] - 2026-09-04
 
