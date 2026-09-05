@@ -136,14 +136,18 @@ export async function runEval(
   const parsed = tryParseJson<RegoEvalOutput>(result.stdout);
 
   if (result.exitCode !== 0) {
+    // The diagnostics name the temp file the inline source was written to;
+    // the success path already hides it, and the failure path must too.
     return err('EVAL_ERROR', 'opa eval exited with an error.', {
-      details: parsed ?? { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
+      details: sanitizeInlinePathsDeep(
+        parsed ?? { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
+      ),
     });
   }
 
   if (parsed === undefined) {
     return err('UNKNOWN_ERROR', 'opa eval produced no parseable JSON output.', {
-      details: { stdout: result.stdout.trim() },
+      details: sanitizeInlinePathsDeep({ stdout: result.stdout.trim() }),
     });
   }
 

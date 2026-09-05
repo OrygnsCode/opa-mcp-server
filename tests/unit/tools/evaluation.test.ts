@@ -123,6 +123,23 @@ describe('rego_eval', () => {
     expect(opts.stdin).toBe(stdin);
   });
 
+  it('hides the inline temp path in an eval failure', async () => {
+    const tempFile = '/tmp/orygn-opa-mcp-xyz789/input.rego';
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(1, `1 error occurred: ${tempFile}:3: rego_parse_error: unexpected token`),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_eval', {
+      query: 'data.x',
+      source: 'package x\nbroken',
+    });
+    expect(env.ok).toBe(false);
+    const text = JSON.stringify(env.error?.details);
+    expect(text).not.toContain('orygn-opa-mcp-');
+    expect(text).toContain('<inline>');
+  });
+
   it('passes a non-JSON string input through as-is', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
     const server = makeServer();

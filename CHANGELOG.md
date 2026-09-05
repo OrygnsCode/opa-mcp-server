@@ -139,6 +139,10 @@ not part of the public surface and may change in minor releases.
   The cap bounds a success envelope's warnings as well, and
   `OPA_MCP_MAX_RESPONSE_BYTES` refuses a value below 512, which sits above
   the smallest complete envelope, rather than exceeding it.
+- `rego_format`, `rego_parse_ast`, `rego_migrate_v1`, `rego_lint`,
+  `rego_describe_policy` and the eval family no longer put the temp file that
+  inline source was written to into their error details; the path is replaced
+  by `<inline>` there as it already was in results.
 
 ## [0.5.0] - 2026-09-04
 

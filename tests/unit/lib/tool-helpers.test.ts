@@ -4,6 +4,7 @@ import {
   mapSubprocessFailure,
   sanitizeInlinePath,
   sanitizeInlinePathsDeep,
+  sanitizeInlineText,
 } from '../../../src/lib/tool-helpers.js';
 
 describe('mapSubprocessFailure', () => {
@@ -107,5 +108,30 @@ describe('sanitizeInlinePathsDeep', () => {
   it('leaves real paths and non-string scalars untouched', () => {
     const input = { file: '/etc/policies/p.rego', n: 5, flag: true, nothing: null, list: ['a'] };
     expect(sanitizeInlinePathsDeep(input)).toEqual(input);
+  });
+});
+
+describe('sanitizeInlineText', () => {
+  it('replaces the temp path inside a diagnostic line, on either separator', () => {
+    expect(
+      sanitizeInlineText('1 error occurred: /tmp/orygn-opa-mcp-xyz789/input.rego:3: bad'),
+    ).toBe('1 error occurred: <inline>:3: bad');
+    const win = [
+      'C:',
+      'Users',
+      'op',
+      'AppData',
+      'Local',
+      'Temp',
+      'orygn-regal-mcp-ab12',
+      'input.rego',
+    ].join(String.fromCharCode(92));
+    expect(sanitizeInlineText(`${win}:1:1 x`)).toBe('<inline>:1:1 x');
+  });
+
+  it('leaves other paths alone', () => {
+    expect(sanitizeInlineText('/srv/policies/input.rego:3: bad')).toBe(
+      '/srv/policies/input.rego:3: bad',
+    );
   });
 });

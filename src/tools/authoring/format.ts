@@ -11,7 +11,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/tool-helpers.js';
+import {
+  mapSubprocessFailure,
+  sanitizeInlinePathsDeep,
+  tryParseJson,
+  withToolEnvelope,
+} from '../../lib/tool-helpers.js';
 
 const RegoFormatInput = {
   source: z.string().min(1).describe('Rego source code to format.'),
@@ -123,7 +128,7 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
             'INVALID_REGO',
             'opa fmt rejected the source; the input is not parseable Rego.',
             {
-              details: parsedErrors ?? { stderr: result.stderr.trim() },
+              details: sanitizeInlinePathsDeep(parsedErrors ?? { stderr: result.stderr.trim() }),
             },
           );
         }

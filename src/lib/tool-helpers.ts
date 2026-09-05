@@ -33,8 +33,22 @@ export function sanitizeInlinePath(file: string): string {
  * path. Only our own temp paths match the pattern, so real user file paths pass
  * through untouched.
  */
+/**
+ * The temp path as it appears inside a longer diagnostic, such as
+ * `1 error occurred: /tmp/orygn-opa-mcp-x/input.rego:3: ...`. Everything
+ * from the start of the path to the file name is replaced.
+ */
+const EMBEDDED_INLINE_TEMP_PATH =
+  /(?:[A-Za-z]:)?[^\s"'`]*?orygn-(?:opa|regal)-mcp-[^\s/\\]+[/\\]input\.rego/gi;
+
+/** Replace the temp path whether it is the whole string or sits inside one. */
+export function sanitizeInlineText(text: string): string {
+  if (INLINE_TEMP_PATH_PATTERN.test(text)) return '<inline>';
+  return text.replace(EMBEDDED_INLINE_TEMP_PATH, '<inline>');
+}
+
 export function sanitizeInlinePathsDeep(value: unknown): unknown {
-  if (typeof value === 'string') return sanitizeInlinePath(value);
+  if (typeof value === 'string') return sanitizeInlineText(value);
   if (Array.isArray(value)) return value.map(sanitizeInlinePathsDeep);
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};

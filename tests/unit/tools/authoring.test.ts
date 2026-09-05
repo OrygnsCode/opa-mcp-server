@@ -67,6 +67,27 @@ describe('rego_format', () => {
     expect(env.error?.code).toBe('INVALID_REGO');
   });
 
+  it('hides the inline temp path in the error details', async () => {
+    // opa names the temp file the inline source was written to; the caller
+    // never asked for a path and must not see the operator's temp directory.
+    const tempFile = 'C:\\Users\\op\\AppData\\Local\\Temp\\orygn-opa-mcp-abc123\\input.rego';
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        JSON.stringify({
+          errors: [{ code: 'rego_parse_error', location: { file: tempFile, row: 1, col: 1 } }],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_format', { source: 'broken' });
+    expect(env.ok).toBe(false);
+    const text = JSON.stringify(env.error?.details);
+    expect(text).not.toContain('orygn-opa-mcp-');
+    expect(text).toContain('<inline>');
+  });
+
   it('maps a missing binary to OPA_BINARY_NOT_FOUND', async () => {
     mockRun.mockResolvedValueOnce(spawnUnreachable());
     const server = makeServer();

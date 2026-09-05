@@ -20,6 +20,7 @@ import { err, ok } from '../../lib/errors.js';
 import {
   mapSubprocessFailure,
   sanitizeInlinePath,
+  sanitizeInlinePathsDeep,
   tryParseJson,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
@@ -84,7 +85,9 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
           return err(
             'INVALID_REGO',
             'opa fmt --rego-v1 could not parse the source. Fix syntax errors before migrating.',
-            { details: parsedErrors ?? { stderr: fmtResult.stderr.trim() } },
+            {
+              details: sanitizeInlinePathsDeep(parsedErrors ?? { stderr: fmtResult.stderr.trim() }),
+            },
           );
         }
 
