@@ -210,6 +210,15 @@ describe('loadConfig - binary paths', () => {
     }
   });
 
+  it("refuses a drive-relative name, which resolves against that drive's current directory", () => {
+    process.env['OPA_BINARY'] = 'C:regal.exe';
+    try {
+      expectExitWith('absolute path');
+    } finally {
+      delete process.env['OPA_BINARY'];
+    }
+  });
+
   it('accepts a bare command name and an absolute path', () => {
     process.env['REGAL_BINARY'] = 'regal';
     process.env['CONFTEST_BINARY'] =

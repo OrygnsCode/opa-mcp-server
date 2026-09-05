@@ -155,7 +155,8 @@ not part of the public surface and may change in minor releases.
 - `rego_explain_undefined` validated `inputPath` and then passed the argument
   as written to opa instead of the resolved path.
 - The `*_BINARY` variables now refuse a relative path at startup, which the
-  README said they did; a bare command name or an absolute path is accepted.
+  README said they did, a drive-relative name included; a bare command name
+  or an absolute path is accepted.
 - Docs: the install note described a missing-`opa` failure that the npm
   package's bundled binary already prevents, and now says where it still
   applies; CONTRIBUTING said input fields are `snake_case` when the surface

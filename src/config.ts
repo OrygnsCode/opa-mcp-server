@@ -12,6 +12,8 @@ import { z } from 'zod';
 
 import { resolveOpaBinary } from './lib/resolve-binary.js';
 
+import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
+
 /**
  * A `*_BINARY` value: a bare command name, looked up on PATH by the spawn,
  * or an absolute path. A relative path would resolve against wherever the
@@ -21,11 +23,12 @@ import { resolveOpaBinary } from './lib/resolve-binary.js';
 const binarySchema = (name: string) =>
   z
     .string()
-    .refine((v) => !/[\\/]/.test(v) || isAbsolute(v), {
+    // A drive-relative `C:regal.exe` has no separator but resolves against
+    // the current directory of that drive, so it is refused too.
+    .refine((v) => (!/[\\/]/.test(v) && !/^[A-Za-z]:/.test(v)) || isAbsolute(v), {
       message: 'must be a bare command name found on PATH, or an absolute path',
     })
     .default(name);
-import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
 
 /**
  * Node clamps a timer of 2^31 ms or more to 1 ms, with only a process warning.

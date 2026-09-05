@@ -108,8 +108,9 @@ To add a tool:
 1. Create a new file in the right category, e.g.
    `src/tools/authoring/rego-format.ts`.
 2. Define the input schema with `zod`. Keep field names `camelCase`, which is
-   what the public surface uses (the one `snake_case` field, `names_only` on
-   `rego_capabilities`, predates the convention and stays for compatibility).
+   what the public surface uses (the one `snake_case` tool field, `names_only`
+   on `rego_capabilities`, and the `package_name` prompt argument predate the
+   convention and stay for compatibility).
 3. Implement the handler. Return `ok(data)` or `err(code, message)` from
    `src/lib/errors.ts` — never throw across the MCP boundary.
 4. Register the tool in the category's `index.ts`.
