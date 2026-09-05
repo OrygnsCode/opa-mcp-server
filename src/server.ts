@@ -180,6 +180,8 @@ export async function main(transport?: Transport): Promise<McpServer> {
       logger.error('uncaught exception', {
         error: e instanceof Error ? (e.stack ?? detail) : detail,
       });
+      // Children sit in their own process groups; the crash must not orphan them.
+      terminateChildren('SIGTERM');
       process.exit(1);
     });
   }
