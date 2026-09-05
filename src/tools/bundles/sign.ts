@@ -1,5 +1,5 @@
 /**
- * `opa_bundle_sign` -- sign a bundle directory or archive via `opa sign`.
+ * `opa_bundle_sign` -- sign a bundle directory via `opa sign`.
  *
  * `opa sign` writes `.signatures.json` to `--output-file-path`, which defaults
  * to the process working directory, so the location is always passed. A
@@ -36,7 +36,9 @@ const OpaBundleSignInput = {
   bundle: z
     .string()
     .min(1)
-    .describe('Path to a bundle directory or `.tar.gz` archive. Must be inside an allowed root.'),
+    .describe(
+      'Path to a bundle directory. Must be inside an allowed root. An archive is refused, since OPA reads the signature from inside it; build a signed archive with `opa_bundle_build` and `signingKey`.',
+    ),
   signingKey: z
     .string()
     .min(1)

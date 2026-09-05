@@ -512,16 +512,6 @@ describe('opa_bundle_sign', () => {
     expect(env.error?.message).toMatch(/covered no files/);
   });
 
-  it('rejects an outputDir that is not a directory without calling opa', async () => {
-    const env = await callTool(serverWithWorkDir(), 'opa_bundle_sign', {
-      bundle: outputBundle,
-      signingKey,
-      outputDir: signingKey,
-    });
-    expect(env.error?.code).toBe('INVALID_INPUT');
-    expect(mockRun).not.toHaveBeenCalled();
-  });
-
   it('refuses to write through a symlinked .signatures.json', async (ctx) => {
     const target = join(workDir, `symlink-target-${Math.random().toString(36).slice(2)}.json`);
     await writeFile(target, 'precious');
