@@ -113,7 +113,7 @@ function stubParts(
         : {
             reference: ruleRef,
             expected: 'null',
-            note: '# Value rule with a computed head: replace the placeholder with the expected value.',
+            note: '# Value rule with a computed head: this stub only asserts the rule is\n\t# defined, so it passes as written. Replace it with the expected value.',
           };
     case 'boolean':
       return {

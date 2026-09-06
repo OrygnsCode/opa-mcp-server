@@ -229,6 +229,7 @@ describe('rego_generate_test_skeleton', () => {
     const file = env.data!.testFile;
     expect(file).toContain('actual := data.p.msg with input as');
     expect(file).toContain('actual != null');
+    expect(file).toContain('passes as written');
     expect(file).not.toContain('actual == null');
     expect(file).toContain('actual == 1');
     expect(file).not.toContain('actual == {}');
