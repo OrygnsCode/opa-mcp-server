@@ -164,6 +164,8 @@ not part of the public surface and may change in minor releases.
   Every error envelope now passes through the sanitiser, which also covers a
   JSON-encoded spelling, a directory name with a space, the inline schema and
   bundle-verify temp files, and takes linear time on any input.
+  The server's own temp directory is matched by its exact spelling first,
+  so no guess about where a path begins is involved for the files it writes.
 - `rego_explain_undefined` turned a spawn failure during its per-condition
   evals or its parse step into a per-condition note or an empty analysis. A
   binary that cannot run or a run that timed out now returns the tool's
