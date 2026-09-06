@@ -8,6 +8,7 @@ import {
   spawnFailure,
   spawnSuccess,
   spawnUnreachable,
+  spawnTimedOut,
 } from './_helpers.js';
 
 vi.mock('../../../src/lib/subprocess.js', () => ({
@@ -1404,6 +1405,71 @@ describe('rego_explain_undefined', () => {
     const cond = env.data!.rules[0]!.conditions[0]!;
     expect(cond.result).toBe('unevaluable');
     expect(cond.note).toMatch(/Standalone eval failed/);
+  });
+
+  it("standalone-eval: a spawn failure is the tool's error, not a condition note", async () => {
+    const ast = makeAst({
+      pkgName: 'authz',
+      rules: [{ name: 'allow', row: 2, body: [{ row: 3, text: 'input.x == 1' }] }],
+    });
+    const trace = [{ Op: 'Index', Message: '(matched 0 rules)' }];
+    for (const [failure, code] of [
+      [spawnUnreachable(), 'OPA_BINARY_NOT_FOUND'],
+      [spawnTimedOut(), 'TIMEOUT'],
+    ] as const) {
+      mockRun
+        .mockResolvedValueOnce(spawnSuccess('{}'))
+        .mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)))
+        .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: trace })))
+        .mockResolvedValueOnce(failure);
+      const server = makeServer();
+      registerHelperTools(server, baseConfig);
+      const env = await callTool(server, 'rego_explain_undefined', {
+        query: 'data.authz.allow',
+        source: 'package authz',
+      });
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe(code);
+    }
+  });
+
+  it('reports a spawn failure of the parse step by its code', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}')).mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz',
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+  });
+
+  it('reports a spawn failure of the per-file parse step by its code', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}')).mockResolvedValueOnce(spawnTimedOut());
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('TIMEOUT');
+  });
+
+  it('passes the validated inputPath to opa, not the argument as written', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    // Absolute, inside the allowed root, but not in resolved form.
+    const asWritten = `${fixturePath('conftest')}/../conftest/policy/main.rego`;
+    await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      inputPath: asWritten,
+    });
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain(fixturePath('conftest', 'policy', 'main.rego'));
+    expect(args).not.toContain(asWritten);
   });
 
   it('extracts defaultValue from a default rule', async () => {
