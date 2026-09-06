@@ -393,3 +393,12 @@ describe('credentials in OPA_URL', () => {
     expect(redactUrlCredentials('not a url')).toBe('not a url');
   });
 });
+
+describe('OpaTimeoutError', () => {
+  it('carries and prints the URL without its credentials', () => {
+    const e = new OpaTimeoutError('http://user:secret@opa.internal:8181/v1', 5000);
+    expect(e.url).toBe('http://opa.internal:8181/v1');
+    expect(e.message).not.toContain('secret');
+    expect(e.message).toContain('http://opa.internal:8181/v1');
+  });
+});

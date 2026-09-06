@@ -24,6 +24,8 @@ export function redactUrlCredentials(url: string): string {
     parsed.password = '';
     return parsed.toString();
   } catch {
+    // Not a URL at all, so nothing to redact; config.ts refuses such a value
+    // at startup, which is what keeps this branch from ever showing a secret.
     return url;
   }
 }
@@ -83,12 +85,16 @@ export class OpaHttpError extends Error {
 
 /** The server did not answer within `httpTimeoutMs`. It may well be up. */
 export class OpaTimeoutError extends Error {
+  /** The URL with any credentials removed, like every error here. */
+  readonly url: string;
   constructor(
-    public readonly url: string,
+    url: string,
     public readonly timeoutMs: number,
   ) {
-    super(`OPA at ${url} did not answer within ${timeoutMs} ms`);
+    const shown = redactUrlCredentials(url);
+    super(`OPA at ${shown} did not answer within ${timeoutMs} ms`);
     this.name = 'OpaTimeoutError';
+    this.url = shown;
   }
 }
 
@@ -124,6 +130,11 @@ export class OpaClient {
   constructor(private readonly config: Config) {}
 
   async request<T = unknown>(opts: RequestOptions): Promise<T> {
+    // Refuse before anything is built from the URL: fetch would throw with the
+    // credentials in its message.
+    if (urlHasCredentials(this.config.opaUrl)) {
+      throw new OpaUrlCredentialsError(this.config.opaUrl);
+    }
     const url = this.buildUrl(opts.path, opts.query);
 
     const headers: Record<string, string> = {
@@ -148,12 +159,6 @@ export class OpaClient {
       if (!headers['Content-Type']) {
         headers['Content-Type'] = 'application/json';
       }
-    }
-
-    // Refused up front, with its own error: fetch rejects a URL that carries
-    // credentials with a TypeError that used to land in the unreachable branch.
-    if (urlHasCredentials(this.config.opaUrl)) {
-      throw new OpaUrlCredentialsError(this.config.opaUrl);
     }
 
     const controller = new AbortController();
