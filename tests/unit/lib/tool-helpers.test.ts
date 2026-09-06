@@ -212,6 +212,45 @@ describe('sanitizeInlineText, the spellings a diagnostic can carry', () => {
     expect(out['1 error occurred: <inline>']).toBe(2);
   });
 
+  it("keeps the prose and the caller's own path around a slash path", () => {
+    expect(
+      sanitizeInlineText('loading /policies/a.rego failed at /tmp/orygn-opa-mcp-a/input.rego:3'),
+    ).toBe('loading /policies/a.rego failed at <inline>:3');
+    // A profile directory with a space is still taken whole on a backslash
+    // path, under a drive letter, and in its JSON-encoded form.
+    const p = win(
+      'C:',
+      'Users',
+      'Daniel Okwor',
+      'AppData',
+      'Local',
+      'Temp',
+      'orygn-opa-mcp-a',
+      'input.rego',
+    );
+    expect(sanitizeInlineText(`x ${p}:1`)).toBe('x <inline>:1');
+    expect(sanitizeInlineText(JSON.stringify({ file: p }))).toBe('{"file":"<inline>"}');
+    expect(
+      sanitizeInlineText('x C:/Users/Daniel Okwor/AppData/Local/Temp/orygn-opa-mcp-a/input.rego:1'),
+    ).toBe('x <inline>:1');
+  });
+
+  it('does not take the last letter of a word for a drive', () => {
+    expect(
+      sanitizeInlineText(`see abc:${win('', 'Users', 'op', 'orygn-opa-mcp-a', 'input.rego')}:1`),
+    ).toBe('see abc:<inline>:1');
+    expect(sanitizeInlineText('at file:///tmp/orygn-opa-mcp-a/input.rego:1')).toBe(
+      'at file:<inline>:1',
+    );
+  });
+
+  it('is linear on a long line of markers that never complete', () => {
+    const line = 'orygn-opa-mcp-aaaaaaaaaaaaaaaaaaaa '.repeat(30_000);
+    const started = performance.now();
+    expect(sanitizeInlineText(line)).toBe(line);
+    expect(performance.now() - started).toBeLessThan(300);
+  });
+
   it('is linear on a long line of separators', () => {
     const line = '/a'.repeat(200_000) + ' orygn-';
     const started = performance.now();

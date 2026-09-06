@@ -33,16 +33,21 @@ export function sanitizeInlinePath(file: string): string {
  * separator is any run of them.
  */
 const TEMP_FILE_MARKER =
-  /orygn-(?:opa-mcp|regal-mcp|schema)[^\\/\r\n]*[\\/]+(?:input\.rego|schema\.json|verified\.tar\.gz)/gi;
+  /orygn-(?:opa-mcp|regal-mcp|schema)[^\\/\r\n]{0,255}[\\/]+(?:input\.rego|schema\.json|verified\.tar\.gz)/gi;
 
 const SEGMENT_CHAR = /[^\\/:*?"<>|\r\n]/;
 const isSeparator = (c: string): boolean => c === '/' || c === '\\';
 
+const isBlank = (c: string): boolean => c === ' ' || c === '\t';
+
 /**
  * Where the path that ends at `markerStart` begins: walk back over
- * `<separators><segment>` pairs (a segment may hold a space, since a Windows
- * temp directory sits under the user's profile), then over a drive letter.
- * Nothing before `floor` is examined, so a scan over a whole string is linear.
+ * `<separators><segment>` pairs, then over a drive letter. Nothing before
+ * `floor` is examined, so a scan over a whole string is linear. A segment may
+ * hold whitespace, since a Windows temp directory sits under the user's
+ * profile and a macOS one can sit under the home directory; but a directory
+ * name does not start or end with whitespace, and text that does is prose
+ * around the path, where the walk stops.
  */
 function pathStart(text: string, markerStart: number, floor: number): number {
   let start = markerStart;
@@ -55,10 +60,17 @@ function pathStart(text: string, markerStart: number, floor: number): number {
     let k = j;
     while (k >= floor && SEGMENT_CHAR.test(text[k]!)) k--;
     if (k < j && k >= floor && isSeparator(text[k]!)) {
+      if (isBlank(text[j]!) || isBlank(text[k + 1]!)) break;
       i = k;
       continue;
     }
-    if (k === j && j >= floor + 1 && text[j] === ':' && /[A-Za-z]/.test(text[j - 1]!)) {
+    if (
+      k === j &&
+      j >= floor + 1 &&
+      text[j] === ':' &&
+      /[A-Za-z]/.test(text[j - 1]!) &&
+      (j - 2 < floor || !/[A-Za-z0-9]/.test(text[j - 2]!))
+    ) {
       start = j - 1;
     }
     break;

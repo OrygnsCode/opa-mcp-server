@@ -147,7 +147,7 @@ not part of the public surface and may change in minor releases.
   details of a dozen tools, in the message a binary printed about the file.
   Every error envelope now passes through the sanitiser, which also covers a
   JSON-encoded spelling, a directory name with a space, the inline schema and
-  bundle-verify temp files, and runs in linear time.
+  bundle-verify temp files, and takes linear time on any input.
 
 ## [0.5.0] - 2026-09-04
 
