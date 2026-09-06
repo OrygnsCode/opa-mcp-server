@@ -307,6 +307,12 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     name: 'a scalar read and a child read in separate clauses',
     src: 'package t\n\nallow if input.x == 1\n\nallow if input.x.y == 2\n',
   },
+  // The reads are per rule: another rule comparing the parent as a value
+  // says nothing about the inputs that reach this one.
+  {
+    name: 'a parent compared as a value in a different rule',
+    src: 'package t\n\nallow if input.x.y == 2\n\nother if input.x > 1\n',
+  },
   { name: 'negation as failure', src: 'package t\n\nallow if {\n\tnot input.f\n}\n' },
   {
     name: 'regex that matches every string still needs the field',

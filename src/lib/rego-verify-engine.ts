@@ -14,7 +14,7 @@
  */
 import type { OpaModule } from './rego-ast-types.js';
 import { walkModule } from './rego-ast-walker.js';
-import { inferTypes } from './rego-type-inferencer.js';
+import { collectPathReads, inferTypes } from './rego-type-inferencer.js';
 import { createInputVars, structuralAxioms, encodeRule } from './rego-smt-encoder.js';
 import {
   extractCounterexample,
@@ -116,6 +116,16 @@ export async function runVerify(
       warnings.push(conflict.reason);
     }
 
+    // How this rule reads each path. Scoped to the rule under test: what
+    // another rule of the module does with a field says nothing about the
+    // inputs that reach this one.
+    const reads = collectPathReads(targetClauses);
+    const readSegments = new Map<string, string[]>();
+    for (const path of [...reads.scalarPaths, ...reads.valueReads]) {
+      const segs = walked.inputPaths.get(path);
+      if (segs !== undefined) readSegments.set(path, segs);
+    }
+
     // A field the rule reads beneath is an object in any input that reaches
     // that read, yet the model gives it one scalar value. Comparing it as a
     // value in a way the structural axioms do not cover (anything but
@@ -124,16 +134,18 @@ export async function runVerify(
     // decides the comparison the other way; under a negated property the
     // directions that happen to hold for an object flip. No verdict from such
     // a model can be trusted, so the rule is reported inconclusive.
-    const parents = new Set<string>();
-    for (const [path, segs] of walked.inputPaths) {
-      for (const otherSegs of walked.inputPaths.values()) {
-        if (otherSegs.length > segs.length && segs.every((seg, i) => otherSegs[i] === seg)) {
-          parents.add(path);
-          break;
+    const comparedParents = [...reads.valueReads]
+      .filter((path) => {
+        const segs = readSegments.get(path);
+        if (segs === undefined) return false;
+        for (const otherSegs of readSegments.values()) {
+          if (otherSegs.length > segs.length && segs.every((seg, i) => otherSegs[i] === seg)) {
+            return true;
+          }
         }
-      }
-    }
-    const comparedParents = [...typeResult.valueReads].filter((p) => parents.has(p)).sort();
+        return false;
+      })
+      .sort();
     if (comparedParents.length > 0) {
       return inconclusive(
         property,
@@ -224,7 +236,7 @@ export async function runVerify(
       for (const axiom of structuralAxioms(
         Z3,
         walked.inputPaths,
-        typeResult.scalarPaths,
+        reads.scalarPaths,
         presenceVars,
       )) {
         solver.add(axiom);

@@ -217,7 +217,9 @@ not part of the public surface and may change in minor releases.
   inequality, an ordering, a bare read, a comparison against another field)
   and also reads beneath it is reported inconclusive, since the model gives
   the field one scalar value that no input holding the deeper field can
-  match; before, that produced a counterexample OPA rejects. The witness
+  match; before, that produced a counterexample OPA rejects. Both readings
+  are taken from the rule under test alone, so another rule in the module
+  does not decide either. The witness
   search that prefers every field present also re-checks after backing out,
   rather than reading a stale model.
 

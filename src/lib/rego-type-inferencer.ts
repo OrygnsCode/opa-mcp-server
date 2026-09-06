@@ -20,6 +20,14 @@ export type Z3Sort = 'bool' | 'real' | 'string' | 'uninterpreted';
 export interface TypeInferenceResult {
   sorts: Map<string, Z3Sort>;
   conflicts: Array<{ path: string; reason: string }>;
+}
+
+/**
+ * How one rule reads each input path, which decides what the encoder may
+ * assume about its shape. Collected per rule: a read in another rule of the
+ * module says nothing about the rule being verified.
+ */
+export interface PathReads {
   /**
    * Paths the rule compared equal to a scalar literal or fed to a string
    * built-in: the only reads for which "present" means "present as a
@@ -38,6 +46,23 @@ export interface TypeInferenceResult {
   valueReads: Set<string>;
 }
 
+/** Every path `clauses` read, split by what the read implies about its shape. */
+export function collectPathReads(clauses: VerifyRuleClause[]): PathReads {
+  const localAssignments = new Map<string, VerifyValue>();
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) {
+      if (expr.kind === 'assign') localAssignments.set(expr.local, expr.value);
+    }
+  }
+  const scalarPaths = new Set<string>();
+  const valueReads = new Set<string>();
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) {
+      collectScalarReads(expr, localAssignments, scalarPaths, valueReads);
+    }
+  }
+  return { scalarPaths, valueReads };
+}
 type SortEvidence = 'string' | 'real' | 'bool';
 
 export function inferTypes(
@@ -60,8 +85,6 @@ export function inferTypes(
 
   // Initialize evidence sets from all known paths.
   const evidence = new Map<string, Set<SortEvidence>>();
-  const scalarPaths = new Set<string>();
-  const valueReads = new Set<string>();
   for (const path of inputPaths.keys()) {
     evidence.set(path, new Set());
   }
@@ -72,7 +95,6 @@ export function inferTypes(
     for (const clause of ruleClauses) {
       for (const expr of clause.expressions) {
         collectEvidence(expr, evidence, localAssignments);
-        collectScalarReads(expr, localAssignments, scalarPaths, valueReads);
       }
     }
   }
@@ -95,7 +117,7 @@ export function inferTypes(
     }
   }
 
-  return { sorts, conflicts, scalarPaths, valueReads };
+  return { sorts, conflicts };
 }
 
 const SCALAR_LITERALS = new Set(['literal_string', 'literal_number', 'literal_bool']);
