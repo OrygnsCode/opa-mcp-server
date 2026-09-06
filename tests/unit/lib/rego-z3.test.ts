@@ -5,6 +5,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  Z3_MEMORY_MAX_MB,
+  Z3_SOLVER_MAX_MEMORY_MB,
+  enqueueFinalizerForTesting,
   getZ3,
   getZ3Param,
   isZ3Busy,
@@ -12,8 +15,7 @@ import {
   markZ3Unusable,
   resetZ3ForTesting,
   withZ3Lock,
-  Z3_MEMORY_MAX_MB,
-  Z3_SOLVER_MAX_MEMORY_MB,
+  z3RecoveriesLeft,
 } from '../../../src/lib/rego-z3.js';
 
 afterEach(() => {
@@ -67,10 +69,39 @@ describe('rego-z3', () => {
     expect(isZ3Failure(new TypeError('fetch failed'))).toBe(false);
   });
 
-  it('refuses further use once marked unusable, until reset', async () => {
-    markZ3Unusable('heap abort');
-    await expect(getZ3()).rejects.toThrow(/heap abort/);
-    resetZ3ForTesting();
-    await expect(getZ3()).resolves.toBeDefined();
-  }, 30_000);
+  it('brings up a fresh module after a fault, three times, then refuses', async () => {
+    const first = await getZ3();
+    expect(z3RecoveriesLeft()).toBe(3);
+    markZ3Unusable('test fault');
+    const second = await getZ3();
+    expect(second).not.toBe(first);
+    expect(z3RecoveriesLeft()).toBe(2);
+    // The fresh module solves.
+    const x = second.Real.const('x');
+    const solver = new second.Solver();
+    solver.add(x.gt(5), x.lt(6));
+    expect(await solver.check()).toBe('sat');
+    solver.release();
+    markZ3Unusable('again');
+    await getZ3();
+    markZ3Unusable('and again');
+    await getZ3();
+    expect(z3RecoveriesLeft()).toBe(0);
+    markZ3Unusable('one too many');
+    await expect(getZ3()).rejects.toThrow(/repeated failures/);
+  });
+
+  it('holds a finalizer that arrives mid-section until the section closes', async () => {
+    const order: string[] = [];
+    await withZ3Lock(async () => {
+      enqueueFinalizerForTesting(() => order.push('finalizer'));
+      order.push('solving');
+      await Promise.resolve();
+      order.push('solved');
+    });
+    expect(order).toEqual(['solving', 'solved', 'finalizer']);
+    // With no section open it runs at once.
+    enqueueFinalizerForTesting(() => order.push('idle'));
+    expect(order.at(-1)).toBe('idle');
+  });
 });
