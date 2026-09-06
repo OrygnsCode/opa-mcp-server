@@ -22,6 +22,17 @@ import type { init as Z3Init } from 'z3-solver';
 import type { Z3Sort } from './rego-type-inferencer.js';
 import type { VerifyExpr, VerifyRuleClause, VerifyValue } from './rego-ir.js';
 
+/**
+ * A string literal for Z3. Its parser reads `\u{HH}` inside a literal as an
+ * escape, so a policy literal that happens to spell one, or that holds any
+ * backslash, would be stored as something else. Every backslash is written
+ * as `\u{5c}`, which Z3 stores as the character and renders back as an
+ * escape the counterexample decoder undoes.
+ */
+export function z3String(Z3: Z3Context, value: string): ReturnType<Z3Context['String']['val']> {
+  return Z3.String.val(value.replace(/\\/g, '\\u{5c}'));
+}
+
 type Z3Context = ReturnType<Awaited<ReturnType<typeof Z3Init>>['Context']>;
 type Z3Bool = ReturnType<Z3Context['Bool']['const']>;
 type Z3AnyExpr =
@@ -468,7 +479,7 @@ function resolveValue(
       return createLocalVar(Z3, value.name, sort, localVars, localSorts, ctx.callId);
     }
     case 'literal_string':
-      return Z3.String.val(value.value);
+      return z3String(Z3, value.value);
     case 'literal_number':
       // Real, not Int: a fractional literal and a fractional witness inside an
       // integer-looking range must both be representable.
@@ -616,14 +627,14 @@ function tryRegexAsStringConstraint(
 
   // ^lit$ → exact equality
   if (hasStart && hasEnd && isRegexLiteral(core)) {
-    return Z3.Eq(str, Z3.String.val(core));
+    return Z3.Eq(str, z3String(Z3, core));
   }
 
   // ^lit.* → startswith
   if (hasStart && core.endsWith('.*')) {
     const prefix = core.slice(0, -2);
     if (isRegexLiteral(prefix)) {
-      return Z3.String.val(prefix).prefixOf(str);
+      return z3String(Z3, prefix).prefixOf(str);
     }
   }
 
@@ -631,7 +642,7 @@ function tryRegexAsStringConstraint(
   if (hasEnd && core.startsWith('.*')) {
     const suffix = core.slice(2);
     if (isRegexLiteral(suffix)) {
-      return Z3.String.val(suffix).suffixOf(str);
+      return z3String(Z3, suffix).suffixOf(str);
     }
   }
 
@@ -639,25 +650,25 @@ function tryRegexAsStringConstraint(
   // lit" is exactly prefixOf. Previously only ^lit.* was recognised, so the
   // commoner form fell through to unsupported.
   if (hasStart && !hasEnd && isRegexLiteral(core)) {
-    return Z3.String.val(core).prefixOf(str);
+    return z3String(Z3, core).prefixOf(str);
   }
 
   // lit$ → endswith, by the same argument at the other end.
   if (hasEnd && !hasStart && isRegexLiteral(core)) {
-    return Z3.String.val(core).suffixOf(str);
+    return z3String(Z3, core).suffixOf(str);
   }
 
   // lit (no anchors) → contains. An unanchored literal matches when it occurs
   // anywhere in the string.
   if (!hasStart && !hasEnd && isRegexLiteral(core) && core.length > 0) {
-    return str.contains(Z3.String.val(core));
+    return str.contains(z3String(Z3, core));
   }
 
   // .*lit.* → contains
   if (core.startsWith('.*') && core.endsWith('.*')) {
     const sub = core.slice(2, -2);
     if (isRegexLiteral(sub)) {
-      return str.contains(Z3.String.val(sub));
+      return str.contains(z3String(Z3, sub));
     }
   }
 

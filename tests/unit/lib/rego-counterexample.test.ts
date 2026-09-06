@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { init } from 'z3-solver';
 
 import {
+  decodeZ3String,
   extractCounterexample,
   formatCounterexample,
 } from '../../../src/lib/rego-counterexample.js';
@@ -172,5 +173,49 @@ describe('formatCounterexample', () => {
     const formatted = formatCounterexample(ce);
     // Pretty-printed has newlines
     expect(formatted).toContain('\n');
+  });
+});
+
+describe('decodeZ3String', () => {
+  it('decodes the per-byte escapes the binding writes for non-ASCII text', () => {
+    expect(decodeZ3String('h\\u{c3}\\u{a9}llo')).toBe('héllo');
+    expect(decodeZ3String('\\u{e2}\\u{82}\\u{ac} 5')).toBe('€ 5');
+    expect(decodeZ3String('emoji \\u{f0}\\u{9f}\\u{8e}\\u{89}')).toBe('emoji \u{1F389}');
+    expect(decodeZ3String('tab\\u{9}here')).toBe('tab\there');
+  });
+
+  it('leaves plain text alone', () => {
+    expect(decodeZ3String('plain')).toBe('plain');
+    expect(decodeZ3String('quote"inside')).toBe('quote"inside');
+  });
+});
+
+describe('decodeZ3String, the shapes Z3 renders', () => {
+  const bs = String.fromCharCode(92);
+  const esc = (hex: string): string => `${bs}u{${hex}}`;
+
+  it('reads a run of byte escapes as one UTF-8 sequence', () => {
+    expect(decodeZ3String(`h${esc('c3')}${esc('a9')}llo`)).toBe('héllo');
+    expect(decodeZ3String(`${esc('f0')}${esc('9f')}${esc('8e')}${esc('89')}`)).toBe('\u{1F389}');
+    expect(decodeZ3String(`a${esc('9')}b`)).toBe('a\tb');
+  });
+
+  it('keeps a character Z3 did not escape, beside an escape', () => {
+    expect(decodeZ3String(`\u{1F389}${esc('41')}`)).toBe('\u{1F389}A');
+  });
+
+  it('gives back the backslash the encoder escaped, so a literal round-trips', () => {
+    expect(decodeZ3String(`${esc('5c')}u{c3}${esc('5c')}u{a9}`)).toBe(`${bs}u{c3}${bs}u{a9}`);
+  });
+
+  it('leaves a code point no string can hold unread rather than throwing', () => {
+    expect(decodeZ3String(esc('ffffff'))).toBe(esc('ffffff'));
+  });
+
+  it('is linear on a long witness', () => {
+    const text = 'x'.repeat(200_000) + esc('c3') + esc('a9');
+    const started = performance.now();
+    expect(decodeZ3String(text).endsWith('é')).toBe(true);
+    expect(performance.now() - started).toBeLessThan(100);
   });
 });
