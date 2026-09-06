@@ -593,15 +593,14 @@ Four things worth knowing if you're going to operate this:
    bytes, the client disconnects; the MCP transport layer is strict.
 2. **No tool handler throws.** Every handler catches its own exceptions and
    returns a structured `{ ok: false, error: ... }` envelope, so the agent
-   sees a stable error vocabulary, not a stack trace. One thing happens
-   before a handler runs: an argument that fails the tool's input schema is
-   rejected by the MCP layer before the handler runs and comes back as a tool
-   result with `isError: true` whose text reads `MCP error -32602: Input
-validation error: ...`, not as the `{ok: false, error}` envelope. Decoding
-   subprocess output
-   happens inside an async callback, where a throw would bypass those
-   handlers entirely, so that path is bounded by bytes rather than left to
-   a `try`/`catch` that could not see it.
+   sees a stable error vocabulary, not a stack trace. An argument that fails
+   the tool's input schema never reaches the handler: the MCP layer rejects
+   it and returns a tool result with `isError: true` whose text begins
+   `MCP error -32602: Input validation error:`, rather than the envelope.
+   Decoding subprocess output happens inside an async callback, where a throw
+   would bypass those handlers entirely, so that path is bounded by bytes
+   rather than left to a `try`/`catch` that could not see it.
+
 3. **Subprocesses are bounded in time, size, and environment.**
    `lib/subprocess.ts` runs the binaries with `shell: false`, a hard
    timeout with `SIGTERM`-then-`SIGKILL` escalation, and a per-stream byte
