@@ -229,7 +229,12 @@ describe('rego_generate_test_skeleton', () => {
     const file = env.data!.testFile;
     expect(file).toContain('actual := data.p.msg with input as');
     expect(file).toContain('actual != null');
-    expect(file).toContain('passes as written');
+    // A computed head has no assertion to offer, so its stub is a todo that
+    // opa test skips instead of a green placeholder.
+    expect(file).toContain('todo_test_msg if {');
+    expect(file).toContain('todo_test_lst if {');
+    expect(file).not.toContain('\ntest_msg if {');
+    expect(file).toContain('test_q_r_s if {');
     expect(file).not.toContain('actual == null');
     expect(file).toContain('actual == 1');
     expect(file).not.toContain('actual == {}');
