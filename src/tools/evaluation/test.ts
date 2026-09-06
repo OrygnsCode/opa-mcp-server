@@ -291,7 +291,10 @@ function handleCoverageMode(
   // With `--count N` opa prints one report per run; the last is the one to
   // read. The single-document parse failed on the concatenation and left the
   // caller with `coverage: undefined` and a threshold reported as met.
-  const coverageData = lastJsonObject<CoverageReport>(stdout);
+  const coverageData = lastJsonObject<CoverageReport>(
+    stdout,
+    (v) => typeof (v as { coverage?: unknown }).coverage === 'number',
+  );
 
   if (exitCode === 0) {
     return ok<RegoTestOutput>({

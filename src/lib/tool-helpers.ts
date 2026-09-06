@@ -101,9 +101,13 @@ export function mapSubprocessFailure(
  * Parse the last top-level JSON object in `text`, for a command that prints
  * one document per run (`opa test --coverage --count N`). Strings are
  * honoured, so a brace inside a file name does not end a document. Returns
- * `undefined` when there is none.
+ * `undefined` when there is none. `accept` narrows it to the last object of
+ * the shape wanted, so trace text that happens to hold braces is skipped.
  */
-export function lastJsonObject<T = unknown>(text: string): T | undefined {
+export function lastJsonObject<T = unknown>(
+  text: string,
+  accept: (parsed: unknown) => boolean = () => true,
+): T | undefined {
   let depth = 0;
   let inString = false;
   let escaped = false;
@@ -122,9 +126,11 @@ export function lastJsonObject<T = unknown>(text: string): T | undefined {
       if (depth === 0) start = i;
       depth++;
     } else if (ch === '}') {
-      depth--;
+      // A stray closing brace must not put every later object out of reach.
+      if (depth > 0) depth--;
       if (depth === 0 && start !== -1) {
-        last = text.slice(start, i + 1);
+        const candidate = tryParseJson(text.slice(start, i + 1));
+        if (candidate !== undefined && accept(candidate)) last = text.slice(start, i + 1);
         start = -1;
       }
     }

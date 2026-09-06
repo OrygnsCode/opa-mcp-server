@@ -277,3 +277,17 @@ describe('lastJsonObject', () => {
     expect(lastJsonObject('} junk {"a": 1}')).toEqual({ a: 1 });
   });
 });
+
+describe('lastJsonObject', () => {
+  it('returns the last accepted object and skips braces in trace text', () => {
+    const text = 'with input as {"x": false}\n{"coverage": 60, "files": {}}\n{"other": 1}';
+    expect(lastJsonObject(text)).toEqual({ other: 1 });
+    expect(
+      lastJsonObject(text, (v) => typeof (v as { coverage?: unknown }).coverage === 'number'),
+    ).toEqual({ coverage: 60, files: {} });
+  });
+
+  it('is not put out of step by a stray closing brace', () => {
+    expect(lastJsonObject('} junk {"a": 1}')).toEqual({ a: 1 });
+  });
+});

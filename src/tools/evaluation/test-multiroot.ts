@@ -76,6 +76,8 @@ export interface RootTestResult {
   coverage?: CoverageReport;
   coveragePct?: number;
   thresholdMet?: boolean;
+  /** Set when opa printed a coverage report but no test records for the root. */
+  note?: string;
   error?: { code: ToolErrorCode; message: string; hint?: string };
 }
 
@@ -111,6 +113,8 @@ interface RootOutcome {
   coverage?: CoverageReport;
   coveragePct?: number;
   thresholdMet?: boolean;
+  /** Set when opa printed a coverage report but no test records for the root. */
+  note?: string;
   error?: { code: ToolErrorCode; message: string; hint?: string };
 }
 
@@ -327,7 +331,10 @@ function processRootOutput(
   threshold: number | undefined,
 ): RootOutcome {
   if (coverageMode) {
-    const coverageData = lastJsonObject<CoverageReport>(result.stdout);
+    const coverageData = lastJsonObject<CoverageReport>(
+      result.stdout,
+      (v) => typeof (v as { coverage?: unknown }).coverage === 'number',
+    );
     if (result.exitCode === 0) {
       return {
         passed: 0,
@@ -378,6 +385,7 @@ function processRootOutput(
         coverage: coverageData,
         coveragePct: coverageData.coverage,
         thresholdMet: threshold !== undefined ? true : undefined,
+        note: 'opa printed only the coverage report for this root: every test in it is a todo or was skipped, so the counts are zero.',
       };
     }
     return {
