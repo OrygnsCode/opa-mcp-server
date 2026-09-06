@@ -230,6 +230,28 @@ describe('ConftestCli.test()', () => {
     expect(result.stderr).not.toMatch(/orygn-conftest-/);
   });
 
+  it('sanitizes the policy directory as conftest spells it on Windows, without the drive', async () => {
+    // OPA's loader prints `\Users\...\orygn-conftest-policy-x\policy.rego`,
+    // the drive letter dropped, which is not the string the wrapper built.
+    mockRun.mockImplementation((_binary, opts) => {
+      const dir = opts.args.find((a) => a.includes('orygn-conftest-policy-'))!;
+      const asPrinted = dir.replace(/^[A-Za-z]:/, '');
+      return Promise.resolve({
+        ...okSpawn,
+        exitCode: 1,
+        stdout: '',
+        stderr: `Error: running test: load: 1 error occurred:\n${asPrinted}/policy.rego:2: rego_parse_error: bad`,
+      });
+    });
+
+    const cli = new ConftestCli(baseConfig);
+    const result = await cli.test({ files: ['/config.yaml'], inlinePolicy: 'package main\nbad' });
+
+    expect(result.stderr).toContain('<inline-policy>/policy.rego:2');
+    expect(result.stderr).not.toMatch(/orygn-conftest-/);
+    expect(result.stderr).not.toMatch(/Users|tmp/);
+  });
+
   it('sanitizes inline config temp path from stdout', async () => {
     // Use mockImplementation to echo the actual temp path back in stdout.
     // The last positional arg to conftest test is the temp config file.

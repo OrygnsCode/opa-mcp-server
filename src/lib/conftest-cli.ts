@@ -497,10 +497,19 @@ export class ConftestCli {
     // stdout holds a JSON document, where a backslash in the path is encoded
     // as two; stderr holds the raw path. Both spellings are replaced in both
     // streams, since an error message can quote either.
+    // OPA's loader inside conftest prints a Windows path without its drive
+    // letter, and may use either separator; each spelling is replaced in its
+    // raw and JSON-encoded form, longest first so a prefix does not win.
     const forms = (path: string): string[] => {
-      const raw = path;
-      const jsonEncoded = JSON.stringify(path).slice(1, -1);
-      return [...new Set([jsonEncoded, raw])];
+      const slashes = path.replace(/\\/g, '/');
+      const spellings = [
+        path,
+        path.replace(/^[A-Za-z]:/, ''),
+        slashes,
+        slashes.replace(/^[A-Za-z]:/, ''),
+      ];
+      const all = spellings.flatMap((f) => [f, JSON.stringify(f).slice(1, -1)]);
+      return [...new Set(all)].filter((f) => f.length > 1).sort((a, b) => b.length - a.length);
     };
     const escapeRe = (s: string): string => s.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
     const replaceAll = (text: string, path: string, marker: string): string => {
