@@ -79,21 +79,18 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         if (fmtFailure) return fmtFailure;
 
         if (fmtResult.exitCode !== 0) {
-          const parsedErrors = tryParseJson<{
-            errors?: Array<{ message?: string; code?: string; location?: unknown }>;
-          }>(fmtResult.stderr);
-          // opa fmt --rego-v1 type-checks as well as parses, and a built-in that
-          // v1 removed fails there with rego_type_error. Calling that a parse
+          // opa fmt prints plain text, one `<file>:<line>: <code>: <message>`
+          // per error. It type-checks as well as parses, and a built-in that
+          // v1 removed fails there with rego_type_error; calling that a parse
           // failure sent people looking for a syntax error that was not there.
-          const errors = parsedErrors?.errors ?? [];
-          const typeErrors = errors.filter((e) => e.code === 'rego_type_error');
-          const parseErrors = errors.filter((e) => e.code === 'rego_parse_error');
-          const isTypeOnly = typeErrors.length > 0 && parseErrors.length === 0;
-          const first = typeErrors[0]?.message;
+          const stderr = fmtResult.stderr.trim();
+          const typeErrors = [...stderr.matchAll(/rego_type_error: ([^\r\n]*)/g)].map((m) => m[1]!);
+          const isTypeOnly = typeErrors.length > 0 && !/rego_parse_error/.test(stderr);
+          const first = typeErrors[0];
           return err(
             'INVALID_REGO',
             isTypeOnly
-              ? `opa fmt --rego-v1 rejected the source${first ? `: ${first}` : ''}.`
+              ? `opa fmt --rego-v1 rejected the source: ${first}.`
               : 'opa fmt --rego-v1 could not parse the source. Fix syntax errors before migrating.',
             {
               ...(isTypeOnly
@@ -101,7 +98,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
                     hint: 'A built-in removed in Rego v1 fails type checking before migration can run. Replace it with its v1 equivalent, then migrate.',
                   }
                 : {}),
-              details: sanitizeInlinePathsDeep(parsedErrors ?? { stderr: fmtResult.stderr.trim() }),
+              details: sanitizeInlinePathsDeep({ stderr }),
             },
           );
         }
