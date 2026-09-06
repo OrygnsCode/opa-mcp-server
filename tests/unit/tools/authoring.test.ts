@@ -773,7 +773,7 @@ describe('rego_deps', () => {
   });
 });
 
-// â”€â”€â”€ path-validation security tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── path-validation security tests ───────────────────────────────────────────
 // These are adversarial: they verify that newly-validated parameters cannot be
 // used to make tools read arbitrary files outside the allow-list.
 
@@ -848,7 +848,7 @@ describe('rego_lint -- configFile path validation', () => {
   });
 });
 
-// â”€â”€ v0 source samples used across rego_migrate_v1 tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── v0 source samples used across rego_migrate_v1 tests ────────────────────
 // Classic Rego v0 pattern: rule head uses `{...}` without `if`.
 const v0Source = `package example\n\nallow {\n  input.user == "admin"\n}\n`;
 // The expected v1 output after opa fmt --rego-v1 (adds `if`).
@@ -1025,10 +1025,10 @@ describe('rego_migrate_v1', () => {
   });
 });
 
-// â”€â”€â”€ rego_check_schema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── rego_check_schema ────────────────────────────────────────────────────────
 
 describe('rego_check_schema', () => {
-  // â”€â”€ Happy path: inline schema + inline source â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Happy path: inline schema + inline source ─────────────────────────────
 
   it('returns valid: true with empty errors when opa check exits 0', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
@@ -1072,7 +1072,7 @@ describe('rego_check_schema', () => {
     expect(env.data?.errors[0]?.message).toContain('input.foo');
   });
 
-  // â”€â”€ Happy path: schema file path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Happy path: schema file path ──────────────────────────────────────────
 
   it('accepts a schemaPath inside allowed roots and passes --schema to opa', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
@@ -1089,7 +1089,7 @@ describe('rego_check_schema', () => {
     expect(args).toContain('--schema');
   });
 
-  // â”€â”€ Happy path: file-based policy paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Happy path: file-based policy paths ───────────────────────────────────
 
   it('accepts policy paths instead of inline source', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
@@ -1103,7 +1103,7 @@ describe('rego_check_schema', () => {
     expect(env.data?.valid).toBe(true);
   });
 
-  // â”€â”€ strict flag â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── strict flag ───────────────────────────────────────────────────────────
 
   it('passes --strict to opa when strict: true', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
@@ -1130,7 +1130,7 @@ describe('rego_check_schema', () => {
     expect(args).not.toContain('--strict');
   });
 
-  // â”€â”€ Policy input validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Policy input validation ───────────────────────────────────────────────
 
   it('rejects calls without source or paths', async () => {
     const server = makeServer();
@@ -1155,7 +1155,7 @@ describe('rego_check_schema', () => {
     expect(env.error?.code).toBe('INVALID_INPUT');
   });
 
-  // â”€â”€ Schema input validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Schema input validation ───────────────────────────────────────────────
 
   it('rejects calls without inlineSchema or schemaPath', async () => {
     const server = makeServer();
@@ -1180,7 +1180,7 @@ describe('rego_check_schema', () => {
     expect(env.error?.code).toBe('INVALID_INPUT');
   });
 
-  // â”€â”€ Path validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Path validation ───────────────────────────────────────────────────────
 
   it('rejects policy paths outside allowed roots', async () => {
     const server = makeServer();
@@ -1226,7 +1226,7 @@ describe('rego_check_schema', () => {
     expect(env.error?.code).toBe('PATH_NOT_FOUND');
   });
 
-  // â”€â”€ Binary / subprocess error propagation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Binary / subprocess error propagation ────────────────────────────────
 
   it('maps a missing opa binary to OPA_BINARY_NOT_FOUND', async () => {
     mockRun.mockResolvedValueOnce(spawnUnreachable());
@@ -1253,7 +1253,7 @@ describe('rego_check_schema', () => {
     expect(env.error?.code).toBe('TIMEOUT');
   });
 
-  // â”€â”€ Non-JSON stderr fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Non-JSON stderr fallback ──────────────────────────────────────────────
 
   it('returns INVALID_REGO with details when opa exits non-zero but stderr is not JSON', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(1, 'opa: error: module compile failed'));
@@ -1270,7 +1270,7 @@ describe('rego_check_schema', () => {
     );
   });
 
-  // â”€â”€ Inline source: temp path sanitization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Inline source: temp path sanitization ────────────────────────────────
 
   it('replaces temp file paths with <inline> in error locations when source is inline', async () => {
     const errors = [
@@ -1317,7 +1317,7 @@ describe('rego_check_schema', () => {
     expect(env.data?.errors[0]?.location?.file).toBe('/abs/policies/policy.rego');
   });
 
-  // â”€â”€ Error records with no location field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Error records with no location field ─────────────────────────────────
 
   it('handles error records with no location field without throwing', async () => {
     const errors = [{ code: 'rego_type_error', message: 'undefined ref: input.x' }];
@@ -1333,7 +1333,7 @@ describe('rego_check_schema', () => {
     expect(env.data?.errors[0]?.code).toBe('rego_type_error');
   });
 
-  // â”€â”€ Inline schema is serialized and passed to OPA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Inline schema is serialized and passed to OPA ─────────────────────────
 
   it('passes --schema flag to opa for inline schema', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
@@ -1355,7 +1355,7 @@ describe('rego_check_schema', () => {
     expect(schemaArg).toMatch(/schema\.json$/);
   });
 
-  // â”€â”€ Multiple errors in a single response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Multiple errors in a single response ─────────────────────────────────
 
   it('surfaces all errors from opa output when multiple schema violations exist', async () => {
     const errors = [
@@ -1383,7 +1383,7 @@ describe('rego_check_schema', () => {
     expect(env.data?.errors[1]?.message).toContain('input.bar');
   });
 
-  // â”€â”€ opa exits non-zero but errors array is empty â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── opa exits non-zero but errors array is empty ──────────────────────────
 
   it('returns valid: false with empty errors when opa stderr has empty errors array', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(1, JSON.stringify({ errors: [] })));
@@ -1398,7 +1398,7 @@ describe('rego_check_schema', () => {
     expect(env.data?.errors).toEqual([]);
   });
 
-  // â”€â”€ opa exits non-zero but errors key is absent from stderr JSON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── opa exits non-zero but errors key is absent from stderr JSON ──────────
 
   it('returns valid: false with empty errors when opa stderr JSON has no errors key', async () => {
     // Defensive: OPA could theoretically emit a JSON object without an 'errors' key.
