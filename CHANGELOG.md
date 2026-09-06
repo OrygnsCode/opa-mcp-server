@@ -140,9 +140,10 @@ not part of the public surface and may change in minor releases.
   imports, and the first condition that stops holding is the one reported; the
   conditions after it are left unevaluated, as on the traced path.
 - `rego_check_schema` reported `valid: true` when `schemaPath` was a
-  directory, since opa reads a schema directory only through annotations in
-  the policy and this tool sets none up. A directory is now refused before
-  opa runs, with a pointer at the file form or `inlineSchema`.
+  directory, since opa reads a schema directory only through `schemas:`
+  annotations in the policy. A directory is now accepted when the policy
+  carries them and refused before opa runs when it does not, with the file
+  form, `inlineSchema` and the annotation named as the ways to make it work.
 - `opa_bundle_sign` reported `signed: true` for a `.tar.gz` archive after
   writing a `.signatures.json` beside it, which OPA never reads, so the
   archive stayed unsigned. An archive is now refused with a pointer to
