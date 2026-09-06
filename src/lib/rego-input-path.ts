@@ -32,7 +32,11 @@ export function parseInputPath(path: string): string[] {
   while (rest.length > 0) {
     if (rest.startsWith('.')) {
       const m = /^\.([^.[]+)/.exec(rest);
-      if (!m) break;
+      if (!m) {
+        // A dot with no name after it is not a rendering of ours either.
+        segments.push(rest);
+        break;
+      }
       segments.push(m[1]!);
       rest = rest.slice(m[0].length);
     } else if (rest.startsWith('["')) {

@@ -34,6 +34,8 @@ describe('parseInputPath on text it did not produce', () => {
   it('does not throw on a bracket without its closing quote', () => {
     expect(parseInputPath('input["abc')).toEqual(['["abc']);
     expect(parseInputPath('input["a"x')).toEqual(['["a"x']);
+    expect(parseInputPath('input.')).toEqual(['.']);
+    expect(parseInputPath('input..a')).toEqual(['..a']);
   });
 
   it('strips the input prefix only at a boundary', () => {
