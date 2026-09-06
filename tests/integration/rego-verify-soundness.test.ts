@@ -285,6 +285,28 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     name: 'a field read as a parent object only, in two places',
     src: 'package t\n\nallow if {\n\tinput.a.b == "x"\n\tinput.a.c == "y"\n}\n',
   },
+  // The reads for which "present" does not mean "present as a scalar": an
+  // object satisfies each of them, so the parent must not be pinned.
+  {
+    name: 'a bare truthiness read of the parent object',
+    src: 'package t\n\nallow if {\n\tinput.x\n\tinput.x.y == 2\n}\n',
+  },
+  {
+    name: 'a parent compared unequal to a scalar',
+    src: 'package t\n\nallow if {\n\tinput.x != "a"\n\tinput.x.y == 2\n}\n',
+  },
+  {
+    name: 'a parent compared to another field, no literal',
+    src: 'package t\n\nallow if {\n\tinput.a == input.z\n\tinput.a.b == "y"\n}\n',
+  },
+  {
+    name: 'a parent ordered against a number',
+    src: 'package t\n\nallow if {\n\tinput.x > 5\n\tinput.x.y == 2\n}\n',
+  },
+  {
+    name: 'a scalar read and a child read in separate clauses',
+    src: 'package t\n\nallow if input.x == 1\n\nallow if input.x.y == 2\n',
+  },
   { name: 'negation as failure', src: 'package t\n\nallow if {\n\tnot input.f\n}\n' },
   {
     name: 'regex that matches every string still needs the field',

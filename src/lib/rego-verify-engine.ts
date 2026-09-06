@@ -187,8 +187,13 @@ export async function runVerify(
 
       signal?.throwIfAborted();
 
-      // What any real input looks like, before asking about this one.
-      for (const axiom of structuralAxioms(Z3, walked.inputPaths, typeResult.sorts, presenceVars)) {
+      // What any real input looks like, alongside the property.
+      for (const axiom of structuralAxioms(
+        Z3,
+        walked.inputPaths,
+        typeResult.scalarPaths,
+        presenceVars,
+      )) {
         solver.add(axiom);
       }
 
@@ -208,7 +213,10 @@ export async function runVerify(
         if (withPresence === 'sat') {
           solverResult = withPresence;
         } else {
+          // The model belongs to the last check; after the pop that was an
+          // unsat one, so ask again before reading it.
           solver.pop();
+          solverResult = await solver.check();
         }
       }
 

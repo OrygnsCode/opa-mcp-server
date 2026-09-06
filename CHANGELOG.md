@@ -211,8 +211,12 @@ not part of the public surface and may change in minor releases.
 - `rego_verify`: a field compared as a string, number or boolean and also read
   as the object holding a deeper field was modelled as two unrelated values,
   so a rule no input can satisfy was reported satisfiable with a witness OPA
-  rejects. The solver now knows a scalar and a path beneath it are never both
-  present.
+  rejects. The solver now knows that a field the rule compared equal to a
+  scalar, or fed to a string built-in, is never present alongside a path
+  beneath it; an inequality, an ordering or a bare truthiness read holds for
+  an object too and does not pin the field. The witness search that prefers
+  every field present also re-checks after backing out, rather than reading
+  a stale model.
 
 ## [0.5.0] - 2026-09-04
 

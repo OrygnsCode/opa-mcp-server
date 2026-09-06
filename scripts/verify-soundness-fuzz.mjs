@@ -101,6 +101,15 @@ const DOMAIN = [
   { 'a.b': 1 },
   { a: { b: 1 } },
   { 'a.b': 1, a: { b: 2 } },
+  // Nested shapes: a field that is an object in some probes and a scalar in
+  // others, so a rule reading both levels is exercised both ways.
+  { o: 'q' },
+  { o: { p: 'q' } },
+  { o: { p: 'r' } },
+  { o: {} },
+  { x: { y: 2 } },
+  { x: 1, o: { p: 'q' } },
+  { o: 'q', x: 'q' },
 ];
 
 // ── policy generation ─────────────────────────────────────────────────────
@@ -126,6 +135,13 @@ const BODIES = [
   ['input["a.b"] == 1', 'quoted_key'],
   ['input.a.b == 1', 'nested_key'],
   ['input["a.b"] == 1\n\tinput.a.b == 2', 'quoted_and_nested'],
+  ['input.o.p == "q"', 'nested_eq'],
+  ['input.o == "q"', 'parent_eq'],
+  ['input.o == "q"\n\tinput.o.p == "q"', 'scalar_then_child'],
+  ['input.o != "q"\n\tinput.o.p == "q"', 'neq_parent_child'],
+  ['input.o\n\tinput.o.p == "q"', 'truthy_parent_child'],
+  ['input.o == input.x\n\tinput.o.p == "q"', 'eq_ref_parent_child'],
+  ['input.x > 0\n\tinput.x.y == 2', 'gt_parent_child'],
 ];
 const DEFAULTS = [null, 'true', 'false'];
 const HEADS = [null, 'true', 'false', '"deny"', '3'];
@@ -323,6 +339,12 @@ for (const p of policies) {
         why = `counterexample ${JSON.stringify(res.counterexample)} does not falsify`;
       } else if (kind === 'never_true' && value !== true) {
         why = `counterexample ${JSON.stringify(res.counterexample)} does not satisfy`;
+      }
+    } else if (kind === 'satisfiable' && v === 'proven' && res.counterexample) {
+      // A witness is a claim too: OPA must agree the rule is true on it.
+      const { value } = evalRule(p.src, p.rule, res.counterexample);
+      if (value !== true) {
+        why = `witness ${JSON.stringify(res.counterexample)} does not satisfy`;
       }
     }
     if (why) {

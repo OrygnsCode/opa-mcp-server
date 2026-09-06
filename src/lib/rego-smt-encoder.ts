@@ -119,24 +119,29 @@ export function createInputVars(
 }
 
 /**
- * Facts about the shape of any input, added to the solver before the
- * property. A path with a scalar sort (a string, number or boolean the rule
- * compared it against) cannot also be an object holding a path beneath it,
- * so the two are never present together. Without this, `input.a == "x"` and
- * `input.a.b == "y"` got two independent constants and a rule no input can
- * satisfy was proved satisfiable, with a witness OPA rejects.
+ * Facts about the shape of any input, added to the solver alongside the
+ * property. A path the rule compared equal to a scalar literal, or fed to a
+ * string built-in, is present only as a scalar wherever that read holds, so
+ * it cannot also be the object holding a path beneath it: the two are never
+ * present together. Without this, `input.a == "x"` and `input.a.b == "y"`
+ * got two independent constants and a rule no input can satisfy was proved
+ * satisfiable, with a witness OPA rejects.
+ *
+ * Only those reads qualify. `input.a != "x"`, `input.a > 1` and a bare
+ * `input.a` all hold for an object, and a path with no evidence at all is
+ * given the string sort by default; treating any of them as scalar proved
+ * satisfiable rules never true.
  */
 export function structuralAxioms(
   Z3: Z3Context,
   inputPaths: Map<string, string[]>,
-  sorts: Map<string, Z3Sort>,
+  scalarPaths: ReadonlySet<string>,
   presence: Map<string, Z3Bool>,
 ): Z3Bool[] {
   const axioms: Z3Bool[] = [];
   const entries = [...inputPaths.entries()];
   for (const [parent, parentSegs] of entries) {
-    const sort = sorts.get(parent) ?? 'string';
-    if (sort === 'uninterpreted') continue;
+    if (!scalarPaths.has(parent)) continue;
     const parentPresent = presence.get(parent);
     if (parentPresent === undefined) continue;
     for (const [child, childSegs] of entries) {

@@ -20,6 +20,14 @@ export type Z3Sort = 'bool' | 'real' | 'string' | 'uninterpreted';
 export interface TypeInferenceResult {
   sorts: Map<string, Z3Sort>;
   conflicts: Array<{ path: string; reason: string }>;
+  /**
+   * Paths the rule compared equal to a scalar literal or fed to a string
+   * built-in: the only reads for which "present" means "present as a
+   * scalar", which is what the encoder's structural axioms rely on. An
+   * inequality, an ordering, or a bare truthiness read holds for an object
+   * too, so they do not count.
+   */
+  scalarPaths: Set<string>;
 }
 
 type SortEvidence = 'string' | 'real' | 'bool';
@@ -44,6 +52,7 @@ export function inferTypes(
 
   // Initialize evidence sets from all known paths.
   const evidence = new Map<string, Set<SortEvidence>>();
+  const scalarPaths = new Set<string>();
   for (const path of inputPaths.keys()) {
     evidence.set(path, new Set());
   }
@@ -54,6 +63,7 @@ export function inferTypes(
     for (const clause of ruleClauses) {
       for (const expr of clause.expressions) {
         collectEvidence(expr, evidence, localAssignments);
+        collectScalarReads(expr, localAssignments, scalarPaths);
       }
     }
   }
@@ -76,7 +86,34 @@ export function inferTypes(
     }
   }
 
-  return { sorts, conflicts };
+  return { sorts, conflicts, scalarPaths };
+}
+
+const SCALAR_LITERALS = new Set(['literal_string', 'literal_number', 'literal_bool']);
+
+function collectScalarReads(
+  expr: VerifyExpr,
+  localAssignments: Map<string, VerifyValue>,
+  scalarPaths: Set<string>,
+): void {
+  const mark = (value: VerifyValue): void => {
+    const path = resolveToInputPath(value, localAssignments);
+    if (path !== undefined) scalarPaths.add(path);
+  };
+  switch (expr.kind) {
+    case 'eq':
+      if (SCALAR_LITERALS.has(expr.right.kind)) mark(expr.left);
+      if (SCALAR_LITERALS.has(expr.left.kind)) mark(expr.right);
+      break;
+    case 'startswith':
+    case 'endswith':
+    case 'contains':
+    case 'regex_match':
+      mark(expr.str);
+      break;
+    default:
+      break;
+  }
 }
 
 function collectEvidence(
