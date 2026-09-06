@@ -640,6 +640,19 @@ describe('rego_capabilities', () => {
     expect(env.error?.code).toBe('INVALID_INPUT');
   });
 
+  it('refuses names_only: true together with builtins, which ask for opposite things', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_capabilities', {
+      current: true,
+      names_only: true,
+      builtins: ['http.send'],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
   it('refuses to truncate when the matched records exceed the response cap', async () => {
     const big = (name: string) => ({ name, description: 'd'.repeat(2000) });
     mockRun.mockResolvedValueOnce(
