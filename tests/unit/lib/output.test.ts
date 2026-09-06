@@ -134,6 +134,38 @@ describe('formatEnvelope — truncation', () => {
     expect(parsed.error?.message).toMatch(/\[truncated\]$/);
   });
 
+  it('bounds the warnings of a success envelope, keeping small data', () => {
+    const env: ToolEnvelope<{ x: number }> = {
+      ok: true,
+      data: { x: 1 },
+      warnings: ['w'.repeat(5000)],
+    };
+    const text = formatEnvelope(env, 1_000).content[0]!.text;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1_000);
+    const parsed = JSON.parse(text) as ToolEnvelope<unknown>;
+    expect(parsed.data).toEqual({ x: 1 });
+    expect(parsed.warnings?.[0]).toMatch(/warnings dropped/);
+    expect(parsed.truncated).toBe(true);
+  });
+
+  it('bounds the warnings of an envelope that has no data', () => {
+    const env: ToolEnvelope<never> = { ok: true, warnings: Array(200).fill('warning text') };
+    const text = formatEnvelope(env, 1_000).content[0]!.text;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1_000);
+    expect((JSON.parse(text) as ToolEnvelope<unknown>).warnings).toHaveLength(1);
+  });
+
+  it('leaves warnings alone when replacing them would not shrink the envelope', () => {
+    const env: ToolEnvelope<never> = {
+      ok: false,
+      error: { code: 'EVAL_ERROR', message: 'm'.repeat(3000) },
+      warnings: ['w'],
+    };
+    const parsed = JSON.parse(formatEnvelope(env, 1_000).content[0]!.text) as ToolEnvelope<unknown>;
+    expect(parsed.warnings).toEqual(['w']);
+    expect(parsed.error?.message).toMatch(/\[truncated\]$/);
+  });
+
   it('leaves an error that fits alone', () => {
     const smallErr: ToolEnvelope<never> = {
       ok: false,
