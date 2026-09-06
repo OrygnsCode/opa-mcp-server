@@ -525,6 +525,31 @@ describe('rego_inspect', () => {
 });
 
 describe('rego_capabilities', () => {
+  it('returns full records for the named builtins only, and lists the ones it lacks', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({
+          builtins: [
+            { name: 'http.send', decl: { type: 'function' }, description: 'sends' },
+            { name: 'plus', decl: { type: 'function' } },
+          ],
+          future_keywords: ['every'],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{
+      builtins?: Array<{ name: string }>;
+      matched?: number;
+      missing?: string[];
+    }>(server, 'rego_capabilities', { current: true, builtins: ['http.send', 'nope'] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.builtins?.map((b) => b.name)).toEqual(['http.send']);
+    expect(env.data?.matched).toBe(1);
+    expect(env.data?.missing).toEqual(['nope']);
+  });
+
   it('returns builtin names and count by default (names_only: true)', async () => {
     mockRun.mockResolvedValueOnce(
       spawnSuccess(
@@ -613,6 +638,32 @@ describe('rego_capabilities', () => {
       version: 'v0.69.0',
     });
     expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('refuses to truncate when the matched records exceed the response cap', async () => {
+    const big = (name: string) => ({ name, description: 'd'.repeat(2000) });
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ builtins: [big('a'), big('b'), big('c')] })),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, { ...baseConfig, maxResponseBytes: 4_000 });
+    const env = await callTool(server, 'rego_capabilities', {
+      current: true,
+      builtins: ['a', 'b', 'c'],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OUTPUT_TOO_LARGE');
+    expect(env.error?.hint).toMatch(/fewer names/);
+  });
+
+  it('refuses an empty filter and one past a hundred names', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    for (const builtins of [[], Array.from({ length: 101 }, (_, i) => `b${i}`)]) {
+      const env = await callTool(server, 'rego_capabilities', { current: true, builtins });
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe('INVALID_INPUT');
+    }
   });
 });
 

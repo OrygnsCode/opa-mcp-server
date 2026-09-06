@@ -34,6 +34,13 @@ not part of the public surface and may change in minor releases.
   document opa printed under `raw`. Its fields `N`, `T`, `Bytes`, `MemAllocs`,
   `MemBytes` and `Extra` were top-level before and now sit under `raw`; the
   type had promised `iterations` and `metrics`, which were never set.
+### Added
+
+- `rego_capabilities` takes a `builtins` filter of up to 100 names and returns
+  their full records under `builtins`, with a `matched` count and the
+  `missing` names. When the records would not fit the response cap it returns
+  `OUTPUT_TOO_LARGE` rather than a truncated result; `names_only: false`
+  returns every record and is documented as needing the cap raised.
 
 ### Fixed
 
@@ -193,6 +200,9 @@ not part of the public surface and may change in minor releases.
   the policy compares against. The escapes are decoded now. A backslash in a
   policy literal is escaped on the way into Z3, so a literal that spells such
   an escape itself is no longer read as one.
+- `rego_capabilities` gained a `builtins` filter that returns the full record
+  for a few named builtins, which fits the response cap; `names_only: false`
+  returns every record and is now documented as needing the cap raised.
 
 ## [0.5.0] - 2026-09-04
 
