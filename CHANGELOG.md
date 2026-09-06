@@ -127,6 +127,11 @@ not part of the public surface and may change in minor releases.
   directory, since opa reads a schema directory only through annotations in
   the policy and this tool sets none up. A directory is now refused before
   opa runs, with a pointer at the file form or `inlineSchema`.
+- `opa_bundle_sign` reported `signed: true` for a `.tar.gz` archive after
+  writing a `.signatures.json` beside it, which OPA never reads, so the
+  archive stayed unsigned. An archive is now refused with a pointer to
+  `opa_bundle_build`, which produces a signed one. The `outputDir` input,
+  which only applied to archives, is gone.
 
 ## [0.5.0] - 2026-09-04
 

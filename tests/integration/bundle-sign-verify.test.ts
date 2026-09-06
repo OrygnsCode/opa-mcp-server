@@ -209,41 +209,18 @@ describe('opa_bundle_sign against the real opa', () => {
     expect(env.data?.scope).toBeUndefined();
   });
 
-  it('rejects outputDir for a directory bundle, which is signed in place', async () => {
+  it('refuses an archive and writes nothing beside it', async () => {
+    // A .signatures.json beside an archive is never read by OPA, so the old
+    // behaviour reported signed: true over an archive that stayed unsigned.
     const dir = await makeBundle();
-    const out = join(workDir, `sigs-${bundleCounter}`);
-    await mkdir(out);
-    const env = await sign({ bundle: dir, signingKey: keys.rsaPrivate, outputDir: out });
+    const archive = join(workDir, `archive-${bundleCounter}.tar.gz`);
+    expect((await build({ paths: [dir], output: archive })).ok).toBe(true);
+    const before = await readFile(archive);
+    const env = await sign({ bundle: archive, signingKey: keys.rsaPrivate });
     expect(env.error?.code).toBe('INVALID_INPUT');
-    expect(existsSync(join(out, SIGNATURES))).toBe(false);
-    expect(existsSync(join(dir, SIGNATURES))).toBe(false);
-  });
-
-  it('honours outputDir for an archive', async () => {
-    const dir = await makeBundle();
-    const archive = join(workDir, `archive-out-${bundleCounter}.tar.gz`);
-    expect((await build({ paths: [dir], output: archive })).ok).toBe(true);
-    const out = join(workDir, `sigs-${bundleCounter}`);
-    await mkdir(out);
-    const env = await sign({ bundle: archive, signingKey: keys.rsaPrivate, outputDir: out });
-    expect(env.ok, JSON.stringify(env.error)).toBe(true);
-    expect(env.data?.signaturesPath).toBe(join(out, SIGNATURES));
-    expect(existsSync(join(out, SIGNATURES))).toBe(true);
-    expect(existsSync(join(workDir, SIGNATURES))).toBe(false);
-  });
-
-  it('rejects an outputDir outside the allowed roots without running opa', async () => {
-    const dir = await makeBundle();
-    const archive = join(workDir, `archive-outside-${bundleCounter}.tar.gz`);
-    expect((await build({ paths: [dir], output: archive })).ok).toBe(true);
-    const outside = await mkdtemp(join(tmpdir(), 'orygn-outside-'));
-    try {
-      const env = await sign({ bundle: archive, signingKey: keys.rsaPrivate, outputDir: outside });
-      expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
-      expect(existsSync(join(outside, SIGNATURES))).toBe(false);
-    } finally {
-      await rm(outside, { recursive: true, force: true });
-    }
+    expect(env.error?.hint).toMatch(/opa_bundle_build/);
+    expect(existsSync(join(dirname(archive), SIGNATURES))).toBe(false);
+    expect((await readFile(archive)).equals(before)).toBe(true);
   });
 
   it('signs with ES256 using an EC key', async () => {
@@ -268,23 +245,6 @@ describe('opa_bundle_sign against the real opa', () => {
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data?.keyId).toBe('k-v1');
     expect(env.data?.scope).toBe('write');
-  });
-
-  it('signs an archive beside itself and leaves the archive untouched', async () => {
-    const dir = await makeBundle();
-    const archive = join(workDir, `archive-${bundleCounter}.tar.gz`);
-    const built = await build({ paths: [dir], output: archive });
-    expect(built.ok, JSON.stringify(built.error)).toBe(true);
-    const before = await readFile(archive);
-
-    const env = await sign({ bundle: archive, signingKey: keys.rsaPrivate });
-    expect(env.ok, JSON.stringify(env.error)).toBe(true);
-    expect(env.data?.signaturesPath).toBe(join(dirname(archive), SIGNATURES));
-    expect(existsSync(env.data!.signaturesPath)).toBe(true);
-    expect((await readFile(archive)).equals(before)).toBe(true);
-    // The archive's own manifest is covered as well as the two files.
-    expect(env.data?.filesSigned).toBe(3);
-    await rm(env.data!.signaturesPath);
   });
 
   it('signs the real directory behind a junction or symlink, not an empty file list', async (ctx) => {
@@ -649,17 +609,6 @@ describe('opa_bundle_verify against the real opa', () => {
     const built = await build({ paths: [dir], output: archive });
     expect(built.ok, JSON.stringify(built.error)).toBe(true);
     await expectFailure({ bundle: archive, verificationKey: keys.rsaPublic }, 'unsigned');
-  });
-
-  it('an archive signed by opa_bundle_sign is not itself verifiable, since the signature sits beside it', async () => {
-    const dir = await makeBundle();
-    const archive = join(workDir, `beside-${bundleCounter}.tar.gz`);
-    const built = await build({ paths: [dir], output: archive });
-    expect(built.ok, JSON.stringify(built.error)).toBe(true);
-    const signed = await sign({ bundle: archive, signingKey: keys.rsaPrivate });
-    expect(signed.ok, JSON.stringify(signed.error)).toBe(true);
-    await expectFailure({ bundle: archive, verificationKey: keys.rsaPublic }, 'unsigned');
-    await rm(signed.data!.signaturesPath);
   });
 
   it('leaves nothing behind in the temp directory, on success or failure', async () => {
