@@ -17,17 +17,13 @@ import type { Config } from '../config.js';
  * not parse.
  */
 export function redactUrlCredentials(url: string): string {
-  try {
-    const parsed = new URL(url);
-    if (parsed.username === '' && parsed.password === '') return url;
-    parsed.username = '';
-    parsed.password = '';
-    return parsed.toString();
-  } catch {
-    // Not a URL at all, so nothing to redact; config.ts refuses such a value
-    // at startup, which is what keeps this branch from ever showing a secret.
-    return url;
-  }
+  if (!urlHasCredentials(url)) return url;
+  // Drop the userinfo textually rather than re-serialising through the
+  // parser, which would lowercase the scheme and host and drop a default
+  // port; the operator should recognise the URL they set. The authority
+  // ends at the first `/`, `?` or `#`, and its last `@` closes the userinfo,
+  // so a password holding `@` is removed whole.
+  return url.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/, '$1');
 }
 
 /** Whether the URL carries a username or password. */
