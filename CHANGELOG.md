@@ -31,9 +31,11 @@ not part of the public surface and may change in minor releases.
 
 - `rego_bench` reports `iterations`, `nsPerOp`, `allocsPerOp` and
   `bytesPerOp`, whole numbers as opa's own summary prints them, and keeps the
-  document opa printed under `raw`. Its fields `N`, `T`, `Bytes`, `MemAllocs`,
-  `MemBytes` and `Extra` were top-level before and now sit under `raw`; the
-  type had promised `iterations` and `metrics`, which were never set.
+  document opa printed under `raw` for a single run. Its fields `N`, `T`,
+  `Bytes`, `MemAllocs`, `MemBytes` and `Extra` were top-level before and now
+  sit under `raw`; the type had promised `iterations` and `metrics`, which
+  were never set. With `count` above one, `runs` holds every document and
+  `fastest` indexes the one the figures come from, so none is repeated.
 ### Added
 
 - `rego_capabilities` takes a `builtins` filter of up to 100 names and returns

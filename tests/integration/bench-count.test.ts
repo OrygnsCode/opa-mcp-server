@@ -25,6 +25,7 @@ interface BenchOutput {
   raw?: { N?: number; T?: number };
   runs?: Array<{ N?: number; T?: number }>;
   repetitions?: number;
+  fastest?: number;
 }
 
 let workDir: string;
@@ -79,7 +80,8 @@ describe('rego_bench with a repeat count', () => {
     const perOp = (r: { N?: number; T?: number }) => (r.N ? r.T! / r.N : Infinity);
     const best = Math.min(...(env.data?.runs ?? []).map(perOp));
     expect(env.data?.nsPerOp).toBe(Math.floor(best));
-    expect(perOp(env.data!.raw!)).toBeCloseTo(best, 6);
+    expect(perOp(env.data!.runs![env.data!.fastest!]!)).toBeCloseTo(best, 6);
+    expect(env.data?.raw).toBeUndefined();
   }, 120_000);
 
   it('leaves the fields off for a single run', async () => {
