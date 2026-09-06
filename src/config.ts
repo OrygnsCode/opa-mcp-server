@@ -6,12 +6,37 @@
  * Cursor, VS Code) pass config via the `env` object in their JSON.
  */
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, posix, win32 } from 'node:path';
 
 import { z } from 'zod';
 
 import { resolveOpaBinary } from './lib/resolve-binary.js';
+
 import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
+
+/**
+ * Whether a `*_BINARY` value is acceptable on `platform`: a bare command
+ * name, looked up on PATH by the spawn, or an absolute path. A relative path
+ * would resolve against wherever the client happened to launch the server.
+ * On Windows a path with a leading separator and no drive counts as absolute
+ * to `isAbsolute`, yet it resolves against the current drive, the same hazard
+ * as the drive-relative `C:regal.exe`; a UNC path starts with two separators
+ * and is fine.
+ */
+export function isBinarySpec(value: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (value === '.' || value === '..') return false;
+  if (!/[\\/]/.test(value) && !/^[A-Za-z]:/.test(value)) return true;
+  if (platform === 'win32' && /^[\\/](?![\\/])/.test(value)) return false;
+  return (platform === 'win32' ? win32 : posix).isAbsolute(value);
+}
+
+const binarySchema = (name: string) =>
+  z
+    .string()
+    .refine((v) => isBinarySpec(v), {
+      message: 'must be a bare command name found on PATH, or an absolute path',
+    })
+    .default(name);
 
 /**
  * Node clamps a timer of 2^31 ms or more to 1 ms, with only a process warning.
@@ -36,13 +61,13 @@ const ConfigSchema = z.object({
   opaToken: z.string().optional(),
 
   /** Path to the `opa` binary. Defaults to `opa` on PATH. */
-  opaBinary: z.string().default('opa'),
+  opaBinary: binarySchema('opa'),
 
   /** Path to the `regal` binary. Defaults to `regal` on PATH. */
-  regalBinary: z.string().default('regal'),
+  regalBinary: binarySchema('regal'),
 
   /** Path to the `conftest` binary. Defaults to `conftest` on PATH. */
-  conftestBinary: z.string().default('conftest'),
+  conftestBinary: binarySchema('conftest'),
 
   /** Hard timeout in ms for any spawned subprocess (opa, regal). */
   subprocessTimeoutMs: z.coerce

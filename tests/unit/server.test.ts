@@ -192,7 +192,8 @@ describe('main()', () => {
 
   it('reads configuration from environment variables', async () => {
     process.env['OPA_URL'] = 'http://test.example.com:9999';
-    process.env['OPA_BINARY'] = '/custom/opa';
+    // Absolute for the platform: a POSIX path is root-relative on Windows.
+    process.env['OPA_BINARY'] = process.platform === 'win32' ? 'C:/custom/opa' : '/custom/opa';
 
     const [s, c] = InMemoryTransport.createLinkedPair();
     const promise = main(s);
