@@ -25,6 +25,7 @@ import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
 import { isZ3Busy, isZ3Failure, markZ3Unusable } from './lib/rego-z3.js';
+import { redactUrlCredentials } from './lib/opa-client.js';
 import { terminateChildren } from './lib/subprocess.js';
 import { registerPrompts } from './prompts/index.js';
 import { registerResources } from './resources/index.js';
@@ -57,7 +58,7 @@ export function buildServer(config: Config): McpServer {
 
   logger.info('starting orygn-opa-mcp', {
     version: SERVER_VERSION,
-    opaUrl: config.opaUrl,
+    opaUrl: redactUrlCredentials(config.opaUrl),
     opaBinary: config.opaBinary,
     regalBinary: config.regalBinary,
   });

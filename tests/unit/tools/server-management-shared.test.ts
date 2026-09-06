@@ -12,6 +12,7 @@ import {
   OpaHttpError,
   OpaTimeoutError,
   OpaUnreachableError,
+  OpaUrlCredentialsError,
 } from '../../../src/lib/opa-client.js';
 import {
   mapOpaClientError,
@@ -128,6 +129,15 @@ describe('parseOpaDataPath', () => {
 });
 
 describe('mapOpaClientError', () => {
+  it('maps OpaUrlCredentialsError to OPA_URL_INVALID with the secret redacted', () => {
+    const env = mapOpaClientError(
+      new OpaUrlCredentialsError('http://alice:s3cret@opa.example.com'),
+    );
+    expect(env.error?.code).toBe('OPA_URL_INVALID');
+    expect(JSON.stringify(env)).not.toContain('s3cret');
+    expect(env.error?.hint).toMatch(/OPA_TOKEN/);
+  });
+
   it('maps OpaTimeoutError to TIMEOUT, naming the limit, not to unreachable', () => {
     const env = mapOpaClientError(new OpaTimeoutError('http://opa.example.com', 15_000));
     expect(env.error?.code).toBe('TIMEOUT');

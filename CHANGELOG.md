@@ -244,6 +244,11 @@ not part of the public surface and may change in minor releases.
   definedness when it is computed. The generated file no longer
   imports the package it references by full path, which `opa check --strict`
   reported as an unused import.
+- A username and password embedded in `OPA_URL` were echoed into every
+  `opa_*` error envelope and the startup log, and made every call fail as
+  `OPA_UNREACHABLE`, since the HTTP client refuses such a URL. They are now
+  redacted wherever the URL is shown, and such a URL is refused with
+  `OPA_URL_INVALID` and a hint to use `OPA_TOKEN`.
 
 ## [0.5.0] - 2026-09-04
 

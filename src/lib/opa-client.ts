@@ -10,14 +10,59 @@
  */
 import type { Config } from '../config.js';
 
+/**
+ * The URL with any username and password removed. OPA_URL is shown in error
+ * envelopes and in the startup log; a credential embedded in it must not
+ * travel with it. Returns the input unchanged when it holds none, or does
+ * not parse.
+ */
+export function redactUrlCredentials(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.username === '' && parsed.password === '') return url;
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    // Not a URL at all, so nothing to redact; config.ts refuses such a value
+    // at startup, which is what keeps this branch from ever showing a secret.
+    return url;
+  }
+}
+
+/** Whether the URL carries a username or password. */
+export function urlHasCredentials(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.username !== '' || parsed.password !== '';
+  } catch {
+    return false;
+  }
+}
+
 export class OpaUnreachableError extends Error {
-  constructor(
-    public readonly url: string,
-    cause?: unknown,
-  ) {
-    super(`OPA server unreachable at ${url}`);
+  public readonly url: string;
+  constructor(url: string, cause?: unknown) {
+    const shown = redactUrlCredentials(url);
+    super(`OPA server unreachable at ${shown}`);
     this.name = 'OpaUnreachableError';
+    this.url = shown;
     if (cause !== undefined) this.cause = cause;
+  }
+}
+
+/**
+ * OPA_URL holds a username and password. The HTTP client refuses such a
+ * URL outright, so every call failed as "unreachable" with a hint to start a
+ * server; the real fix is to move the secret to OPA_TOKEN.
+ */
+export class OpaUrlCredentialsError extends Error {
+  public readonly url: string;
+  constructor(url: string) {
+    const shown = redactUrlCredentials(url);
+    super(`OPA_URL holds a username and password, which the HTTP client refuses (${shown})`);
+    this.name = 'OpaUrlCredentialsError';
+    this.url = shown;
   }
 }
 
@@ -40,12 +85,16 @@ export class OpaHttpError extends Error {
 
 /** The server did not answer within `httpTimeoutMs`. It may well be up. */
 export class OpaTimeoutError extends Error {
+  /** The URL with any credentials removed, like every error here. */
+  readonly url: string;
   constructor(
-    public readonly url: string,
+    url: string,
     public readonly timeoutMs: number,
   ) {
-    super(`OPA at ${url} did not answer within ${timeoutMs} ms`);
+    const shown = redactUrlCredentials(url);
+    super(`OPA at ${shown} did not answer within ${timeoutMs} ms`);
     this.name = 'OpaTimeoutError';
+    this.url = shown;
   }
 }
 
@@ -81,6 +130,11 @@ export class OpaClient {
   constructor(private readonly config: Config) {}
 
   async request<T = unknown>(opts: RequestOptions): Promise<T> {
+    // Refuse before anything is built from the URL: fetch would throw with the
+    // credentials in its message.
+    if (urlHasCredentials(this.config.opaUrl)) {
+      throw new OpaUrlCredentialsError(this.config.opaUrl);
+    }
     const url = this.buildUrl(opts.path, opts.query);
 
     const headers: Record<string, string> = {

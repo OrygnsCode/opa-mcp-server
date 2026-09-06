@@ -11,6 +11,7 @@ import {
   OpaHttpError,
   OpaTimeoutError,
   OpaUnreachableError,
+  OpaUrlCredentialsError,
 } from '../../lib/opa-client.js';
 import type { ToolEnvelope, ToolErrorCode } from '../../types.js';
 
@@ -115,6 +116,12 @@ export function mapOpaClientError(
 ): ToolEnvelope<never> {
   if (e instanceof OpaCancelledError) {
     return err('CANCELLED', 'OPA request was cancelled by the client.');
+  }
+  if (e instanceof OpaUrlCredentialsError) {
+    return err('OPA_URL_INVALID', e.message + '.', {
+      hint: 'Remove the username and password from OPA_URL and pass the bearer token through OPA_TOKEN instead.',
+      details: { url: e.url },
+    });
   }
   if (e instanceof OpaTimeoutError) {
     return err('TIMEOUT', `OPA at ${e.url} did not answer within ${e.timeoutMs} ms.`, {

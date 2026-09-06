@@ -15,6 +15,8 @@ import {
   OpaHttpError,
   OpaTimeoutError,
   OpaUnreachableError,
+  OpaUrlCredentialsError,
+  redactUrlCredentials,
 } from '../../../src/lib/opa-client.js';
 
 const baseConfig: Config = {
@@ -361,5 +363,42 @@ describe('Timeouts', () => {
     await expect(client.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(
       OpaUnreachableError,
     );
+  });
+});
+
+describe('credentials in OPA_URL', () => {
+  it('refuses the URL with its own error before any request is made', async () => {
+    const client = new OpaClient({
+      ...baseConfig,
+      opaUrl: 'http://alice:s3cret@opa.example.com:8181',
+    });
+    await expect(client.request({ method: 'GET', path: '/x' })).rejects.toBeInstanceOf(
+      OpaUrlCredentialsError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never shows the secret, in the refusal or in an unreachable error', () => {
+    const e = new OpaUrlCredentialsError('http://alice:s3cret@opa.example.com:8181');
+    expect(e.message).not.toContain('s3cret');
+    expect(e.url).toBe('http://opa.example.com:8181/');
+    const u = new OpaUnreachableError('https://bob:pw@opa.example.com/', new Error('refused'));
+    expect(u.message).not.toContain('pw');
+    expect(u.url).not.toContain('bob');
+  });
+
+  it('redacts only what is there', () => {
+    expect(redactUrlCredentials('http://localhost:8181')).toBe('http://localhost:8181');
+    expect(redactUrlCredentials('http://u:p@h:1/x?y=1')).toBe('http://h:1/x?y=1');
+    expect(redactUrlCredentials('not a url')).toBe('not a url');
+  });
+});
+
+describe('OpaTimeoutError', () => {
+  it('carries and prints the URL without its credentials', () => {
+    const e = new OpaTimeoutError('http://user:secret@opa.internal:8181/v1', 5000);
+    expect(e.url).toBe('http://opa.internal:8181/v1');
+    expect(e.message).not.toContain('secret');
+    expect(e.message).toContain('http://opa.internal:8181/v1');
   });
 });
