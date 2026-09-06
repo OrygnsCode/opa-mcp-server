@@ -9,7 +9,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/tool-helpers.js';
+import {
+  mapSubprocessFailure,
+  sanitizeInlinePathsDeep,
+  tryParseJson,
+  withToolEnvelope,
+} from '../../lib/tool-helpers.js';
 
 const RegoDescribePolicyInput = {
   source: z.string().min(1).describe('Rego source to describe.'),
@@ -99,7 +104,7 @@ export function registerRegoDescribePolicy(server: McpServer, config: Config): v
         if (subprocessFailure) return subprocessFailure;
         if (result.exitCode !== 0) {
           return err('INVALID_REGO', 'opa parse rejected the source.', {
-            details: { stderr: result.stderr.trim() },
+            details: sanitizeInlinePathsDeep({ stderr: result.stderr.trim() }),
           });
         }
         const ast = tryParseJson<ParsedAst>(result.stdout);

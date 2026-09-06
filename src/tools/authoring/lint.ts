@@ -15,6 +15,7 @@ import {
   INLINE_TEMP_PATH_PATTERN,
   mapSubprocessFailure,
   sanitizeInlinePath,
+  sanitizeInlinePathsDeep,
   tryParseJson,
   validatePaths,
   withToolEnvelope,
@@ -142,7 +143,10 @@ export function registerRegoLint(server: McpServer, config: Config): void {
         const parsed = tryParseJson<RegoLintOutput>(result.stdout);
         if (!parsed) {
           return err('UNKNOWN_ERROR', 'regal lint produced no parseable JSON output.', {
-            details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
+            details: sanitizeInlinePathsDeep({
+              stderr: result.stderr.trim(),
+              exitCode: result.exitCode,
+            }),
           });
         }
 

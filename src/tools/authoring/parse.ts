@@ -12,7 +12,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/tool-helpers.js';
+import {
+  mapSubprocessFailure,
+  sanitizeInlinePathsDeep,
+  tryParseJson,
+  withToolEnvelope,
+} from '../../lib/tool-helpers.js';
 
 const RegoParseAstInput = {
   source: z.string().min(1).describe('Rego source code to parse.'),
@@ -49,14 +54,14 @@ export function registerRegoParseAst(server: McpServer, config: Config): void {
         if (result.exitCode !== 0) {
           const parsed = tryParseJson<{ errors?: unknown[] }>(result.stdout);
           return err('INVALID_REGO', 'opa parse rejected the source.', {
-            details: parsed ?? { stderr: result.stderr.trim() },
+            details: sanitizeInlinePathsDeep(parsed ?? { stderr: result.stderr.trim() }),
           });
         }
 
         const ast = tryParseJson(result.stdout);
         if (ast === undefined) {
           return err('UNKNOWN_ERROR', 'opa parse produced no parseable JSON on stdout.', {
-            details: { stdout: result.stdout.trim() },
+            details: sanitizeInlinePathsDeep({ stdout: result.stdout.trim() }),
           });
         }
         return ok<RegoParseAstOutput>({ ast });
