@@ -11,22 +11,16 @@ import {
   spawnUnreachable,
 } from './_helpers.js';
 
-import {
-  registerRegoCheckSchema,
-} from '../../../src/tools/authoring/check-schema.js';
+import { registerRegoCheckSchema } from '../../../src/tools/authoring/check-schema.js';
 import type { RegoCheckSchemaOutput } from '../../../src/tools/authoring/check-schema.js';
 
 vi.mock('../../../src/lib/subprocess.js', () => ({
   runBinary: vi.fn(),
 }));
 
-import {
-  runBinary,
-} from '../../../src/lib/subprocess.js';
+import { runBinary } from '../../../src/lib/subprocess.js';
 
-import {
-  registerAuthoringTools,
-} from '../../../src/tools/authoring/index.js';
+import { registerAuthoringTools } from '../../../src/tools/authoring/index.js';
 
 const mockRun = vi.mocked(runBinary);
 
