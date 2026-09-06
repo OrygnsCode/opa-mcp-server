@@ -221,9 +221,10 @@ install of OPA or Regal is required.
 The npm package carries its own `opa` for the five platforms it is built
 for, so a client `PATH` without `opa` on it does not matter there. The MCPB
 has no bundled copy, and on any other platform neither does npm: then the
-server boots but every tool call returns `OPA_BINARY_NOT_FOUND`. Neither the npm package nor
-the MCPB bundles `regal` or `conftest` (the Docker image does), so their tools
-need a `PATH` entry or an explicit path either way.
+server boots but every tool call returns `OPA_BINARY_NOT_FOUND`. Neither the
+npm package nor the MCPB bundles `regal` or `conftest`, and the Docker image
+ships `regal` but not `conftest`, so their tools need a `PATH` entry or an
+explicit path either way.
 
 **Fix:** add `OPA_BINARY` and `REGAL_BINARY` env entries to your client
 config with the absolute path to each binary. The example configs under

@@ -20,12 +20,22 @@ import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
  * client happened to launch the server, which the README has always said is
  * refused; the schema now says so too.
  */
+const bareName = (v: string): boolean =>
+  v !== '.' && v !== '..' && !/[\\/]/.test(v) && !/^[A-Za-z]:/.test(v);
+
+/**
+ * `isAbsolute` is true on Windows for a path with a leading separator and
+ * no drive, yet such a path resolves against the current drive, which is the
+ * same hazard as the drive-relative `C:regal.exe`. A UNC path starts with
+ * two separators and is fine.
+ */
+const rootRelativeOnWindows = (v: string): boolean =>
+  process.platform === 'win32' && /^[\\/](?![\\/])/.test(v);
+
 const binarySchema = (name: string) =>
   z
     .string()
-    // A drive-relative `C:regal.exe` has no separator but resolves against
-    // the current directory of that drive, so it is refused too.
-    .refine((v) => (!/[\\/]/.test(v) && !/^[A-Za-z]:/.test(v)) || isAbsolute(v), {
+    .refine((v) => bareName(v) || (isAbsolute(v) && !rootRelativeOnWindows(v)), {
       message: 'must be a bare command name found on PATH, or an absolute path',
     })
     .default(name);

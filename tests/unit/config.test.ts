@@ -10,6 +10,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// An absolute binary path for the platform the test runs on: a POSIX
+// path is root-relative on Windows and refused there.
+const absBin = (name: string): string =>
+  process.platform === 'win32' ? `C:/tools/${name}` : `/usr/local/bin/${name}`;
+
 import { loadConfig } from '../../src/config.js';
 
 // loadConfig() runs the configured binary name through resolve-binary, whose
@@ -90,11 +95,11 @@ describe('loadConfig — env var overrides', () => {
   });
 
   it('reads OPA_BINARY and REGAL_BINARY paths verbatim', () => {
-    process.env['OPA_BINARY'] = '/usr/local/bin/opa-custom';
-    process.env['REGAL_BINARY'] = '/opt/regal';
+    process.env['OPA_BINARY'] = absBin('opa-custom');
+    process.env['REGAL_BINARY'] = absBin('regal');
     const config = loadConfig();
-    expect(config.opaBinary).toBe('/usr/local/bin/opa-custom');
-    expect(config.regalBinary).toBe('/opt/regal');
+    expect(config.opaBinary).toBe(absBin('opa-custom'));
+    expect(config.regalBinary).toBe(absBin('regal'));
   });
 
   it('reads OPA_TOKEN and surfaces it on the config', () => {
@@ -216,6 +221,29 @@ describe('loadConfig - binary paths', () => {
       expectExitWith('absolute path');
     } finally {
       delete process.env['OPA_BINARY'];
+    }
+  });
+
+  it('refuses a root-relative path on Windows, which resolves against the current drive', () => {
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    process.env['OPA_BINARY'] = String.fromCharCode(92) + 'regal.exe';
+    try {
+      expectExitWith('absolute path');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform });
+      delete process.env['OPA_BINARY'];
+    }
+  });
+
+  it('refuses the dot names, which are directories, not commands', () => {
+    for (const value of ['.', '..']) {
+      process.env['OPA_BINARY'] = value;
+      try {
+        expectExitWith('absolute path');
+      } finally {
+        delete process.env['OPA_BINARY'];
+      }
     }
   });
 
@@ -344,8 +372,8 @@ describe('loadConfig — combined real-world configurations', () => {
   it('handles a fully-customized production config', () => {
     process.env['OPA_URL'] = 'https://opa.example.com';
     process.env['OPA_TOKEN'] = 'prod-token';
-    process.env['OPA_BINARY'] = '/usr/local/bin/opa';
-    process.env['REGAL_BINARY'] = '/usr/local/bin/regal';
+    process.env['OPA_BINARY'] = absBin('opa');
+    process.env['REGAL_BINARY'] = absBin('regal');
     process.env['OPA_MCP_ALLOWED_PATHS'] = '/srv/policies;/srv/data';
     process.env['OPA_MCP_LOG_FILE'] = '/var/log/orygn-opa-mcp.log';
     process.env['OPA_MCP_LOG_LEVEL'] = 'warn';
@@ -357,8 +385,8 @@ describe('loadConfig — combined real-world configurations', () => {
     expect(config).toEqual({
       opaUrl: 'https://opa.example.com',
       opaToken: 'prod-token',
-      opaBinary: '/usr/local/bin/opa',
-      regalBinary: '/usr/local/bin/regal',
+      opaBinary: absBin('opa'),
+      regalBinary: absBin('regal'),
       conftestBinary: 'conftest',
       subprocessTimeoutMs: 60_000,
       httpTimeoutMs: 10_000,
