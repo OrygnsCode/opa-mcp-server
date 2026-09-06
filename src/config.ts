@@ -6,7 +6,7 @@
  * Cursor, VS Code) pass config via the `env` object in their JSON.
  */
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, posix, win32 } from 'node:path';
 
 import { z } from 'zod';
 
@@ -20,22 +20,26 @@ import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
  * client happened to launch the server, which the README has always said is
  * refused; the schema now says so too.
  */
-const bareName = (v: string): boolean =>
-  v !== '.' && v !== '..' && !/[\\/]/.test(v) && !/^[A-Za-z]:/.test(v);
-
 /**
- * `isAbsolute` is true on Windows for a path with a leading separator and
- * no drive, yet such a path resolves against the current drive, which is the
- * same hazard as the drive-relative `C:regal.exe`. A UNC path starts with
- * two separators and is fine.
+ * Whether a `*_BINARY` value is acceptable on `platform`: a bare command
+ * name, looked up on PATH by the spawn, or an absolute path. A relative path
+ * would resolve against wherever the client happened to launch the server.
+ * On Windows a path with a leading separator and no drive counts as absolute
+ * to `isAbsolute`, yet it resolves against the current drive, the same hazard
+ * as the drive-relative `C:regal.exe`; a UNC path starts with two separators
+ * and is fine.
  */
-const rootRelativeOnWindows = (v: string): boolean =>
-  process.platform === 'win32' && /^[\\/](?![\\/])/.test(v);
+export function isBinarySpec(value: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (value === '.' || value === '..') return false;
+  if (!/[\\/]/.test(value) && !/^[A-Za-z]:/.test(value)) return true;
+  if (platform === 'win32' && /^[\\/](?![\\/])/.test(value)) return false;
+  return (platform === 'win32' ? win32 : posix).isAbsolute(value);
+}
 
 const binarySchema = (name: string) =>
   z
     .string()
-    .refine((v) => bareName(v) || (isAbsolute(v) && !rootRelativeOnWindows(v)), {
+    .refine((v) => isBinarySpec(v), {
       message: 'must be a bare command name found on PATH, or an absolute path',
     })
     .default(name);

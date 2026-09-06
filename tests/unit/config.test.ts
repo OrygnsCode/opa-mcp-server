@@ -10,12 +10,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { isBinarySpec, loadConfig } from '../../src/config.js';
+
 // An absolute binary path for the platform the test runs on: a POSIX
 // path is root-relative on Windows and refused there.
 const absBin = (name: string): string =>
   process.platform === 'win32' ? `C:/tools/${name}` : `/usr/local/bin/${name}`;
-
-import { loadConfig } from '../../src/config.js';
 
 // loadConfig() runs the configured binary name through resolve-binary, whose
 // result depends on the environment (opa on PATH, a bundled package installed).
@@ -224,15 +224,31 @@ describe('loadConfig - binary paths', () => {
     }
   });
 
-  it('refuses a root-relative path on Windows, which resolves against the current drive', () => {
-    const platform = process.platform;
-    Object.defineProperty(process, 'platform', { value: 'win32' });
-    process.env['OPA_BINARY'] = String.fromCharCode(92) + 'regal.exe';
-    try {
-      expectExitWith('absolute path');
-    } finally {
-      Object.defineProperty(process, 'platform', { value: platform });
-      delete process.env['OPA_BINARY'];
+  it('judges a value for the platform it is asked about', () => {
+    const sep = String.fromCharCode(92);
+    const cases: Array<[string, boolean, boolean]> = [
+      // value, accepted on win32, accepted on posix
+      ['regal', true, true],
+      ['regal.exe', true, true],
+      ['my regal.exe', true, true],
+      ['C:regal.exe', false, false],
+      [`C:${sep}Program Files${sep}regal${sep}regal.exe`, true, false],
+      ['C:/tools/regal.exe', true, false],
+      [`${sep}${sep}server${sep}share${sep}regal.exe`, true, false],
+      ['//server/share/regal', true, true],
+      ['/usr/local/bin/regal', false, true],
+      [`${sep}regal.exe`, false, false],
+      ['/regal', false, true],
+      ['./bin/regal', false, false],
+      ['bin/regal', false, false],
+      [`..${sep}regal.exe`, false, false],
+      ['~/bin/regal', false, false],
+      ['.', false, false],
+      ['..', false, false],
+    ];
+    for (const [value, win, nix] of cases) {
+      expect(isBinarySpec(value, 'win32'), `${value} on win32`).toBe(win);
+      expect(isBinarySpec(value, 'linux'), `${value} on linux`).toBe(nix);
     }
   });
 
