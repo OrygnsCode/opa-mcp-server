@@ -12,6 +12,7 @@
 import type { OpaExpression, OpaModule, OpaRule, OpaTerm } from './rego-ast-types.js';
 import type { RuleShape, VerifyExpr, VerifyValue, VerifyWalkResult } from './rego-ir.js';
 import { isSimpleRegexPattern } from './rego-smt-encoder.js';
+import { renderInputPath } from './rego-input-path.js';
 
 const MAX_INLINE_DEPTH = 5;
 
@@ -811,7 +812,12 @@ function extractInputRef(refTerms: OpaTerm[], result: VerifyWalkResult): VerifyV
     }
   }
 
-  const path = 'input.' + segments.join('.');
+  // The whole input compared as one value is not modelled: every variable
+  // the encoder creates stands for a field, and a witness for a bare `input`
+  // came back under a key named for a missing segment.
+  if (segments.length === 0) return null;
+
+  const path = renderInputPath(segments);
   if (!result.inputPaths.has(path)) {
     result.inputPaths.set(path, segments);
   }
@@ -892,40 +898,4 @@ function scopedLocal(
   depth: number,
 ): string {
   return `local_${clauseIndex}_d${depth}_${ruleName}_${varName}`;
-}
-
-/**
- * Collect all input.* paths recursively from a raw OPA AST value.
- * Used for deep scans of comprehension bodies (Phase 2), but exported
- * here for reuse in the engine's path-discovery pass.
- */
-export function collectAllInputPaths(node: unknown, out: Map<string, string[]>): void {
-  if (node === null || typeof node !== 'object') return;
-  if (Array.isArray(node)) {
-    for (const item of node) collectAllInputPaths(item, out);
-    return;
-  }
-
-  const obj = node as Record<string, unknown>;
-  if (obj['type'] === 'ref' && Array.isArray(obj['value'])) {
-    const terms = obj['value'] as OpaTerm[];
-    if (terms[0]?.type === 'var' && terms[0]?.value === 'input') {
-      const segs: string[] = [];
-      let ok = true;
-      for (let i = 1; i < terms.length; i++) {
-        const t = terms[i]!;
-        if (t.type === 'string' && typeof t.value === 'string') segs.push(t.value);
-        else {
-          ok = false;
-          break;
-        }
-      }
-      if (ok && segs.length > 0) {
-        const path = 'input.' + segs.join('.');
-        if (!out.has(path)) out.set(path, segs);
-      }
-    }
-  }
-
-  for (const val of Object.values(obj)) collectAllInputPaths(val, out);
 }

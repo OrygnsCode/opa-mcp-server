@@ -11,6 +11,7 @@
  */
 import type { init as Z3Init } from 'z3-solver';
 import type { Z3Sort } from './rego-type-inferencer.js';
+import { parseInputPath } from './rego-input-path.js';
 
 type Z3Context = ReturnType<Awaited<ReturnType<typeof Z3Init>>['Context']>;
 type Z3Model = ReturnType<InstanceType<Z3Context['Solver']>['model']>;
@@ -85,24 +86,24 @@ export function extractCounterexample(
         break;
     }
 
-    // Strip leading "input." so the result represents the input object content
-    const inputRelPath = path.startsWith('input.') ? path.slice('input.'.length) : path;
-    flat[inputRelPath] = value;
+    flat[path] = value;
   }
 
   return buildNestedObject(flat);
 }
 
 /**
- * Convert flat dot-separated paths to a nested object.
- * E.g. { "user.role": "admin", "action": "read" } →
- *      { user: { role: "admin" }, action: "read" }
+ * Convert rendered input paths to a nested object.
+ * E.g. { 'input.user.role': "admin", 'input["a.b"]': "read" } →
+ *      { user: { role: "admin" }, "a.b": "read" }
+ * Splitting on dots put a quoted dotted key under nested objects, and the
+ * witness did not satisfy the rule it was produced for.
  */
 function buildNestedObject(flat: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
-  for (const [dotPath, value] of Object.entries(flat)) {
-    const segments = dotPath.split('.');
+  for (const [renderedPath, value] of Object.entries(flat)) {
+    const segments = parseInputPath(renderedPath);
     let cursor: Record<string, unknown> = result;
 
     for (let i = 0; i < segments.length - 1; i++) {

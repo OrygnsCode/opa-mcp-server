@@ -263,6 +263,16 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     src: 'package t\n\nallow if {\n\tstartswith(input.s, "prefix")\n}\n',
   },
   { name: 'bare boolean field check', src: 'package t\n\nallow if {\n\tinput.f\n}\n' },
+  // A quoted dotted key and a nested path used to share one constant, and
+  // the witness for the quoted key was rebuilt as the nested path.
+  {
+    name: 'quoted dotted key and nested path are different fields',
+    src: 'package t\n\nallow if {\n\tinput["a.b"] == "x"\n\tinput.a.b == "y"\n}\n',
+  },
+  {
+    name: 'quoted dotted key alone',
+    src: 'package t\n\nallow if {\n\tinput["a.b"] == "x"\n}\n',
+  },
   { name: 'negation as failure', src: 'package t\n\nallow if {\n\tnot input.f\n}\n' },
   {
     name: 'regex that matches every string still needs the field',
