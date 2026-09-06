@@ -97,6 +97,10 @@ const DOMAIN = [
   { x: 'a', f: true },
   { n: 1, f: false },
   { x: 'a', n: 0.5, f: true, s: 'prefix-z' },
+  // A quoted dotted key and the nested path it used to alias.
+  { 'a.b': 1 },
+  { a: { b: 1 } },
+  { 'a.b': 1, a: { b: 2 } },
 ];
 
 // ── policy generation ─────────────────────────────────────────────────────
@@ -119,6 +123,9 @@ const BODIES = [
   ['input.n > 0\n\tinput.n < 1', 'frac_range'],
   ['input.x == "a"\n\tinput.x == "b"', 'contradiction'],
   ['x := input.x\n\tx == "a"', 'local'],
+  ['input["a.b"] == 1', 'quoted_key'],
+  ['input.a.b == 1', 'nested_key'],
+  ['input["a.b"] == 1\n\tinput.a.b == 2', 'quoted_and_nested'],
 ];
 const DEFAULTS = [null, 'true', 'false'];
 const HEADS = [null, 'true', 'false', '"deny"', '3'];

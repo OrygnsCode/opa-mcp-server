@@ -171,6 +171,7 @@ not part of the public surface and may change in minor releases.
   proved never true, and a witness for the quoted key was built as the nested
   object. Paths are now rendered the way Rego writes them and read back the
   same way.
+  The soundness fuzz now carries quoted keys, so it exercises this.
 
 ## [0.5.0] - 2026-09-04
 
