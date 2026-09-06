@@ -80,7 +80,7 @@ async function buildBuiltinsResource(opa: OpaCli): Promise<string> {
   return JSON.stringify(
     {
       version_note:
-        'Derived at read time from `opa capabilities --current`. Reflects the OPA build linked into this MCP server, not necessarily the OPA the user has installed locally.',
+        'Derived at read time from `opa capabilities --current` of the opa binary this server resolved: OPA_BINARY, then PATH, then the bundled copy.',
       builtin_count: caps.builtins?.length ?? 0,
       categories: grouped,
       future_keywords: caps.future_keywords ?? [],

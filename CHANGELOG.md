@@ -203,6 +203,11 @@ not part of the public surface and may change in minor releases.
 - `rego_capabilities` gained a `builtins` filter that returns the full record
   for a few named builtins, which fits the response cap; `names_only: false`
   returns every record and is now documented as needing the cap raised.
+- Docs: the README now says an argument that fails a tool's input schema is
+  rejected by the MCP layer before the handler runs, names `rego_verify`'s
+  `kind` field, and describes `rego_suggest_fix` as returning suggestions with
+  a confidence level; the `opa://builtins` resource says which `opa` binary
+  it reflects.
 
 ## [0.5.0] - 2026-09-04
 
