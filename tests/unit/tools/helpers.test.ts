@@ -180,7 +180,7 @@ describe('rego_generate_test_skeleton', () => {
     expect(env.data?.ruleNames).toEqual(['allow', 'deny_reasons']);
     expect(env.data?.testFile).toContain('package rbac_test');
     expect(env.data?.testFile).toContain('import rego.v1');
-    expect(env.data?.testFile).toContain('import data.rbac');
+    expect(env.data?.testFile).not.toContain('import data.rbac');
     expect(env.data?.testFile).toContain('test_allow if {');
     expect(env.data?.testFile).toContain('test_deny_reasons if {');
     // Single allow rule shouldn't appear twice in the skeleton.
@@ -193,6 +193,46 @@ describe('rego_generate_test_skeleton', () => {
     // always "defined" and would satisfy a bare reference).
     expect(env.data?.testFile).toContain('actual := data.rbac.allow with input as');
     expect(env.data?.testFile).toContain('actual == true');
+  });
+
+  it('asserts only definedness for a computed head, and reads a dotted name as a value rule', async () => {
+    const ast = {
+      package: {
+        path: [
+          { value: 'data', type: 'var' },
+          { value: 'p', type: 'string' },
+        ],
+      },
+      rules: [
+        { head: { name: 'msg', value: { type: 'call', value: [] } } },
+        { head: { name: 'lst', value: { type: 'array', value: [] } } },
+        {
+          head: {
+            name: 'q.r.s',
+            ref: [
+              { type: 'var', value: 'q' },
+              { type: 'string', value: 'r' },
+              { type: 'string', value: 's' },
+            ],
+            value: { type: 'number', value: 1 },
+          },
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string }>(server, 'rego_generate_test_skeleton', {
+      source: 'package p',
+    });
+    expect(env.ok).toBe(true);
+    const file = env.data!.testFile;
+    expect(file).toContain('actual := data.p.msg with input as');
+    expect(file).toContain('actual != null');
+    expect(file).toContain('passes as written');
+    expect(file).not.toContain('actual == null');
+    expect(file).toContain('actual == 1');
+    expect(file).not.toContain('actual == {}');
   });
 
   it('handles a top-level package (no nested path)', async () => {
@@ -553,7 +593,7 @@ describe('rego_generate_test_skeleton', () => {
     // Package header matches the source package.
     expect(file).toContain('package authz_test');
     expect(file).toContain('import rego.v1');
-    expect(file).toContain('import data.authz');
+    expect(file).not.toContain('import data.authz');
     // Cases array declared at package scope.
     expect(file).toContain('allow_cases := [');
     // Each case object has the three required scaffold keys.
