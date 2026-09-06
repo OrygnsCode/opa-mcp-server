@@ -326,3 +326,22 @@ describe('loadConfig — combined real-world configurations', () => {
     });
   });
 });
+
+describe('loadConfig - response cap floor', () => {
+  it('refuses a cap below the smallest complete envelope', () => {
+    process.env['OPA_MCP_MAX_RESPONSE_BYTES'] = '100';
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      throw new Error('process.exit called');
+    }) as never);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => loadConfig()).toThrow('process.exit called');
+      expect(exitSpy).toHaveBeenCalledWith(2);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('at least 512'));
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+      delete process.env['OPA_MCP_MAX_RESPONSE_BYTES'];
+    }
+  });
+});

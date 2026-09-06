@@ -90,7 +90,13 @@ const ConfigSchema = z.object({
    * Larger payloads are truncated with `truncated: true` and a hint to
    * write to a file path the agent specifies.
    */
-  maxResponseBytes: z.coerce.number().int().positive().default(100_000),
+  maxResponseBytes: z.coerce
+    .number()
+    .int()
+    // The smallest complete envelope is under 300 bytes; a cap that cannot
+    // hold one is refused rather than exceeded.
+    .min(512, { message: 'must be at least 512' })
+    .default(100_000),
 
   /**
    * Maximum bytes captured from a subprocess's stdout and stderr, each counted
