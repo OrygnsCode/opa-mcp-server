@@ -315,6 +315,16 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
   },
   // The reads are per rule: another rule comparing the parent as a value
   // says nothing about the inputs that reach this one.
+  // A helper carrying a default is inlined as the negation of its body,
+  // so the reads inside it have to count.
+  {
+    name: 'a helper with a default whose body pins a parent field',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper := false if {\n\tinput.o == "q"\n\tinput.o.p == "q"\n}\n',
+  },
+  {
+    name: 'a helper with a default whose body compares a parent as a value',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper := false if {\n\tinput.o == input.x\n\tinput.o.p == "q"\n}\n',
+  },
   {
     name: 'a parent compared as a value in a different rule',
     src: 'package t\n\nallow if input.x.y == 2\n\nother if input.x > 1\n',

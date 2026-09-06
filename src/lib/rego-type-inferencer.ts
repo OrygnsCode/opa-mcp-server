@@ -49,17 +49,30 @@ export interface PathReads {
 /** Every path `clauses` read, split by what the read implies about its shape. */
 export function collectPathReads(clauses: VerifyRuleClause[]): PathReads {
   const localAssignments = new Map<string, VerifyValue>();
-  for (const clause of clauses) {
-    for (const expr of clause.expressions) {
-      if (expr.kind === 'assign') localAssignments.set(expr.local, expr.value);
+  const collectAssignments = (expr: VerifyExpr): void => {
+    if (expr.kind === 'negation') {
+      for (const inner of expr.inner) collectAssignments(inner);
+      return;
     }
+    if (expr.kind === 'assign') localAssignments.set(expr.local, expr.value);
+  };
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) collectAssignments(expr);
   }
   const scalarPaths = new Set<string>();
   const valueReads = new Set<string>();
-  for (const clause of clauses) {
-    for (const expr of clause.expressions) {
-      collectScalarReads(expr, localAssignments, scalarPaths, valueReads);
+  const walk = (expr: VerifyExpr): void => {
+    // A negated body reads its fields too. What the read says about the
+    // field's shape does not depend on which side of a `not` it sits on: no
+    // input has a field that is both a string and an object.
+    if (expr.kind === 'negation') {
+      for (const inner of expr.inner) walk(inner);
+      return;
     }
+    collectScalarReads(expr, localAssignments, scalarPaths, valueReads);
+  };
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) walk(expr);
   }
   return { scalarPaths, valueReads };
 }
