@@ -27,6 +27,14 @@ not part of the public surface and may change in minor releases.
   an existing Gist secret, so a Gist created earlier that should not have been
   public has to be deleted at github.com/gists and shared again.
 
+### Changed
+
+- `rego_bench` reports `iterations`, `nsPerOp`, `allocsPerOp` and
+  `bytesPerOp`, whole numbers as opa's own summary prints them, and keeps the
+  document opa printed under `raw`. Its fields `N`, `T`, `Bytes`, `MemAllocs`,
+  `MemBytes` and `Extra` were top-level before and now sit under `raw`; the
+  type had promised `iterations` and `metrics`, which were never set.
+
 ### Fixed
 
 - Windows: a Rego module on a different drive from the server's working
@@ -172,6 +180,10 @@ not part of the public surface and may change in minor releases.
   object. Paths are now rendered the way Rego writes them and read back the
   same way.
   The soundness fuzz now carries quoted keys, so it exercises this.
+- `rego_bench` returned the benchmark document as opa prints it, Go's
+  `N`, `T` and `MemAllocs`, under a type that promised `iterations` and
+  `metrics`, so those were never set. It now reports `iterations`, `nsPerOp`,
+  `allocsPerOp` and `bytesPerOp` and keeps the document in `raw`.
 
 ## [0.5.0] - 2026-09-04
 
