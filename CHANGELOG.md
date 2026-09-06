@@ -251,6 +251,20 @@ not part of the public surface and may change in minor releases.
   `OPA_UNREACHABLE`, since the HTTP client refuses such a URL. They are now
   redacted wherever the URL is shown, and such a URL is refused with
   `OPA_URL_INVALID` and a hint to use `OPA_TOKEN`.
+- `rego_verify` grew the Z3 engine by about half a megabyte per solve and
+  never gave it back: Z3's memory lives outside the JavaScript heap, so the
+  collector that frees its objects felt no pressure from it, and every solve
+  named its variables afresh so Z3 could share nothing between them. After
+  enough solves the engine reached its ceiling and failed. Variables are now
+  named once, the solver is released as each solve ends, and a collection is
+  requested every hundred solves; measured, 1500 solves now hold at about
+  210 MB where they reached 950 MB before.
+- `rego_verify` could fault Z3 intermittently, which disabled verification
+  until the server restarted: z3-solver frees its objects from finalizers on
+  the main thread while a solve runs on a worker over the same shared
+  memory, and one landing mid-solve corrupted the heap. Finalizers are now
+  held while a solve runs, and a fault brings up a fresh Z3 on the next call,
+  three times per process, with the interrupted call retried once.
 
 ## [0.5.0] - 2026-09-04
 
