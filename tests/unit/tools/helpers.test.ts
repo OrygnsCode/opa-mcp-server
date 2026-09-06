@@ -1445,6 +1445,18 @@ describe('rego_explain_undefined', () => {
     expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
   });
 
+  it('reports a spawn failure of the per-file parse step by its code', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}')).mockResolvedValueOnce(spawnTimedOut());
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('TIMEOUT');
+  });
+
   it('passes the validated inputPath to opa, not the argument as written', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess('{}'));
     const server = makeServer();
