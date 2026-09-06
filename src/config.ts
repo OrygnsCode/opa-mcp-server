@@ -93,8 +93,8 @@ const ConfigSchema = z.object({
   maxResponseBytes: z.coerce
     .number()
     .int()
-    // The smallest complete error envelope is about 250 bytes; below that
-    // the cap cannot be honoured, so it is refused rather than exceeded.
+    // The smallest complete envelope is under 300 bytes; a cap that cannot
+    // hold one is refused rather than exceeded.
     .min(512, { message: 'must be at least 512' })
     .default(100_000),
 

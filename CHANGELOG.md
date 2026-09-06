@@ -137,8 +137,8 @@ not part of the public surface and may change in minor releases.
   details are now dropped first and its message cut last, so the code and
   the message stay readable within the cap.
   The cap bounds a success envelope's warnings as well, and
-  `OPA_MCP_MAX_RESPONSE_BYTES` refuses a value below 512, the smallest
-  complete envelope, rather than exceeding it.
+  `OPA_MCP_MAX_RESPONSE_BYTES` refuses a value below 512, which sits above
+  the smallest complete envelope, rather than exceeding it.
 
 ## [0.5.0] - 2026-09-04
 
