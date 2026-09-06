@@ -3,9 +3,11 @@
  *
  * Inline source is written to a private temp directory for the binaries to
  * read, and their diagnostics, traces and coverage name that file. Nothing
- * here imports another module, so errors.ts can sanitise every envelope
- * without an import cycle.
+ * here imports another module of this server, so errors.ts can sanitise
+ * every envelope without an import cycle.
  */
+
+import { tmpdir } from 'node:os';
 
 /**
  * Matches the temp-file paths written by OpaCli.withTempSource and
@@ -82,8 +84,55 @@ function pathStart(text: string, markerStart: number, floor: number): number {
   return start;
 }
 
-/** Replace every temp-file path wherever it sits inside `text`. */
-export function sanitizeInlineText(text: string): string {
+/**
+ * The spellings a binary may use for a path under `root`: as written, with
+ * every separator run as either kind, JSON-encoded (backslashes doubled), and
+ * on Windows with the drive dropped, which OPA's loader does. Longest first,
+ * so a prefix never wins over the full form.
+ */
+function rootSpellings(root: string): string[] {
+  const slashes = root.replace(/\\/g, '/');
+  const backslashes = root.replace(/\//g, '\\');
+  const bases = [root, slashes, backslashes];
+  for (const base of [...bases]) bases.push(base.replace(/^[A-Za-z]:/, ''));
+  const all = bases.flatMap((b) => [b, JSON.stringify(b).slice(1, -1)]);
+  return [...new Set(all)].filter((b) => b.length > 1).sort((a, b) => b.length - a.length);
+}
+
+const escapeRegExp = (text: string): string => text.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&');
+
+/**
+ * Exact matchers for this process's own temp files: the temp root the server
+ * writes under, a separator run, the directory prefix mkdtemp extends, its
+ * random suffix, and the file name. No guessing is involved, so a component
+ * of the root that starts or ends with whitespace, which the walk below has
+ * to treat as prose, is handled here.
+ */
+function exactMatchers(root: string): RegExp[] {
+  const sep = String.raw`(?:\\\\|\\|/)+`;
+  const tail =
+    String.raw`orygn-(?:opa-mcp|regal-mcp|schema)[^\\/\r\n]{0,255}` +
+    sep +
+    String.raw`(?:input\.rego|schema\.json|verified\.tar\.gz)`;
+  return rootSpellings(root).map((r) => new RegExp(escapeRegExp(r) + sep + tail, 'gi'));
+}
+
+let ownMatchers: RegExp[] | undefined;
+/** Built on first use, from the temp root the server runs with. */
+function ownTempMatchers(): RegExp[] {
+  ownMatchers ??= exactMatchers(tmpdir());
+  return ownMatchers;
+}
+
+/**
+ * Replace every temp-file path wherever it sits inside `text`: first this
+ * process's own files by their exact spelling, then anything shaped like one
+ * of them by the walk below.
+ */
+export function sanitizeInlineText(text: string, roots?: readonly string[]): string {
+  if (!text.toLowerCase().includes('orygn-')) return text;
+  const matchers = roots === undefined ? ownTempMatchers() : roots.flatMap(exactMatchers);
+  for (const matcher of matchers) text = text.replace(matcher, '<inline>');
   if (!text.toLowerCase().includes('orygn-')) return text;
   let out = '';
   let last = 0;
