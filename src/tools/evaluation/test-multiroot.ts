@@ -25,6 +25,7 @@ import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import {
+  lastJsonObject,
   mapSubprocessFailure,
   tryParseJson,
   validatePaths,
@@ -75,6 +76,8 @@ export interface RootTestResult {
   coverage?: CoverageReport;
   coveragePct?: number;
   thresholdMet?: boolean;
+  /** Set when opa printed a coverage report but no test records for the root. */
+  note?: string;
   error?: { code: ToolErrorCode; message: string; hint?: string };
 }
 
@@ -110,6 +113,8 @@ interface RootOutcome {
   coverage?: CoverageReport;
   coveragePct?: number;
   thresholdMet?: boolean;
+  /** Set when opa printed a coverage report but no test records for the root. */
+  note?: string;
   error?: { code: ToolErrorCode; message: string; hint?: string };
 }
 
@@ -326,8 +331,11 @@ function processRootOutput(
   threshold: number | undefined,
 ): RootOutcome {
   if (coverageMode) {
+    const coverageData = lastJsonObject<CoverageReport>(
+      result.stdout,
+      (v) => typeof (v as { coverage?: unknown }).coverage === 'number',
+    );
     if (result.exitCode === 0) {
-      const coverageData = tryParseJson<CoverageReport>(result.stdout);
       return {
         passed: 0,
         failed: 0,
@@ -363,6 +371,23 @@ function processRootOutput(
       };
     }
 
+    // A root holding a `todo_` test exits non-zero in coverage mode with an
+    // empty stderr and the report on stdout. rego_test stopped calling that a
+    // failure; this copy of the ladder had not.
+    if (coverageData !== undefined && stderrTrimmed.length === 0) {
+      return {
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        errored: 0,
+        total: 0,
+        results: [],
+        coverage: coverageData,
+        coveragePct: coverageData.coverage,
+        thresholdMet: threshold !== undefined ? true : undefined,
+        note: 'opa printed only the coverage report for this root: every test in it is a todo or was skipped, so the counts are zero.',
+      };
+    }
     return {
       passed: 0,
       failed: 0,
@@ -370,6 +395,7 @@ function processRootOutput(
       errored: 0,
       total: 0,
       results: [],
+      ...(coverageData !== undefined ? { coveragePct: coverageData.coverage } : {}),
       error: {
         code: 'EVAL_ERROR',
         message: stderrTrimmed || 'One or more tests failed.',

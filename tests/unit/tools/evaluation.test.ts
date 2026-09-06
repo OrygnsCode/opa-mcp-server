@@ -593,6 +593,40 @@ describe('rego_test', () => {
     expect(mockRun.mock.calls[0]![1].args).toContain('--coverage');
   });
 
+  it('reads the last of the reports opa prints for coverage with count > 1', async () => {
+    // opa prints one coverage document per run; the concatenation is not
+    // one JSON document, and the single parse left coverage undefined with
+    // the threshold reported as met.
+    const first = JSON.stringify({
+      files: {},
+      covered_lines: 1,
+      not_covered_lines: 9,
+      coverage: 10,
+    });
+    const last = JSON.stringify({
+      files: {},
+      covered_lines: 9,
+      not_covered_lines: 1,
+      coverage: 90,
+    });
+    mockRun.mockResolvedValueOnce(spawnSuccess(first + '\n' + last + '\n'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ coveragePct?: number; thresholdMet?: boolean }>(
+      server,
+      'rego_test',
+      {
+        paths: [validRegoPath()],
+        coverage: true,
+        threshold: 50,
+        count: 2,
+      },
+    );
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.coveragePct).toBe(90);
+    expect(env.data?.thresholdMet).toBe(true);
+  });
+
   it('passes --threshold to OPA and reports thresholdMet:true when threshold is met', async () => {
     const coverageJson = JSON.stringify({ coverage: 90, covered_lines: 9, not_covered_lines: 1 });
     mockRun.mockResolvedValueOnce(spawnSuccess(coverageJson));

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  lastJsonObject,
   mapSubprocessFailure,
   sanitizeInlinePath,
   sanitizeInlinePathsDeep,
@@ -260,5 +261,19 @@ describe('sanitizeInlineText, the spellings a diagnostic can carry', () => {
     const again = performance.now();
     expect(sanitizeInlineText(withPath)).toBe('<inline>');
     expect(performance.now() - again).toBeLessThan(200);
+  });
+});
+
+describe('lastJsonObject', () => {
+  it('returns the last accepted object and skips braces in trace text', () => {
+    const text = 'with input as {"x": false}\n{"coverage": 60, "files": {}}\n{"other": 1}';
+    expect(lastJsonObject(text)).toEqual({ other: 1 });
+    expect(
+      lastJsonObject(text, (v) => typeof (v as { coverage?: unknown }).coverage === 'number'),
+    ).toEqual({ coverage: 60, files: {} });
+  });
+
+  it('is not put out of step by a stray closing brace', () => {
+    expect(lastJsonObject('} junk {"a": 1}')).toEqual({ a: 1 });
   });
 });

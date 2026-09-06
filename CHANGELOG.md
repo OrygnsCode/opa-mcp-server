@@ -229,6 +229,13 @@ not part of the public surface and may change in minor releases.
   witness now names only the fields its own rule reads. The witness
   search that prefers every field present also re-checks after backing out,
   rather than reading a stale model.
+- `rego_test` with `coverage` or `threshold` and `count` above 1 returned no
+  coverage and reported the threshold as met: opa prints one report per
+  repetition and the concatenation did not parse as JSON, so none was read.
+  One is read now.
+- `rego_test_multiroot` in coverage mode reported a root holding a `todo_`
+  test as failed and dropped its report, as `rego_test` used to; the report is
+  kept and the root passes.
 
 ## [0.5.0] - 2026-09-04
 
