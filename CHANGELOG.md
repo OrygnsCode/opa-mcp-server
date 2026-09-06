@@ -241,8 +241,9 @@ not part of the public surface and may change in minor releases.
   function rule made the generated file fail to compile and a set, object or
   value rule was compared to `true`. Each stub now follows the rule's head: a
   function is called with placeholder arguments, a set or object is compared
-  to an empty one, a value rule to its literal when the head is one and to
-  definedness when it is computed. The generated file no longer
+  to an empty one, a value rule to its literal when the head is one; a
+  computed head, which offers nothing to assert, becomes a `todo_test_` that
+  opa test skips rather than a placeholder that passes. The generated file no longer
   imports the package it references by full path, which `opa check --strict`
   reported as an unused import.
 - A username and password embedded in `OPA_URL` were echoed into every

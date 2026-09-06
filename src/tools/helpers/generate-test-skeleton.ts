@@ -113,7 +113,7 @@ function stubParts(
         : {
             reference: ruleRef,
             expected: 'null',
-            note: '# Value rule with a computed head: this stub only asserts the rule is\n\t# defined, so it passes as written. Replace it with the expected value.',
+            note: '# Value rule with a computed head: nothing could be inferred to assert, so this\n# is a todo_test_ that opa test skips. Fill in the expected value and rename it test_.',
           };
     case 'boolean':
       return {
@@ -231,6 +231,15 @@ function shapeToRegoLiteral(shape: InputShape): string {
   return `{${inner}}`;
 }
 
+/**
+ * A computed head gives the generator nothing to assert against, so its stub
+ * is a `todo_test_` rule: opa test reports it as skipped rather than passing
+ * a placeholder, and the name says what is left to do.
+ */
+function isTodo(shape: RuleKind): boolean {
+  return shape.kind === 'value' && shape.literal === undefined;
+}
+
 function makeTableSkeleton(packageName: string, rules: RuleStub[], inputShape: InputShape): string {
   const lines: string[] = [];
   const testPackage = packageName ? `${packageName}_test` : 'main_test';
@@ -243,7 +252,7 @@ function makeTableSkeleton(packageName: string, rules: RuleStub[], inputShape: I
   const inputLiteral = shapeToRegoLiteral(inputShape);
   for (const { name, shape } of rules) {
     const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
-    const testName = `test_${safeName}`;
+    const testName = `${isTodo(shape) ? 'todo_test_' : 'test_'}${safeName}`;
     const ruleRef = packageName ? `data.${packageName}.${name}` : `data.${name}`;
     const { reference, expected, note } = stubParts(ruleRef, shape);
     const casesVar = `${safeName}_cases`;
@@ -279,7 +288,8 @@ function makeSkeleton(packageName: string, rules: RuleStub[], inputShape: InputS
   lines.push('');
   const inputLiteral = shapeToRegoLiteral(inputShape);
   for (const { name, shape } of rules) {
-    const testName = `test_${name.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+    const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
+    const testName = `${isTodo(shape) ? 'todo_test_' : 'test_'}${safeName}`;
     const ruleRef = packageName ? `data.${packageName}.${name}` : `data.${name}`;
     const { reference, expected, note } = stubParts(ruleRef, shape);
     lines.push(`# TODO: replace the placeholder input and expected value with a realistic case.`);
