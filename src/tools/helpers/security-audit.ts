@@ -1,11 +1,14 @@
 /**
- * `rego_security_audit` -- run regal lint filtered to the security
- * and bugs categories and return a severity-grouped finding report.
+ * `rego_security_audit` -- run regal lint filtered to the `bugs` category,
+ * plus any custom rules in a `security` category, and return a
+ * severity-grouped finding report.
  *
- * This is a focused slice of `rego_lint`: only the rules most relevant
- * to security and correctness are enabled. The result groups findings
- * by severity with remediation guidance so the agent can prioritize
- * fixes without wading through style and formatting noise.
+ * This is a focused slice of `rego_lint`. regal ships no security category
+ * of its own: its `bugs` rules are the correctness defects most likely to
+ * open a policy up, and a `security` category stays enabled as the place a
+ * project's custom rules can go. The result groups findings by severity
+ * with remediation guidance so the agent can prioritize fixes without
+ * wading through style and formatting noise.
  *
  * Requires regal. Returns REGAL_NOT_FOUND if the binary is absent.
  */
@@ -84,31 +87,20 @@ export interface RegoSecurityAuditOutput {
  * Remediation hints keyed by Regal rule title. The values give a
  * specific, actionable fix rather than repeating the violation message.
  */
+// Hints for the rules the sweep can report: regal's bugs category. Keys for
+// rules regal does not ship, or ships in categories the sweep does not
+// enable, were removed rather than left to suggest the sweep knew about them.
 const REMEDIATION_HINTS: Record<string, string> = {
-  'credentials-in-body':
-    'Remove credentials from the HTTP request body literal. Use OPA environment variables or a data bundle to inject secrets at runtime.',
-  'http-send-using-http':
-    'Replace the http:// URL with https:// to prevent credentials or tokens from being transmitted in plaintext.',
-  'jwt-credentials-in-source':
-    'Move JWT tokens and signing keys out of policy source into data bundles or OPA environment variables.',
-  'no-defined-entrypoint':
-    'Add an @entrypoint annotation to the rule that serves as the policy decision point so automated analysis can identify the entry.',
   'constant-condition':
     'The condition is always true or always false; remove it or fix the logic so the rule body reflects a real runtime check.',
   'deprecated-builtin':
     'Replace the deprecated builtin with its current equivalent before upgrading OPA, where deprecated functions may be removed.',
   'duplicate-rule':
     'Remove the duplicate rule definition. Multiple conflicting definitions cause non-deterministic evaluation and can mask security gaps.',
-  'impossible-if':
-    'The rule condition can never be satisfied; it will never contribute to the decision. Review the logic for a typo or inverted condition.',
   'impossible-not':
     'The negation is of a condition that is always false, so not(...) is always true. Review whether the rule is overly permissive.',
   'inconsistent-args':
     'The function is called with a different number of arguments than its definition. The extra or missing argument silently makes the call undefined.',
-  'unresolved-import':
-    'The import path does not match any package in the bundle. Remove or fix the import to ensure the policy loads correctly.',
-  'unreachable-rule':
-    'The rule can never be evaluated given the existing rules. It may represent dead code that masks a missing test case.',
   'rule-shadows-builtin':
     'Rename the local variable to avoid shadowing the OPA builtin. Shadowed builtins silently change semantics.',
   'sprintf-arguments-mismatch':
@@ -126,7 +118,7 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
     {
       title: 'Rego security audit',
       description:
-        'Run regal lint restricted to the security and bugs categories across one or more policy directories. Returns findings grouped by severity (high/medium) with remediation guidance. Use this for a periodic fleet-wide security sweep rather than per-file style review. Requires regal.',
+        'Run regal lint restricted to its `bugs` category, the correctness rules whose defects most often turn into policy bypasses, plus any custom rules placed in a `security` category, across one or more policy directories. Returns findings grouped by severity (high/medium) with remediation guidance. Use this for a periodic fleet-wide sweep rather than per-file style review. Requires regal.',
       inputSchema: RegoSecurityAuditInput,
       annotations: {
         readOnlyHint: false,
@@ -151,7 +143,9 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
             paths: validation.resolved,
             configFile: resolvedConfigFile,
             ignoreFiles,
-            // Start from zero rules and enable only security + bugs.
+            // Start from zero rules and enable regal's bugs category, plus a
+            // security category that regal does not ship but a project's
+            // custom rules may populate.
             disableAll: true,
             enableCategory: ['security', 'bugs'],
             // Fail on errors only; warnings are still surfaced in JSON.

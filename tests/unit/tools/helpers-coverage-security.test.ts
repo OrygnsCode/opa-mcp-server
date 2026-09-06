@@ -438,7 +438,9 @@ describe('rego_security_audit', () => {
   });
 
   it('attaches a specific remediation hint for known rule titles', async () => {
-    mockRun.mockResolvedValueOnce(spawnFailure(3, '', mockLintResult([highViolation])));
+    // A rule the sweep can report: regal's bugs category.
+    const bugViolation = { ...highViolation, title: 'constant-condition', category: 'bugs' };
+    mockRun.mockResolvedValueOnce(spawnFailure(3, '', mockLintResult([bugViolation])));
     const server = makeServer();
     registerRegoSecurityAudit(server, baseConfig);
     const env = await callTool<RegoSecurityAuditOutput>(server, 'rego_security_audit', {
@@ -446,8 +448,8 @@ describe('rego_security_audit', () => {
     });
 
     const finding = env.data?.findings[0];
-    expect(finding?.title).toBe('http-send-using-http');
-    expect(finding?.remediation).toMatch(/https/);
+    expect(finding?.title).toBe('constant-condition');
+    expect(finding?.remediation).toMatch(/always true or always false/);
     expect(finding?.severity).toBe('high');
   });
 
@@ -550,6 +552,9 @@ describe('rego_security_audit', () => {
     expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
   });
 
+  // regal 0.30.0 ships no security category, so that flag enables nothing
+  // unless a project adds custom rules under it; the bugs category is what
+  // the sweep actually runs. The flags are pinned as they are passed.
   it('passes --disable-all and --enable-category security/bugs to regal', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(mockLintResult([])));
     const server = makeServer();
