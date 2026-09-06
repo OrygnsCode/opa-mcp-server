@@ -276,12 +276,18 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
   {
     name: 'quoted dotted key alone',
     src: 'package t\n\nallow if {\n\tinput["a.b"] == "x"\n}\n',
+  },
   // A path compared as a scalar cannot also be the object holding a deeper
   // path; the two constants were independent and the rule proved satisfiable.
+  {
     name: 'a field read as a string and as a parent object',
     src: 'package t\n\nallow if {\n\tinput.a == "x"\n\tinput.a.b == "y"\n}\n',
+  },
+  {
     name: 'a field read as a number and as a parent object',
     src: 'package t\n\nallow if {\n\tinput.a > 1\n\tinput.a.b == "y"\n}\n',
+  },
+  {
     name: 'a field read as a parent object only, in two places',
     src: 'package t\n\nallow if {\n\tinput.a.b == "x"\n\tinput.a.c == "y"\n}\n',
   },
