@@ -37,9 +37,10 @@ not part of the public surface and may change in minor releases.
 ### Added
 
 - `rego_capabilities` takes a `builtins` filter of up to 100 names and returns
-  their full records under `builtins` with `matched` and `missing` counts,
-  which fits the default response cap; `names_only: false` returns every
-  record and is documented as needing the cap raised.
+  their full records under `builtins`, with a `matched` count and the
+  `missing` names. When the records would not fit the response cap it returns
+  `OUTPUT_TOO_LARGE` rather than a truncated result; `names_only: false`
+  returns every record and is documented as needing the cap raised.
 
 ### Fixed
 

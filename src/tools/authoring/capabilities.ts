@@ -37,11 +37,10 @@ const RegoCapabilitiesInput = {
   builtins: z
     .array(z.string().min(1))
     .min(1)
-    // About 115 full records fit the default response cap.
     .max(100)
     .optional()
     .describe(
-      'Return the full record (type signature, documentation, metadata) for up to 100 builtin names, exact matches only, which fits within the default response cap. `matched` counts the records returned and names not found are listed under `missing`. Implies `names_only: false`.',
+      'Return the full record (type signature, documentation, metadata) for up to 100 builtin names, exact matches only. `matched` counts the records returned and names not found are listed under `missing`. When the records would not fit the response cap the tool returns OUTPUT_TOO_LARGE rather than a truncated result; ask for fewer names. Implies `names_only: false`.',
     ),
 };
 
@@ -85,8 +84,7 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
           );
         }
         // The schema bounds the filter; the handler does too, before opa is
-        // run, since the promise that the records fit the cap holds only up
-        // to about 115 of them.
+        // run, since a unit harness may call it directly.
         if (builtins !== undefined && (builtins.length === 0 || builtins.length > 100)) {
           return err('INVALID_INPUT', '`builtins` takes between 1 and 100 names.');
         }
@@ -127,11 +125,26 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
           );
           const found = new Set(records.map((b) => (b as { name?: string }).name));
           const missing = builtins.filter((n) => !found.has(n));
-          return ok<RegoCapabilitiesOutput>({
+          const data: RegoCapabilitiesOutput = {
             builtins: records,
             matched: records.length,
             ...(missing.length > 0 ? { missing } : {}),
-          });
+          };
+          // A count cannot promise a size: the largest records run past 2 KB
+          // each, so a hundred of those exceed the default cap. Measure the
+          // envelope as it will be sent and refuse rather than truncate.
+          const bytes = Buffer.byteLength(JSON.stringify(ok(data), null, 2), 'utf8');
+          if (bytes > config.maxResponseBytes) {
+            return err(
+              'OUTPUT_TOO_LARGE',
+              `The full records for these ${records.length} builtins serialise to ${bytes} bytes, above the ${config.maxResponseBytes}-byte response cap.`,
+              {
+                hint: 'Ask for fewer names, or raise OPA_MCP_MAX_RESPONSE_BYTES.',
+                details: { matched: records.length, bytes, cap: config.maxResponseBytes },
+              },
+            );
+          }
+          return ok<RegoCapabilitiesOutput>(data);
         }
 
         // names_only defaults to true; treat undefined as true so the default

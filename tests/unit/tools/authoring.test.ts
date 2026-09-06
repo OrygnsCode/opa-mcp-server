@@ -640,7 +640,23 @@ describe('rego_capabilities', () => {
     expect(env.error?.code).toBe('INVALID_INPUT');
   });
 
-  it('refuses an empty filter and one past the hundred records that fit the cap', async () => {
+  it('refuses to truncate when the matched records exceed the response cap', async () => {
+    const big = (name: string) => ({ name, description: 'd'.repeat(2000) });
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ builtins: [big('a'), big('b'), big('c')] })),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, { ...baseConfig, maxResponseBytes: 4_000 });
+    const env = await callTool(server, 'rego_capabilities', {
+      current: true,
+      builtins: ['a', 'b', 'c'],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OUTPUT_TOO_LARGE');
+    expect(env.error?.hint).toMatch(/fewer names/);
+  });
+
+  it('refuses an empty filter and one past a hundred names', async () => {
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
     for (const builtins of [[], Array.from({ length: 101 }, (_, i) => `b${i}`)]) {
