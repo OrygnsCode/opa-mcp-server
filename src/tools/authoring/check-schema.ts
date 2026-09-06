@@ -15,7 +15,7 @@
  * rego_infer_input_schema to derive the schema from policy A, then pass its
  * output directly as `inlineSchema` here to validate policy B against it.
  */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -140,6 +140,19 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
           const v = validatePaths([schemaPath], config, { mustExist: true });
           if (!v.ok) return v.error;
           resolvedSchemaFile = v.resolved[0];
+          // opa accepts a directory here, but reads from it only where the
+          // policy carries schema annotations naming files in it. This tool
+          // sets none up, so a directory checked nothing and came back valid.
+          if ((await stat(resolvedSchemaFile!)).isDirectory()) {
+            return err(
+              'INVALID_INPUT',
+              'schemaPath must be a JSON Schema file for `input`. A directory is only used by opa where the policy carries schema annotations naming files in it, which this tool does not set up, so nothing would be checked.',
+              {
+                hint: 'Pass the schema file directly, or supply it as inlineSchema.',
+                details: { schemaPath },
+              },
+            );
+          }
         }
 
         // ── Inline schema: write to a temp file, clean up unconditionally ─

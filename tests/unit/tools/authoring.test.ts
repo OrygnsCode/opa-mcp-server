@@ -1317,3 +1317,18 @@ describe('rego_check_schema', () => {
     expect(env.data?.errors).toEqual([]);
   });
 });
+
+describe('rego_check_schema with a directory as schemaPath', () => {
+  it('refuses it before running opa, since nothing would be checked', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x\n\nimport rego.v1\n\nallow if input.a == 1\n',
+      schemaPath: fixturePath('policies', 'valid'),
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.hint).toMatch(/inlineSchema/);
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+});

@@ -123,6 +123,10 @@ not part of the public surface and may change in minor releases.
   now evaluated as cumulative prefixes inside the rule's package, with its
   imports, and the first condition that stops holding is the one reported; the
   conditions after it are left unevaluated, as on the traced path.
+- `rego_check_schema` reported `valid: true` when `schemaPath` was a
+  directory, since opa reads a schema directory only through annotations in
+  the policy and this tool sets none up. A directory is now refused before
+  opa runs, with a pointer at the file form or `inlineSchema`.
 
 ## [0.5.0] - 2026-09-04
 
