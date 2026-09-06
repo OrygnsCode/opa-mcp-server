@@ -15,8 +15,9 @@
  * For rules that appear in the trace (OPA entered them), the blocking
  * condition is identified by matching Fail-event rows against body-
  * expression rows from the AST. For rules that do not appear in the trace
- * (indexed out), each body expression is evaluated as a standalone query
- * to determine which one is not satisfied.
+ * (indexed out), the body is evaluated as cumulative prefixes inside the
+ * rule's package, with its imports, to find the first condition that does
+ * not hold.
  */
 import { readFile } from 'node:fs/promises';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -84,6 +85,7 @@ interface AstRule {
 
 interface OpaAst {
   package?: { path?: Array<{ value?: string }> };
+  imports?: Array<{ path?: { location?: { text?: string } }; alias?: string }>;
   rules?: AstRule[];
 }
 
@@ -248,8 +250,37 @@ function findBlockingRowFromTrace(rule: AstRule, trace: TraceEvent[]): number | 
   return undefined;
 }
 
-async function evalConditionStandalone(
-  exprText: string,
+/**
+ * The module's import statements as `--import` takes them: the path as
+ * written, plus the alias when there is one. `--package` alone does not bring
+ * them, and a body expression through an import is unsafe without them.
+ */
+function moduleImports(ast: OpaAst): string[] {
+  const out: string[] = [];
+  for (const imp of ast.imports ?? []) {
+    const path = decodeBase64Text(imp.path?.location?.text);
+    if (!path) continue;
+    out.push(imp.alias ? `${path} as ${imp.alias}` : path);
+  }
+  return out;
+}
+
+/**
+ * Ceiling on the query text handed to opa. Windows caps a command line at
+ * 32 KiB, and the prefixes grow with every condition that held.
+ */
+const MAX_PREFIX_CHARS = 16_000;
+
+/**
+ * Evaluate a prefix of a rule body as a query inside the rule's package. The
+ * prefix carries the locals assigned earlier, and the package makes a bare
+ * reference to a sibling rule resolve, so the answer is the one the rule
+ * itself would get up to that point.
+ */
+async function evalPrefixStandalone(
+  prefixText: string,
+  pkg: string,
+  imports: string[],
   evalBase: {
     source?: string;
     paths?: string[];
@@ -261,27 +292,38 @@ async function evalConditionStandalone(
 ): Promise<Pick<ConditionResult, 'result' | 'note'>> {
   const result = await opa.eval(
     {
-      query: exprText,
+      query: prefixText,
       source: evalBase.source,
       paths: evalBase.paths,
       input: evalBase.input,
       inputPath: evalBase.inputPath,
+      // The parsed path carries the `data` root; the flag takes the package
+      // name as written in the module.
+      package: pkg.replace(/^data\./, '') || undefined,
+      imports,
     },
     signal,
   );
 
   if (result.exitCode === null || result.exitCode !== 0) {
-    const firstLine =
-      (result.stderr.trim() || result.stdout.trim()).split('\n')[0] ?? 'unknown error';
-    return { result: 'unevaluable', note: `Standalone eval failed: ${firstLine}` };
+    // With --format=json OPA writes its error document to stdout; the first
+    // line of that is a brace. Read the messages out of it.
+    const errors = tryParseJson<{ errors?: Array<{ message?: string }> }>(result.stdout)?.errors;
+    const detail =
+      errors
+        ?.map((e) => e.message)
+        .filter((m): m is string => typeof m === 'string' && m.length > 0)
+        .join('; ') ||
+      (result.stderr.trim() || result.stdout.trim()).split('\n')[0] ||
+      'unknown error';
+    return { result: 'unevaluable', note: `Standalone eval failed: ${detail}` };
   }
 
-  // OPA returns a result row for a body expression even when it evaluates to a
-  // false value -- e.g. `input.user.tier == "premium"` against tier "free"
-  // yields a row whose expression value is `false`, not an empty result. A
-  // condition is satisfied only when it produces a solution whose expressions
-  // are all defined and not `false`, so inspect the expression values rather
-  // than merely the presence of a row (which would mark every comparison true).
+  // For a single-expression query OPA returns a row even when the value is
+  // `false`; with several expressions an unsatisfied one yields no row at
+  // all. Either way a condition is satisfied only when some row has every
+  // expression defined and not `false`, so inspect the values rather than the
+  // presence of a row.
   const parsed = tryParseJson<{
     result?: Array<{ expressions?: Array<{ value?: unknown }> }>;
   }>(result.stdout);
@@ -327,7 +369,11 @@ function buildSummary(
       } else if (r.conditions.length === 0) {
         lines.push(`  Rule ${r.ruleIndex}${loc}: no analysable body conditions.`);
       } else {
-        const unevalCount = r.conditions.filter((c) => c.result === 'unevaluable').length;
+        // Conditions behind the one that stopped evaluation were never attempted
+        // and are not what the summary is warning about.
+        const unevalCount = r.conditions.filter(
+          (c) => c.result === 'unevaluable' && !/^Not (reached|evaluated):/.test(c.note ?? ''),
+        ).length;
         lines.push(
           `  Rule ${r.ruleIndex}${loc}: blocking condition could not be determined ` +
             `(${unevalCount} unevaluable expression${unevalCount !== 1 ? 's' : ''}).`,
@@ -441,6 +487,9 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         // ── Step 3: find matching rules ───────────────────────────────────
         const queryParsed = queryToPackageAndRule(args.query);
         const matchedRules: AstRule[] = [];
+        /** Package and imports of each matched rule, index-aligned with matchedRules. */
+        const matchedPackages: string[] = [];
+        const matchedImports: string[][] = [];
 
         for (const ast of asts) {
           const pkgPath = extractPackagePath(ast);
@@ -449,6 +498,8 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             const name = extractRuleHeadName(rule.head);
             if (!queryParsed || name === queryParsed.ruleName) {
               matchedRules.push(rule);
+              matchedPackages.push(pkgPath);
+              matchedImports.push(moduleImports(ast));
             }
           }
         }
@@ -543,17 +594,71 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             });
           } else {
             // Standalone eval: OPA's indexer eliminated this rule before
-            // entering its body. Evaluate each condition independently.
+            // entering its body. Each condition is judged inside the rule's
+            // package, with its imports, and with the conditions before it in
+            // scope, so a local assigned earlier and a bare reference to a
+            // sibling rule both resolve. Evaluation stops at the first
+            // condition that does not hold, as on the traced path.
+            // Evaluating each condition alone left the dependent ones
+            // unevaluable and named the first non-true one as the blocker,
+            // often a satisfied guard sitting ahead of the real one.
+            const pkg = matchedPackages[ruleIndex] ?? '';
+            const imports = matchedImports[ruleIndex] ?? [];
+            const held: string[] = [];
+            let stopped: string | undefined;
             for (const cond of conditions) {
               if (cond.text === '<expression>') {
                 cond.note = 'No location text available; cannot evaluate standalone.';
-                continue;
+                stopped = 'Not evaluated: an earlier condition has no location text.';
+                break;
               }
-              const evalOut = await evalConditionStandalone(cond.text, evalBase, opa, signal);
+              // Keep the query under the command-line limit by dropping the
+              // oldest held terms. A shorter prefix only widens the solutions,
+              // so a false stays a real blocker; a dropped assignment makes a
+              // later term unsafe, which comes back unevaluable, not guessed.
+              let prefix = [...held, cond.text];
+              while (prefix.length > 1 && prefix.join('; ').length > MAX_PREFIX_CHARS) {
+                prefix = prefix.slice(1);
+              }
+              let evalOut: Pick<ConditionResult, 'result' | 'note'>;
+              try {
+                evalOut = await evalPrefixStandalone(
+                  prefix.join('; '),
+                  pkg,
+                  imports,
+                  evalBase,
+                  opa,
+                  signal,
+                );
+              } catch (e) {
+                if (signal?.aborted) throw e;
+                evalOut = {
+                  result: 'unevaluable',
+                  note: `Standalone eval failed: ${e instanceof Error ? e.message : String(e)}`,
+                };
+              }
               cond.result = evalOut.result;
               if (evalOut.note) cond.note = evalOut.note;
+              if (evalOut.result === 'true') {
+                held.push(cond.text);
+                continue;
+              }
+              stopped =
+                evalOut.result === 'false'
+                  ? 'Not reached: an earlier condition does not hold.'
+                  : 'Not evaluated: an earlier condition could not be evaluated.';
+              break;
             }
-            const blockingCondition = conditions.find((c) => c.result !== 'true') ?? null;
+            if (stopped !== undefined) {
+              for (const cond of conditions) {
+                if (cond.result === 'unevaluable' && cond.note === undefined) cond.note = stopped;
+              }
+            }
+            // The blocker is the first condition that is not true, and only
+            // when it is a definite false; past one that could not be
+            // evaluated, naming a later condition would be a guess.
+            const firstNotTrue = conditions.find((c) => c.result !== 'true');
+            const blockingCondition = firstNotTrue?.result === 'false' ? firstNotTrue : null;
             rules.push({
               ruleIndex,
               isDefault: false,
