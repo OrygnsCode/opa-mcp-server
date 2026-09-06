@@ -195,6 +195,45 @@ describe('rego_generate_test_skeleton', () => {
     expect(env.data?.testFile).toContain('actual == true');
   });
 
+  it('asserts only definedness for a computed head, and reads a dotted name as a value rule', async () => {
+    const ast = {
+      package: {
+        path: [
+          { value: 'data', type: 'var' },
+          { value: 'p', type: 'string' },
+        ],
+      },
+      rules: [
+        { head: { name: 'msg', value: { type: 'call', value: [] } } },
+        { head: { name: 'lst', value: { type: 'array', value: [] } } },
+        {
+          head: {
+            name: 'q.r.s',
+            ref: [
+              { type: 'var', value: 'q' },
+              { type: 'string', value: 'r' },
+              { type: 'string', value: 's' },
+            ],
+            value: { type: 'number', value: 1 },
+          },
+        },
+      ],
+    };
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(ast)));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ testFile: string }>(server, 'rego_generate_test_skeleton', {
+      source: 'package p',
+    });
+    expect(env.ok).toBe(true);
+    const file = env.data!.testFile;
+    expect(file).toContain('actual := data.p.msg with input as');
+    expect(file).toContain('actual != null');
+    expect(file).not.toContain('actual == null');
+    expect(file).toContain('actual == 1');
+    expect(file).not.toContain('actual == {}');
+  });
+
   it('handles a top-level package (no nested path)', async () => {
     const ast = {
       package: { path: [{ value: 'data', type: 'var' }] },

@@ -48,7 +48,8 @@ type RuleKind =
   | { kind: 'set' }
   | { kind: 'object' }
   | { kind: 'function'; arity: number }
-  | { kind: 'value'; literal: string };
+  /** A value rule; `literal` is the head's value when it is a scalar literal. */
+  | { kind: 'value'; literal?: string };
 
 interface RuleStub {
   name: string;
@@ -59,7 +60,8 @@ function ruleKindFromAst(rule: AstRule): RuleKind {
   const head = rule.head ?? {};
   if (Array.isArray(head.args)) return { kind: 'function', arity: head.args.length };
   const value = head.value;
-  const keyed = head.key !== undefined || (Array.isArray(head.ref) && head.ref.length > 1);
+  // A multi-segment ref is a dotted rule name, not a key.
+  const keyed = head.key !== undefined;
   if (keyed) {
     // A keyed head with a value is a partial object (`perms[k] := v`); one
     // without, or with the implicit boolean, is a partial set (`deny contains x`).
@@ -69,7 +71,10 @@ function ruleKindFromAst(rule: AstRule): RuleKind {
   if (value.type === 'string' || value.type === 'number' || value.type === 'null') {
     return { kind: 'value', literal: JSON.stringify(value.value ?? null) };
   }
-  return { kind: 'value', literal: 'null' };
+  // A call, array, object or set: the type checker would reject a comparison
+  // against a placeholder of the wrong type, so the stub asserts only that
+  // the rule is defined.
+  return { kind: 'value' };
 }
 
 /** The expression a stub compares against, and the reference it evaluates. */
@@ -99,11 +104,17 @@ function stubParts(
         note: '# Object rule: expected is the object of entries, or {} when nothing should match.',
       };
     case 'value':
-      return {
-        reference: ruleRef,
-        expected: shape.literal,
-        note: '# Value rule: the head assigns a value; expected is that value for this input.',
-      };
+      return shape.literal !== undefined
+        ? {
+            reference: ruleRef,
+            expected: shape.literal,
+            note: '# Value rule: the head assigns a value; expected is that value for this input.',
+          }
+        : {
+            reference: ruleRef,
+            expected: 'null',
+            note: '# Value rule with a computed head: replace the placeholder with the expected value.',
+          };
     case 'boolean':
       return {
         reference: ruleRef,
@@ -275,7 +286,13 @@ function makeSkeleton(packageName: string, rules: RuleStub[], inputShape: InputS
     lines.push(note);
     lines.push(`${testName} if {`);
     lines.push(`\tactual := ${reference} with input as ${inputLiteral}`);
-    lines.push(`\tactual == ${expected}`);
+    // A computed head has no typed placeholder; `!= null` type-checks for any
+    // value and still fails when the rule is undefined.
+    lines.push(
+      shape.kind === 'value' && shape.literal === undefined
+        ? '\tactual != null'
+        : `\tactual == ${expected}`,
+    );
     lines.push(`}`);
     lines.push('');
   }
