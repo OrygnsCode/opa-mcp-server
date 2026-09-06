@@ -15,12 +15,6 @@ import { resolveOpaBinary } from './lib/resolve-binary.js';
 import { DEFAULT_MAX_OUTPUT_BYTES } from './lib/subprocess.js';
 
 /**
- * A `*_BINARY` value: a bare command name, looked up on PATH by the spawn,
- * or an absolute path. A relative path would resolve against wherever the
- * client happened to launch the server, which the README has always said is
- * refused; the schema now says so too.
- */
-/**
  * Whether a `*_BINARY` value is acceptable on `platform`: a bare command
  * name, looked up on PATH by the spawn, or an absolute path. A relative path
  * would resolve against wherever the client happened to launch the server.
