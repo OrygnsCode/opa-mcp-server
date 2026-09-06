@@ -219,7 +219,14 @@ not part of the public surface and may change in minor releases.
   the field one scalar value that no input holding the deeper field can
   match; before, that produced a counterexample OPA rejects. Both readings
   are taken from the rule under test alone, so another rule in the module
-  does not decide either. The witness
+  does not decide either.
+- `rego_verify` built its witness from every input path in the policy, so a
+  field only another rule reads was given a value and placed in the input.
+  Where that field was the parent of one the rule under test reads, the two
+  collided and the witness no longer satisfied the rule: `allow if input.x.y
+  == 2` beside `other if input.x > 1` returned `{"x": 0}`, which the policy
+  evaluates to undefined, and reported it as proof the rule can be true. A
+  witness now names only the fields its own rule reads. The witness
   search that prefers every field present also re-checks after backing out,
   rather than reading a stale model.
 

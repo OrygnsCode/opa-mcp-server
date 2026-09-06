@@ -155,6 +155,32 @@ export function structuralAxioms(
   return axioms;
 }
 
+/**
+ * Every input path `clauses` reference, a negated body included.
+ *
+ * The presence guard below deliberately skips a negated body, since a
+ * missing field satisfies it; a witness must still be able to name that
+ * field. It must also never name a field the rule does not read: variables
+ * are created for every path in the module, so a path belonging to another
+ * rule is unconstrained here, and model completion would hand it an
+ * arbitrary value. Where that path is the parent of one this rule reads,
+ * the two collide and the witness stops satisfying the rule.
+ */
+export function clauseInputPaths(clauses: VerifyRuleClause[]): Set<string> {
+  const out = new Set<string>();
+  const walk = (expr: VerifyExpr): void => {
+    if (expr.kind === 'negation') {
+      for (const inner of expr.inner) walk(inner);
+      return;
+    }
+    inputPathsOf(expr, out);
+  };
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) walk(expr);
+  }
+  return out;
+}
+
 /** Every input path an expression reads. Used to build the presence guard. */
 function inputPathsOf(expr: VerifyExpr, out: Set<string>): void {
   const take = (v: VerifyValue | undefined): void => {

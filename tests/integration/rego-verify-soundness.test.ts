@@ -313,6 +313,14 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     name: 'a parent compared as a value in a different rule',
     src: 'package t\n\nallow if input.x.y == 2\n\nother if input.x > 1\n',
   },
+  {
+    name: 'a parent read as a scalar in a different rule',
+    src: 'package t\n\nallow if input.x.y == 2\n\nother if input.x == "s"\n',
+  },
+  {
+    name: 'an unrelated field read only by a different rule',
+    src: 'package t\n\nallow if input.a == 1\n\nother if input.b.c == 2\n',
+  },
   { name: 'negation as failure', src: 'package t\n\nallow if {\n\tnot input.f\n}\n' },
   {
     name: 'regex that matches every string still needs the field',

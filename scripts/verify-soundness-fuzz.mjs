@@ -142,6 +142,9 @@ const BODIES = [
   ['input.o\n\tinput.o.p == "q"', 'truthy_parent_child'],
   ['input.o == input.x\n\tinput.o.p == "q"', 'eq_ref_parent_child'],
   ['input.x > 0\n\tinput.x.y == 2', 'gt_parent_child'],
+  // The parent is read by a second rule, not by the rule under test: its
+  // variable is unconstrained, and a witness must not name it.
+  ['input.o.p == "q"\n}\n\nother if {\n\tinput.o == "q"', 'cross_rule_parent'],
 ];
 const DEFAULTS = [null, 'true', 'false'];
 const HEADS = [null, 'true', 'false', '"deny"', '3'];

@@ -15,7 +15,12 @@
 import type { OpaModule } from './rego-ast-types.js';
 import { walkModule } from './rego-ast-walker.js';
 import { collectPathReads, inferTypes } from './rego-type-inferencer.js';
-import { createInputVars, structuralAxioms, encodeRule } from './rego-smt-encoder.js';
+import {
+  clauseInputPaths,
+  createInputVars,
+  structuralAxioms,
+  encodeRule,
+} from './rego-smt-encoder.js';
 import {
   extractCounterexample,
   formatCounterexample,
@@ -120,10 +125,13 @@ export async function runVerify(
     // another rule of the module does with a field says nothing about the
     // inputs that reach this one.
     const reads = collectPathReads(targetClauses);
-    const readSegments = new Map<string, string[]>();
-    for (const path of [...reads.scalarPaths, ...reads.valueReads]) {
+    // Every path this rule reads, with its segments. Also what a witness may
+    // name: a path from another rule has no constraint here, so model
+    // completion would invent a value for it.
+    const rulePaths = new Map<string, string[]>();
+    for (const path of clauseInputPaths(targetClauses)) {
       const segs = walked.inputPaths.get(path);
-      if (segs !== undefined) readSegments.set(path, segs);
+      if (segs !== undefined) rulePaths.set(path, segs);
     }
 
     // A field the rule reads beneath is an object in any input that reaches
@@ -136,9 +144,9 @@ export async function runVerify(
     // a model can be trusted, so the rule is reported inconclusive.
     const comparedParents = [...reads.valueReads]
       .filter((path) => {
-        const segs = readSegments.get(path);
+        const segs = rulePaths.get(path);
         if (segs === undefined) return false;
-        for (const otherSegs of readSegments.values()) {
+        for (const otherSegs of rulePaths.values()) {
           if (otherSegs.length > segs.length && segs.every((seg, i) => otherSegs[i] === seg)) {
             return true;
           }
@@ -299,7 +307,14 @@ export async function runVerify(
 
       // SAT: pass solver.model() inline so the Model object is not kept alive
       // beyond extractCounterexample -- it becomes GC-eligible immediately after.
-      const ce = extractCounterexample(solver.model(), inputVars, typeResult.sorts, presenceVars);
+      const witnessVars = new Map([...inputVars].filter(([path]) => rulePaths.has(path)));
+      const witnessPresence = new Map([...presenceVars].filter(([path]) => rulePaths.has(path)));
+      const ce = extractCounterexample(
+        solver.model(),
+        witnessVars,
+        typeResult.sorts,
+        witnessPresence,
+      );
       const ceFormatted = formatCounterexample(ce);
 
       if (property.kind === 'satisfiable') {
