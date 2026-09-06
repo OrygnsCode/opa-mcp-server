@@ -20,8 +20,9 @@ import { registerEvaluationTools } from '../../src/tools/evaluation/index.js';
 import { callTool, makeServer } from '../unit/tools/_helpers.js';
 
 interface BenchOutput {
-  N?: number;
-  T?: number;
+  iterations?: number;
+  nsPerOp?: number;
+  raw?: { N?: number; T?: number };
   runs?: Array<{ N?: number; T?: number }>;
   repetitions?: number;
 }
@@ -73,10 +74,12 @@ describe('rego_bench with a repeat count', () => {
     expect(env.data?.repetitions).toBe(3);
     expect(env.data?.runs).toHaveLength(3);
 
-    // The top-level figures are one of the runs, the fastest per iteration.
+    // The top-level figures come from the fastest run per iteration, as
+    // whole numbers; the document itself sits under raw.
     const perOp = (r: { N?: number; T?: number }) => (r.N ? r.T! / r.N : Infinity);
     const best = Math.min(...(env.data?.runs ?? []).map(perOp));
-    expect(perOp(env.data!)).toBeCloseTo(best, 6);
+    expect(env.data?.nsPerOp).toBe(Math.floor(best));
+    expect(perOp(env.data!.raw!)).toBeCloseTo(best, 6);
   }, 120_000);
 
   it('leaves the fields off for a single run', async () => {
@@ -84,7 +87,8 @@ describe('rego_bench with a repeat count', () => {
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data?.repetitions).toBeUndefined();
     expect(env.data?.runs).toBeUndefined();
-    expect(env.data?.N).toBeGreaterThan(0);
+    expect(env.data?.iterations).toBeGreaterThan(0);
+    expect(env.data?.raw?.N).toBe(env.data?.iterations);
   }, 120_000);
 
   it('reports what actually went wrong', async () => {
