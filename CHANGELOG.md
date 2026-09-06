@@ -188,6 +188,11 @@ not part of the public surface and may change in minor releases.
   file an inline config or policy had been written to, a file the tool had
   already removed. The path is replaced in stderr as it already was in the
   results.
+- `rego_verify`: a witness holding a non-ASCII string came back in Z3's
+  escape text, one escape per byte, which OPA did not accept as the string
+  the policy compares against. The escapes are decoded now. A backslash in a
+  policy literal is escaped on the way into Z3, so a literal that spells such
+  an escape itself is no longer read as one.
 
 ## [0.5.0] - 2026-09-04
 

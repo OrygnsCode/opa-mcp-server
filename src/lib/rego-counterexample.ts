@@ -58,10 +58,12 @@ export function extractCounterexample(
     switch (sort) {
       case 'string':
         try {
-          value = (evaluated as ReturnType<Z3Context['String']['const']>).asString();
+          value = decodeZ3String(
+            (evaluated as ReturnType<Z3Context['String']['const']>).asString(),
+          );
         } catch {
           // eslint-disable-next-line @typescript-eslint/no-base-to-string
-          value = evaluated.toString().replace(/^"|"$/g, '');
+          value = decodeZ3String(evaluated.toString().replace(/^"|"$/g, ''));
         }
         break;
       case 'real': {
@@ -90,6 +92,30 @@ export function extractCounterexample(
   }
 
   return buildNestedObject(flat);
+}
+
+/**
+ * Undo Z3's rendering of a string value. The binding writes every byte
+ * outside printable ASCII as `\u{HH}`, one escape per UTF-8 byte, so "héllo"
+ * arrives as `h\u{c3}\u{a9}llo` and a tab as `\u{9}`; a backslash the policy
+ * wrote arrives as `\u{5c}`, since the encoder escapes it. A witness left in
+ * that form did not reproduce: OPA compared the policy's literal against the
+ * escape text. Each run of escapes is read back as bytes and decoded as
+ * UTF-8; the text between runs is kept as it is, so a character Z3 did not
+ * escape survives, and a code point no string can hold is left unread.
+ */
+export function decodeZ3String(text: string): string {
+  if (!text.includes('\\u{')) return text;
+  return text.replace(/(?:\\u\{[0-9a-fA-F]{1,6}\})+/g, (run) => {
+    const bytes: number[] = [];
+    for (const m of run.matchAll(/\\u\{([0-9a-fA-F]{1,6})\}/g)) {
+      const code = parseInt(m[1]!, 16);
+      if (code <= 0xff) bytes.push(code);
+      else if (code <= 0x10ffff) bytes.push(...Buffer.from(String.fromCodePoint(code), 'utf8'));
+      else return run;
+    }
+    return Buffer.from(bytes).toString('utf8');
+  });
 }
 
 /**

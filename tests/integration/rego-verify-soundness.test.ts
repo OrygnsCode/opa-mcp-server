@@ -154,6 +154,10 @@ async function assertSound(name: string, src: string, rule: string, kind: Verify
 /** Each entry is a shape that produced a WRONG verdict before the fix. */
 const CASES: Array<{ name: string; src: string; rule?: string }> = [
   {
+    name: 'non-ASCII string literal',
+    src: 'package t\n\nallow if {\n\tinput.s == "héllo €"\n}\n',
+  },
+  {
     name: 'default true with contradictory clause',
     src: 'package t\n\ndefault allow := true\n\nallow if {\n\tinput.x == "a"\n\tinput.x == "b"\n}\n',
   },
