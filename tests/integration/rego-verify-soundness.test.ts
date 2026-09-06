@@ -277,6 +277,66 @@ const CASES: Array<{ name: string; src: string; rule?: string }> = [
     name: 'quoted dotted key alone',
     src: 'package t\n\nallow if {\n\tinput["a.b"] == "x"\n}\n',
   },
+  // A path compared as a scalar cannot also be the object holding a deeper
+  // path; the two constants were independent and the rule proved satisfiable.
+  {
+    name: 'a field read as a string and as a parent object',
+    src: 'package t\n\nallow if {\n\tinput.a == "x"\n\tinput.a.b == "y"\n}\n',
+  },
+  {
+    name: 'a field read as a number and as a parent object',
+    src: 'package t\n\nallow if {\n\tinput.a > 1\n\tinput.a.b == "y"\n}\n',
+  },
+  {
+    name: 'a field read as a parent object only, in two places',
+    src: 'package t\n\nallow if {\n\tinput.a.b == "x"\n\tinput.a.c == "y"\n}\n',
+  },
+  // The reads for which "present" does not mean "present as a scalar": an
+  // object satisfies each of them, so the parent must not be pinned.
+  {
+    name: 'a bare truthiness read of the parent object',
+    src: 'package t\n\nallow if {\n\tinput.x\n\tinput.x.y == 2\n}\n',
+  },
+  {
+    name: 'a parent compared unequal to a scalar',
+    src: 'package t\n\nallow if {\n\tinput.x != "a"\n\tinput.x.y == 2\n}\n',
+  },
+  {
+    name: 'a parent compared to another field, no literal',
+    src: 'package t\n\nallow if {\n\tinput.a == input.z\n\tinput.a.b == "y"\n}\n',
+  },
+  {
+    name: 'a parent ordered against a number',
+    src: 'package t\n\nallow if {\n\tinput.x > 5\n\tinput.x.y == 2\n}\n',
+  },
+  {
+    name: 'a scalar read and a child read in separate clauses',
+    src: 'package t\n\nallow if input.x == 1\n\nallow if input.x.y == 2\n',
+  },
+  // The reads are per rule: another rule comparing the parent as a value
+  // says nothing about the inputs that reach this one.
+  // A helper carrying a default is inlined as the negation of its body,
+  // so the reads inside it have to count.
+  {
+    name: 'a helper with a default whose body pins a parent field',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper := false if {\n\tinput.o == "q"\n\tinput.o.p == "q"\n}\n',
+  },
+  {
+    name: 'a helper with a default whose body compares a parent as a value',
+    src: 'package t\n\nallow if {\n\thelper\n}\n\ndefault helper := true\n\nhelper := false if {\n\tinput.o == input.x\n\tinput.o.p == "q"\n}\n',
+  },
+  {
+    name: 'a parent compared as a value in a different rule',
+    src: 'package t\n\nallow if input.x.y == 2\n\nother if input.x > 1\n',
+  },
+  {
+    name: 'a parent read as a scalar in a different rule',
+    src: 'package t\n\nallow if input.x.y == 2\n\nother if input.x == "s"\n',
+  },
+  {
+    name: 'an unrelated field read only by a different rule',
+    src: 'package t\n\nallow if input.a == 1\n\nother if input.b.c == 2\n',
+  },
   { name: 'negation as failure', src: 'package t\n\nallow if {\n\tnot input.f\n}\n' },
   {
     name: 'regex that matches every string still needs the field',

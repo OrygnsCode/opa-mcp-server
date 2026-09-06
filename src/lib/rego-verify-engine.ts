@@ -14,8 +14,13 @@
  */
 import type { OpaModule } from './rego-ast-types.js';
 import { walkModule } from './rego-ast-walker.js';
-import { inferTypes } from './rego-type-inferencer.js';
-import { createInputVars, encodeRule } from './rego-smt-encoder.js';
+import { collectPathReads, inferTypes } from './rego-type-inferencer.js';
+import {
+  clauseInputPaths,
+  createInputVars,
+  structuralAxioms,
+  encodeRule,
+} from './rego-smt-encoder.js';
 import {
   extractCounterexample,
   formatCounterexample,
@@ -116,6 +121,54 @@ export async function runVerify(
       warnings.push(conflict.reason);
     }
 
+    // How this rule reads each path. Scoped to the rule under test: what
+    // another rule of the module does with a field says nothing about the
+    // inputs that reach this one.
+    const reads = collectPathReads(targetClauses);
+    // Every path this rule reads, with its segments. Also what a witness may
+    // name: a path from another rule has no constraint here, so model
+    // completion would invent a value for it.
+    const rulePaths = new Map<string, string[]>();
+    for (const path of clauseInputPaths(targetClauses)) {
+      const segs = walked.inputPaths.get(path);
+      if (segs !== undefined) rulePaths.set(path, segs);
+    }
+
+    // A field the rule reads beneath is an object in any input that reaches
+    // that read, yet the model gives it one scalar value. Comparing it as a
+    // value in a way the structural axioms do not cover (anything but
+    // equality with a scalar literal or a string built-in) can then be
+    // satisfied by a model whose witness carries the object, on which OPA
+    // decides the comparison the other way; under a negated property the
+    // directions that happen to hold for an object flip. No verdict from such
+    // a model can be trusted, so the rule is reported inconclusive.
+    const comparedParents = [...reads.valueReads]
+      .filter((path) => {
+        const segs = rulePaths.get(path);
+        if (segs === undefined) return false;
+        for (const otherSegs of rulePaths.values()) {
+          if (otherSegs.length > segs.length && segs.every((seg, i) => otherSegs[i] === seg)) {
+            return true;
+          }
+        }
+        return false;
+      })
+      .sort();
+    if (comparedParents.length > 0) {
+      return inconclusive(
+        property,
+        `Rule "${property.ruleName}" compares ${comparedParents.join(', ')} as a value and also reads a field beneath it. Such a field is an object wherever the deeper read holds, which the encoder cannot model, so verification is inconclusive.`,
+        [
+          ...unsupportedInRule,
+          {
+            constructType: 'parent_field_compared_as_value',
+            description: `${comparedParents.join(', ')} compared as a value while a field beneath it is also read`,
+          },
+        ],
+        warnings,
+      );
+    }
+
     signal?.throwIfAborted();
 
     // Everything below touches the shared Z3 Context, which is one
@@ -187,6 +240,16 @@ export async function runVerify(
 
       signal?.throwIfAborted();
 
+      // What any real input looks like, alongside the property.
+      for (const axiom of structuralAxioms(
+        Z3,
+        walked.inputPaths,
+        reads.scalarPaths,
+        presenceVars,
+      )) {
+        solver.add(axiom);
+      }
+
       let solverResult = await solver.check();
 
       // Prefer a witness in which every field the rule reads is PRESENT.
@@ -203,7 +266,10 @@ export async function runVerify(
         if (withPresence === 'sat') {
           solverResult = withPresence;
         } else {
+          // The model belongs to the last check; after the pop that was an
+          // unsat one, so ask again before reading it.
           solver.pop();
+          solverResult = await solver.check();
         }
       }
 
@@ -241,7 +307,14 @@ export async function runVerify(
 
       // SAT: pass solver.model() inline so the Model object is not kept alive
       // beyond extractCounterexample -- it becomes GC-eligible immediately after.
-      const ce = extractCounterexample(solver.model(), inputVars, typeResult.sorts, presenceVars);
+      const witnessVars = new Map([...inputVars].filter(([path]) => rulePaths.has(path)));
+      const witnessPresence = new Map([...presenceVars].filter(([path]) => rulePaths.has(path)));
+      const ce = extractCounterexample(
+        solver.model(),
+        witnessVars,
+        typeResult.sorts,
+        witnessPresence,
+      );
       const ceFormatted = formatCounterexample(ce);
 
       if (property.kind === 'satisfiable') {

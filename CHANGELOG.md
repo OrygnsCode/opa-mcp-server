@@ -208,6 +208,27 @@ not part of the public surface and may change in minor releases.
   `kind` field, and describes `rego_suggest_fix` as returning suggestions with
   a confidence level; the `opa://builtins` resource says which `opa` binary
   it reflects.
+- `rego_verify`: a field compared as a string, number or boolean and also read
+  as the object holding a deeper field was modelled as two unrelated values,
+  so a rule no input can satisfy was reported satisfiable with a witness OPA
+  rejects. The solver now knows that a field the rule compared equal to a
+  scalar, or fed to a string built-in, is never present alongside a path
+  beneath it. A rule that compares such a field in any other way (an
+  inequality, an ordering, a bare read, a comparison against another field)
+  and also reads beneath it is reported inconclusive, since the model gives
+  the field one scalar value that no input holding the deeper field can
+  match; before, that produced a counterexample OPA rejects. Both readings
+  are taken from the rule under test alone, so another rule in the module
+  does not decide either.
+- `rego_verify` built its witness from every input path in the policy, so a
+  field only another rule reads was given a value and placed in the input.
+  Where that field was the parent of one the rule under test reads, the two
+  collided and the witness no longer satisfied the rule: `allow if input.x.y
+  == 2` beside `other if input.x > 1` returned `{"x": 0}`, which the policy
+  evaluates to undefined, and reported it as proof the rule can be true. A
+  witness now names only the fields its own rule reads. The witness
+  search that prefers every field present also re-checks after backing out,
+  rather than reading a stale model.
 
 ## [0.5.0] - 2026-09-04
 

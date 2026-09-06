@@ -118,6 +118,69 @@ export function createInputVars(
   return { vars, presence };
 }
 
+/**
+ * Facts about the shape of any input, added to the solver alongside the
+ * property. A path the rule compared equal to a scalar literal, or fed to a
+ * string built-in, is present only as a scalar wherever that read holds, so
+ * it cannot also be the object holding a path beneath it: the two are never
+ * present together. Without this, `input.a == "x"` and `input.a.b == "y"`
+ * got two independent constants and a rule no input can satisfy was proved
+ * satisfiable, with a witness OPA rejects.
+ *
+ * Only those reads qualify. `input.a != "x"`, `input.a > 1` and a bare
+ * `input.a` all hold for an object, and a path with no evidence at all is
+ * given the string sort by default; treating any of them as scalar proved
+ * satisfiable rules never true.
+ */
+export function structuralAxioms(
+  Z3: Z3Context,
+  inputPaths: Map<string, string[]>,
+  scalarPaths: ReadonlySet<string>,
+  presence: Map<string, Z3Bool>,
+): Z3Bool[] {
+  const axioms: Z3Bool[] = [];
+  const entries = [...inputPaths.entries()];
+  for (const [parent, parentSegs] of entries) {
+    if (!scalarPaths.has(parent)) continue;
+    const parentPresent = presence.get(parent);
+    if (parentPresent === undefined) continue;
+    for (const [child, childSegs] of entries) {
+      if (childSegs.length <= parentSegs.length) continue;
+      if (!parentSegs.every((seg, i) => childSegs[i] === seg)) continue;
+      const childPresent = presence.get(child);
+      if (childPresent === undefined) continue;
+      axioms.push(Z3.Not(Z3.And(parentPresent, childPresent)));
+    }
+  }
+  return axioms;
+}
+
+/**
+ * Every input path `clauses` reference, a negated body included.
+ *
+ * The presence guard below deliberately skips a negated body, since a
+ * missing field satisfies it; a witness must still be able to name that
+ * field. It must also never name a field the rule does not read: variables
+ * are created for every path in the module, so a path belonging to another
+ * rule is unconstrained here, and model completion would hand it an
+ * arbitrary value. Where that path is the parent of one this rule reads,
+ * the two collide and the witness stops satisfying the rule.
+ */
+export function clauseInputPaths(clauses: VerifyRuleClause[]): Set<string> {
+  const out = new Set<string>();
+  const walk = (expr: VerifyExpr): void => {
+    if (expr.kind === 'negation') {
+      for (const inner of expr.inner) walk(inner);
+      return;
+    }
+    inputPathsOf(expr, out);
+  };
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) walk(expr);
+  }
+  return out;
+}
+
 /** Every input path an expression reads. Used to build the presence guard. */
 function inputPathsOf(expr: VerifyExpr, out: Set<string>): void {
   const take = (v: VerifyValue | undefined): void => {

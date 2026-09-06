@@ -22,6 +22,60 @@ export interface TypeInferenceResult {
   conflicts: Array<{ path: string; reason: string }>;
 }
 
+/**
+ * How one rule reads each input path, which decides what the encoder may
+ * assume about its shape. Collected per rule: a read in another rule of the
+ * module says nothing about the rule being verified.
+ */
+export interface PathReads {
+  /**
+   * Paths the rule compared equal to a scalar literal or fed to a string
+   * built-in: the only reads for which "present" means "present as a
+   * scalar", which is what the encoder's structural axioms rely on. An
+   * inequality, an ordering, or a bare truthiness read holds for an object
+   * too, so they do not count.
+   */
+  scalarPaths: Set<string>;
+  /**
+   * Paths read as a value in any other way: an inequality, an ordering, a
+   * bare truthiness read, a comparison against another field or null. The
+   * model gives such a path one scalar, and when the rule also reads a field
+   * beneath it the witness carries an object instead, so the comparison need
+   * not hold on it. The engine reports such a rule inconclusive.
+   */
+  valueReads: Set<string>;
+}
+
+/** Every path `clauses` read, split by what the read implies about its shape. */
+export function collectPathReads(clauses: VerifyRuleClause[]): PathReads {
+  const localAssignments = new Map<string, VerifyValue>();
+  const collectAssignments = (expr: VerifyExpr): void => {
+    if (expr.kind === 'negation') {
+      for (const inner of expr.inner) collectAssignments(inner);
+      return;
+    }
+    if (expr.kind === 'assign') localAssignments.set(expr.local, expr.value);
+  };
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) collectAssignments(expr);
+  }
+  const scalarPaths = new Set<string>();
+  const valueReads = new Set<string>();
+  const walk = (expr: VerifyExpr): void => {
+    // A negated body reads its fields too. What the read says about the
+    // field's shape does not depend on which side of a `not` it sits on: no
+    // input has a field that is both a string and an object.
+    if (expr.kind === 'negation') {
+      for (const inner of expr.inner) walk(inner);
+      return;
+    }
+    collectScalarReads(expr, localAssignments, scalarPaths, valueReads);
+  };
+  for (const clause of clauses) {
+    for (const expr of clause.expressions) walk(expr);
+  }
+  return { scalarPaths, valueReads };
+}
 type SortEvidence = 'string' | 'real' | 'bool';
 
 export function inferTypes(
@@ -77,6 +131,45 @@ export function inferTypes(
   }
 
   return { sorts, conflicts };
+}
+
+const SCALAR_LITERALS = new Set(['literal_string', 'literal_number', 'literal_bool']);
+
+function collectScalarReads(
+  expr: VerifyExpr,
+  localAssignments: Map<string, VerifyValue>,
+  scalarPaths: Set<string>,
+  valueReads: Set<string>,
+): void {
+  const mark = (value: VerifyValue, into: Set<string>): void => {
+    const path = resolveToInputPath(value, localAssignments);
+    if (path !== undefined) into.add(path);
+  };
+  switch (expr.kind) {
+    case 'eq':
+      mark(expr.left, SCALAR_LITERALS.has(expr.right.kind) ? scalarPaths : valueReads);
+      mark(expr.right, SCALAR_LITERALS.has(expr.left.kind) ? scalarPaths : valueReads);
+      break;
+    case 'neq':
+    case 'lt':
+    case 'lte':
+    case 'gt':
+    case 'gte':
+      mark(expr.left, valueReads);
+      mark(expr.right, valueReads);
+      break;
+    case 'bool_check':
+      mark(expr.ref, valueReads);
+      break;
+    case 'startswith':
+    case 'endswith':
+    case 'contains':
+    case 'regex_match':
+      mark(expr.str, scalarPaths);
+      break;
+    default:
+      break;
+  }
 }
 
 function collectEvidence(
