@@ -616,7 +616,7 @@ describe('rego_capabilities', () => {
   });
 });
 
-describe('authoring tools â€” common-error coverage', () => {
+describe('authoring tools — common-error coverage', () => {
   it('rego_check returns INVALID_REGO with stderr fallback when stderr is not JSON', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(1, 'plain text error from check'));
     const server = makeServer();
