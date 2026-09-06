@@ -4,16 +4,22 @@
  * Tools should never throw raw exceptions to the MCP layer -- every failure
  * mode returns a `ToolEnvelope` with `ok: false` and a structured `error`.
  */
+import { sanitizeInlinePathsDeep, sanitizeInlineText } from './inline-paths.js';
 import type { ToolEnvelope, ToolError, ToolErrorCode } from '../types.js';
 
+/**
+ * Build an error envelope. The message, hint and details all pass through
+ * the temp-path sanitiser here, so a tool that quotes a binary's stderr does
+ * not have to remember to.
+ */
 export function err(
   code: ToolErrorCode,
   message: string,
   options?: { hint?: string; details?: unknown },
 ): ToolEnvelope<never> {
-  const error: ToolError = { code, message };
-  if (options?.hint !== undefined) error.hint = options.hint;
-  if (options?.details !== undefined) error.details = options.details;
+  const error: ToolError = { code, message: sanitizeInlineText(message) };
+  if (options?.hint !== undefined) error.hint = sanitizeInlineText(options.hint);
+  if (options?.details !== undefined) error.details = sanitizeInlinePathsDeep(options.details);
   return { ok: false, error };
 }
 

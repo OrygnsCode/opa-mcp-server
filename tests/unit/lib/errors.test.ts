@@ -78,3 +78,25 @@ describe('fromException()', () => {
     expect(envelope.error?.details).toBeNull();
   });
 });
+
+describe('err() sanitises the inline temp path', () => {
+  it('strips it from the message, the hint, and details values and keys', () => {
+    const p = '/tmp/orygn-opa-mcp-ab12/input.rego';
+    const env = err('EVAL_ERROR', `1 error occurred: ${p}:3: bad`, {
+      hint: `see ${p}`,
+      details: { stderr: `${p}:3: bad`, [p]: { line: 3 } },
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.message).toBe('1 error occurred: <inline>:3: bad');
+    expect(env.error?.hint).toBe('see <inline>');
+    expect(env.error?.details).toEqual({ stderr: '<inline>:3: bad', '<inline>': { line: 3 } });
+  });
+
+  it('leaves other paths alone', () => {
+    const env = err('EVAL_ERROR', '/srv/policies/input.rego:3: bad', {
+      details: { file: '/srv/policies/input.rego' },
+    });
+    expect(env.error?.message).toBe('/srv/policies/input.rego:3: bad');
+    expect(env.error?.details).toEqual({ file: '/srv/policies/input.rego' });
+  });
+});

@@ -164,3 +164,62 @@ describe('sanitizeInlineText', () => {
     );
   });
 });
+
+describe('sanitizeInlineText, the spellings a diagnostic can carry', () => {
+  const sep = String.fromCharCode(92);
+  const win = (...parts: string[]): string => parts.join(sep);
+  const temp = win('C:', 'Users', 'Daniel Okwor', 'AppData', 'Local', 'Temp');
+
+  it('replaces a JSON-encoded path, where every backslash is doubled', () => {
+    const p = win(
+      'C:',
+      'Users',
+      'op',
+      'AppData',
+      'Local',
+      'Temp',
+      'orygn-opa-mcp-ab12',
+      'input.rego',
+    );
+    const encoded = JSON.stringify({ location: { file: p, row: 3 } });
+    expect(sanitizeInlineText(encoded)).toBe('{"location":{"file":"<inline>","row":3}}');
+  });
+
+  it('replaces the schema and bundle-verify temp files as well', () => {
+    expect(
+      sanitizeInlineText(`schema error at ${win(temp, 'orygn-schema-x1', 'schema.json')}:1`),
+    ).toBe('schema error at <inline>:1');
+    expect(
+      sanitizeInlineText('cannot open /tmp/orygn-opa-mcp-verify-q/verified.tar.gz for reading'),
+    ).toBe('cannot open <inline> for reading');
+  });
+
+  it('replaces a UNC path whole and a relative spelling', () => {
+    expect(
+      sanitizeInlineText(win('', '', 'srv', 'tmp', 'orygn-opa-mcp-z', 'input.rego') + ':1'),
+    ).toBe('<inline>:1');
+    expect(sanitizeInlineText('in orygn-opa-mcp-z/input.rego:2')).toBe('in <inline>:2');
+  });
+
+  it('keeps distinct keys distinct in sanitizeInlinePathsDeep', () => {
+    const p = '/tmp/orygn-opa-mcp-a/input.rego';
+    const out = sanitizeInlinePathsDeep({
+      [p]: 1,
+      [`1 error occurred: ${p}`]: 2,
+      [win(temp, 'orygn-opa-mcp-a', 'input.rego')]: 3,
+    }) as Record<string, number>;
+    expect(Object.keys(out).sort()).toEqual(['1 error occurred: <inline>', '<inline>'].sort());
+    expect(out['1 error occurred: <inline>']).toBe(2);
+  });
+
+  it('is linear on a long line of separators', () => {
+    const line = '/a'.repeat(200_000) + ' orygn-';
+    const started = performance.now();
+    expect(sanitizeInlineText(line)).toBe(line);
+    expect(performance.now() - started).toBeLessThan(200);
+    const withPath = '/a'.repeat(200_000) + '/orygn-opa-mcp-q/input.rego';
+    const again = performance.now();
+    expect(sanitizeInlineText(withPath)).toBe('<inline>');
+    expect(performance.now() - again).toBeLessThan(200);
+  });
+});

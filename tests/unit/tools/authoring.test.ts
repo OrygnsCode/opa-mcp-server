@@ -461,6 +461,19 @@ describe('rego_lint', () => {
 });
 
 describe('rego_parse_ast', () => {
+  it('hides the inline temp path when opa parse prints something unparseable', async () => {
+    const tempFile = 'C:\\Users\\op\\AppData\\Local\\Temp\\orygn-opa-mcp-abc123\\input.rego';
+    mockRun.mockResolvedValueOnce(spawnSuccess(`panic while reading ${tempFile}`));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_parse_ast', { source: 'package x' });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+    const text = JSON.stringify(env.error?.details);
+    expect(text).not.toContain('orygn-opa-mcp-');
+    expect(text).toContain('<inline>');
+  });
+
   it('returns the parsed AST on success', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ package: { path: [] } })));
     const server = makeServer();

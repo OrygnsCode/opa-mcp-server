@@ -7,58 +7,6 @@
  * tool repeats so each tool file can stay focused on its own logic.
  */
 
-/**
- * Matches the temp-file paths written by OpaCli.withTempSource and
- * RegalCli.withTempSource when handling inline source. Both now use
- * mkdtemp which produces a private directory; the file inside is always
- * named input.rego. Matches both Unix (/) and Windows (\) separators.
- */
-export const INLINE_TEMP_PATH_PATTERN = /orygn-(?:opa|regal)-mcp-[^/\\]+[/\\]input\.rego$/i;
-
-/**
- * Replace a file path that refers to one of our temp files with the
- * sentinel string `<inline>`. Returns the original string unchanged when
- * it does not match the pattern, so callers can unconditionally apply it
- * to all location.file values regardless of whether inline source was used.
- */
-export function sanitizeInlinePath(file: string): string {
-  return INLINE_TEMP_PATH_PATTERN.test(file) ? '<inline>' : file;
-}
-
-/**
- * The temp path as it appears inside a longer diagnostic, such as
- * `1 error occurred: /tmp/orygn-opa-mcp-x/input.rego:3: ...`. Segments are
- * delimited by separators rather than by whitespace, since a Windows temp
- * directory sits under the user's profile and a user name can hold a space.
- * Everything from the drive or root to the file name is replaced.
- */
-const EMBEDDED_INLINE_TEMP_PATH =
-  /(?:[A-Za-z]:)?(?:[\\/][^\\/:*?"<>|\r\n]+)*?[\\/]orygn-(?:opa|regal)-mcp-[^\\/\r\n]+[\\/]input\.rego/gi;
-
-/** Replace the temp path wherever it sits inside `text`. */
-export function sanitizeInlineText(text: string): string {
-  return text.replace(EMBEDDED_INLINE_TEMP_PATH, '<inline>');
-}
-
-/**
- * Recursively rewrite every temp-file path, in string values and object
- * keys, to the `<inline>` sentinel. OPA writes inline source to a temp file,
- * so trace, coverage and profile output and every diagnostic reference that
- * path; this normalizes the whole structure so callers never see an absolute
- * temp path. Only a path shaped like this server's own temp files matches.
- */
-export function sanitizeInlinePathsDeep(value: unknown): unknown {
-  if (typeof value === 'string') return sanitizeInlineText(value);
-  if (Array.isArray(value)) return value.map(sanitizeInlinePathsDeep);
-  if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value)) {
-      out[sanitizeInlinePath(key)] = sanitizeInlinePathsDeep(val);
-    }
-    return out;
-  }
-  return value;
-}
 import type { Config } from '../config.js';
 import { err } from './errors.js';
 import { logger } from './logger.js';
@@ -66,6 +14,13 @@ import { formatEnvelope, type McpToolResult } from './output.js';
 import { validatePath } from './security.js';
 import type { SpawnResult } from './subprocess.js';
 import type { ToolEnvelope, ToolErrorCode } from '../types.js';
+
+export {
+  INLINE_TEMP_PATH_PATTERN,
+  sanitizeInlinePath,
+  sanitizeInlinePathsDeep,
+  sanitizeInlineText,
+} from './inline-paths.js';
 
 /**
  * Convert a subprocess outcome into a structured tool error envelope

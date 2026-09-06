@@ -143,6 +143,11 @@ not part of the public surface and may change in minor releases.
   `rego_describe_policy` and the eval family no longer put the temp file that
   inline source was written to into their error details; the path is replaced
   by `<inline>` there as it already was in results.
+- The temp directory inline source is written to could appear in the error
+  details of a dozen tools, in the message a binary printed about the file.
+  Every error envelope now passes through the sanitiser, which also covers a
+  JSON-encoded spelling, a directory name with a space, the inline schema and
+  bundle-verify temp files, and runs in linear time.
 
 ## [0.5.0] - 2026-09-04
 
