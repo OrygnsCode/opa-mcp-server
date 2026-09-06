@@ -76,7 +76,9 @@ export interface EncodedRule {
 
 /**
  * Create Z3 constants for all input paths based on inferred sorts.
- * Each constant name is prefixed with callId to ensure uniqueness across
+ * Each constant name is prefixed with callId; the engine passes the same one
+ * every call so Z3 shares the declarations, which keeps the context from
+ * growing across
  * verification calls in the same Z3 singleton context.
  */
 export function createInputVars(

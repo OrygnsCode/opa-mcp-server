@@ -24,7 +24,7 @@ import { getInstallId } from './lib/install-id.js';
 import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
-import { isZ3Busy, isZ3Failure, markZ3Unusable } from './lib/rego-z3.js';
+import { isZ3Busy, isZ3Failure, markZ3Unusable, z3RecoveriesLeft } from './lib/rego-z3.js';
 import { redactUrlCredentials } from './lib/opa-client.js';
 import { terminateChildren } from './lib/subprocess.js';
 import { registerPrompts } from './prompts/index.js';
@@ -173,9 +173,10 @@ export async function main(transport?: Transport): Promise<McpServer> {
       // that happens to land in that window is a bug of its own.
       if (isZ3Busy() && isZ3Failure(e)) {
         markZ3Unusable(detail);
-        logger.error('Z3 failed outside a try/catch; rego_verify is disabled until restart', {
-          error: detail,
-        });
+        logger.error(
+          'Z3 faulted outside a try/catch; the solve in flight is inconclusive and the next call brings up a fresh Z3',
+          { error: detail, recoveriesLeft: z3RecoveriesLeft() },
+        );
         return;
       }
       logger.error('uncaught exception', {
