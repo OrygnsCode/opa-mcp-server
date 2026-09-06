@@ -541,12 +541,12 @@ describe('rego_capabilities', () => {
     registerAuthoringTools(server, baseConfig);
     const env = await callTool<{
       builtins?: Array<{ name: string }>;
-      builtin_count?: number;
+      matched?: number;
       missing?: string[];
     }>(server, 'rego_capabilities', { current: true, builtins: ['http.send', 'nope'] });
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data?.builtins?.map((b) => b.name)).toEqual(['http.send']);
-    expect(env.data?.builtin_count).toBe(1);
+    expect(env.data?.matched).toBe(1);
     expect(env.data?.missing).toEqual(['nope']);
   });
 
@@ -638,6 +638,16 @@ describe('rego_capabilities', () => {
       version: 'v0.69.0',
     });
     expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('refuses an empty filter and one past the hundred records that fit the cap', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    for (const builtins of [[], Array.from({ length: 101 }, (_, i) => `b${i}`)]) {
+      const env = await callTool(server, 'rego_capabilities', { current: true, builtins });
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe('INVALID_INPUT');
+    }
   });
 });
 

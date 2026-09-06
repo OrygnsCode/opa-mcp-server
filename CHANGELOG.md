@@ -34,6 +34,12 @@ not part of the public surface and may change in minor releases.
   document opa printed under `raw`. Its fields `N`, `T`, `Bytes`, `MemAllocs`,
   `MemBytes` and `Extra` were top-level before and now sit under `raw`; the
   type had promised `iterations` and `metrics`, which were never set.
+### Added
+
+- `rego_capabilities` takes a `builtins` filter of up to 100 names and returns
+  their full records under `builtins` with `matched` and `missing` counts,
+  which fits the default response cap; `names_only: false` returns every
+  record and is documented as needing the cap raised.
 
 ### Fixed
 

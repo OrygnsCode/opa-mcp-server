@@ -36,14 +36,19 @@ const RegoCapabilitiesInput = {
     ),
   builtins: z
     .array(z.string().min(1))
+    .min(1)
+    // About 115 full records fit the default response cap.
+    .max(100)
     .optional()
     .describe(
-      'Return the full record (type signature, documentation, metadata) for these builtin names only, which fits within the response cap. Names not found are listed under `missing`. Implies `names_only: false`.',
+      'Return the full record (type signature, documentation, metadata) for up to 100 builtin names, exact matches only, which fits within the default response cap. `matched` counts the records returned and names not found are listed under `missing`. Implies `names_only: false`.',
     ),
 };
 
 export interface RegoCapabilitiesOutput {
   builtins?: unknown[];
+  /** How many of the names in a `builtins` filter were found. */
+  matched?: number;
   builtin_names?: string[];
   builtin_count?: number;
   future_keywords?: unknown[];
@@ -78,6 +83,12 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
             'INVALID_INPUT',
             'rego_capabilities accepts at most one of `current` or `version`.',
           );
+        }
+        // The schema bounds the filter; the handler does too, before opa is
+        // run, since the promise that the records fit the cap holds only up
+        // to about 115 of them.
+        if (builtins !== undefined && (builtins.length === 0 || builtins.length > 100)) {
+          return err('INVALID_INPUT', '`builtins` takes between 1 and 100 names.');
         }
 
         const result = await opa.capabilities({ current, version }, signal);
@@ -118,7 +129,7 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
           const missing = builtins.filter((n) => !found.has(n));
           return ok<RegoCapabilitiesOutput>({
             builtins: records,
-            builtin_count: records.length,
+            matched: records.length,
             ...(missing.length > 0 ? { missing } : {}),
           });
         }
