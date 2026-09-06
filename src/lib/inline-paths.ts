@@ -47,7 +47,11 @@ const isBlank = (c: string): boolean => c === ' ' || c === '\t';
  * hold whitespace, since a Windows temp directory sits under the user's
  * profile and a macOS one can sit under the home directory; but a directory
  * name does not start or end with whitespace, and text that does is prose
- * around the path, where the walk stops.
+ * around the path, where the walk stops. That is a heuristic, and it trades
+ * two ways: a word abutting a separator reads as a segment and is taken
+ * along with the path (prose lost, nothing leaked), and a temp directory
+ * under a component that itself starts or ends with whitespace keeps the
+ * components before it (the random temp name is still replaced).
  */
 function pathStart(text: string, markerStart: number, floor: number): number {
   let start = markerStart;
