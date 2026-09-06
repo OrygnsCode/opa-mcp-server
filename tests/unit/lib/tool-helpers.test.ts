@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -275,5 +276,48 @@ describe('lastJsonObject', () => {
 
   it('is not put out of step by a stray closing brace', () => {
     expect(lastJsonObject('} junk {"a": 1}')).toEqual({ a: 1 });
+  });
+});
+
+describe("sanitizeInlineText, the exact pass for the server's own temp root", () => {
+  const sep = String.fromCharCode(92);
+  const win = (...parts: string[]): string => parts.join(sep);
+
+  it('replaces the whole path even where a root component starts or ends with whitespace', () => {
+    // The walk has to read such a component as prose; the exact pass knows
+    // the root and needs no guess.
+    const root = win('C:', 'Users', 'Daniel Okwor ', 'AppData', 'Local', 'Temp');
+    const path = win(root, 'orygn-opa-mcp-ab12', 'input.rego');
+    expect(sanitizeInlineText(`1 error occurred: ${path}:3: bad`, [root])).toBe(
+      '1 error occurred: <inline>:3: bad',
+    );
+    const nix = '/home/ dan/tmp';
+    expect(sanitizeInlineText(`x ${nix}/orygn-regal-mcp-q/input.rego:1`, [nix])).toBe(
+      'x <inline>:1',
+    );
+  });
+
+  it('covers the JSON-encoded, forward-slash and drive-stripped spellings of the root', () => {
+    const root = win('C:', 'Users', 'op', 'Temp');
+    const tail = win('orygn-opa-mcp-ab12', 'input.rego');
+    const raw = win(root, tail);
+    expect(sanitizeInlineText(JSON.stringify({ file: raw }), [root])).toBe('{"file":"<inline>"}');
+    expect(sanitizeInlineText('C:/Users/op/Temp/orygn-opa-mcp-ab12/input.rego:1', [root])).toBe(
+      '<inline>:1',
+    );
+    expect(sanitizeInlineText(win('', 'Users', 'op', 'Temp', tail) + ':2', [root])).toBe(
+      '<inline>:2',
+    );
+  });
+
+  it('still falls back to the walk for a path under some other root', () => {
+    expect(
+      sanitizeInlineText('at /var/folders/xx/T/orygn-opa-mcp-q/input.rego:1', ['/nowhere']),
+    ).toBe('at <inline>:1');
+  });
+
+  it('uses the real temp root when none is given', () => {
+    const path = `${tmpdir()}${sep}orygn-opa-mcp-zz${sep}input.rego`;
+    expect(sanitizeInlineText(`opened ${path}`)).toBe('opened <inline>');
   });
 });
