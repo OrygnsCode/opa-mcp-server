@@ -289,7 +289,26 @@ let total = 0,
 const bad = [];
 let done = 0;
 
+/**
+ * Z3 runs in a WASM worker, and a fault there (a heap abort, a call-stack
+ * overflow, an out-of-bounds access) arrives as an uncaught exception rather
+ * than a rejected promise, so no try/catch around the solve can see it. It is
+ * intermittent: the same shard has both crashed and completed. The server
+ * handles this by giving up on Z3 and staying up; a run here cannot continue,
+ * since every later verdict would come from a heap that is no longer trusted.
+ * So say what was being verified, report the totals so far, and stop.
+ */
+let current = null;
+process.on('uncaughtException', (e) => {
+  const detail = e instanceof Error ? e.message : String(e);
+  console.error(`\n  Z3 FAULTED, run abandoned: ${detail}`);
+  console.error(`  while verifying: ${current ?? '(before the first policy)'}`);
+  console.error(`  totals so far: ${total} verdicts, ${inconc} inconclusive, ${unsound} unsound`);
+  process.exit(3);
+});
+
 for (const p of policies) {
+  current = `${p.name}: ${JSON.stringify(p.src)}`;
   const ast = parse(p.src);
   if (!ast) {
     skipped++;
