@@ -213,10 +213,13 @@ not part of the public surface and may change in minor releases.
   so a rule no input can satisfy was reported satisfiable with a witness OPA
   rejects. The solver now knows that a field the rule compared equal to a
   scalar, or fed to a string built-in, is never present alongside a path
-  beneath it; an inequality, an ordering or a bare truthiness read holds for
-  an object too and does not pin the field. The witness search that prefers
-  every field present also re-checks after backing out, rather than reading
-  a stale model.
+  beneath it. A rule that compares such a field in any other way (an
+  inequality, an ordering, a bare read, a comparison against another field)
+  and also reads beneath it is reported inconclusive, since the model gives
+  the field one scalar value that no input holding the deeper field can
+  match; before, that produced a counterexample OPA rejects. The witness
+  search that prefers every field present also re-checks after backing out,
+  rather than reading a stale model.
 
 ## [0.5.0] - 2026-09-04
 

@@ -116,6 +116,39 @@ export async function runVerify(
       warnings.push(conflict.reason);
     }
 
+    // A field the rule reads beneath is an object in any input that reaches
+    // that read, yet the model gives it one scalar value. Comparing it as a
+    // value in a way the structural axioms do not cover (anything but
+    // equality with a scalar literal or a string built-in) can then be
+    // satisfied by a model whose witness carries the object, on which OPA
+    // decides the comparison the other way; under a negated property the
+    // directions that happen to hold for an object flip. No verdict from such
+    // a model can be trusted, so the rule is reported inconclusive.
+    const parents = new Set<string>();
+    for (const [path, segs] of walked.inputPaths) {
+      for (const otherSegs of walked.inputPaths.values()) {
+        if (otherSegs.length > segs.length && segs.every((seg, i) => otherSegs[i] === seg)) {
+          parents.add(path);
+          break;
+        }
+      }
+    }
+    const comparedParents = [...typeResult.valueReads].filter((p) => parents.has(p)).sort();
+    if (comparedParents.length > 0) {
+      return inconclusive(
+        property,
+        `Rule "${property.ruleName}" compares ${comparedParents.join(', ')} as a value and also reads a field beneath it. Such a field is an object wherever the deeper read holds, which the encoder cannot model, so verification is inconclusive.`,
+        [
+          ...unsupportedInRule,
+          {
+            constructType: 'parent_field_compared_as_value',
+            description: `${comparedParents.join(', ')} compared as a value while a field beneath it is also read`,
+          },
+        ],
+        warnings,
+      );
+    }
+
     signal?.throwIfAborted();
 
     // Everything below touches the shared Z3 Context, which is one

@@ -28,6 +28,14 @@ export interface TypeInferenceResult {
    * too, so they do not count.
    */
   scalarPaths: Set<string>;
+  /**
+   * Paths read as a value in any other way: an inequality, an ordering, a
+   * bare truthiness read, a comparison against another field or null. The
+   * model gives such a path one scalar, and when the rule also reads a field
+   * beneath it the witness carries an object instead, so the comparison need
+   * not hold on it. The engine reports such a rule inconclusive.
+   */
+  valueReads: Set<string>;
 }
 
 type SortEvidence = 'string' | 'real' | 'bool';
@@ -53,6 +61,7 @@ export function inferTypes(
   // Initialize evidence sets from all known paths.
   const evidence = new Map<string, Set<SortEvidence>>();
   const scalarPaths = new Set<string>();
+  const valueReads = new Set<string>();
   for (const path of inputPaths.keys()) {
     evidence.set(path, new Set());
   }
@@ -63,7 +72,7 @@ export function inferTypes(
     for (const clause of ruleClauses) {
       for (const expr of clause.expressions) {
         collectEvidence(expr, evidence, localAssignments);
-        collectScalarReads(expr, localAssignments, scalarPaths);
+        collectScalarReads(expr, localAssignments, scalarPaths, valueReads);
       }
     }
   }
@@ -86,7 +95,7 @@ export function inferTypes(
     }
   }
 
-  return { sorts, conflicts, scalarPaths };
+  return { sorts, conflicts, scalarPaths, valueReads };
 }
 
 const SCALAR_LITERALS = new Set(['literal_string', 'literal_number', 'literal_bool']);
@@ -95,21 +104,33 @@ function collectScalarReads(
   expr: VerifyExpr,
   localAssignments: Map<string, VerifyValue>,
   scalarPaths: Set<string>,
+  valueReads: Set<string>,
 ): void {
-  const mark = (value: VerifyValue): void => {
+  const mark = (value: VerifyValue, into: Set<string>): void => {
     const path = resolveToInputPath(value, localAssignments);
-    if (path !== undefined) scalarPaths.add(path);
+    if (path !== undefined) into.add(path);
   };
   switch (expr.kind) {
     case 'eq':
-      if (SCALAR_LITERALS.has(expr.right.kind)) mark(expr.left);
-      if (SCALAR_LITERALS.has(expr.left.kind)) mark(expr.right);
+      mark(expr.left, SCALAR_LITERALS.has(expr.right.kind) ? scalarPaths : valueReads);
+      mark(expr.right, SCALAR_LITERALS.has(expr.left.kind) ? scalarPaths : valueReads);
+      break;
+    case 'neq':
+    case 'lt':
+    case 'lte':
+    case 'gt':
+    case 'gte':
+      mark(expr.left, valueReads);
+      mark(expr.right, valueReads);
+      break;
+    case 'bool_check':
+      mark(expr.ref, valueReads);
       break;
     case 'startswith':
     case 'endswith':
     case 'contains':
     case 'regex_match':
-      mark(expr.str);
+      mark(expr.str, scalarPaths);
       break;
     default:
       break;
