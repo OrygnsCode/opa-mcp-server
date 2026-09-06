@@ -30,9 +30,8 @@ const RegoCapabilitiesInput = {
   names_only: z
     .boolean()
     .optional()
-    .default(true)
     .describe(
-      'When true (default), return only builtin names, count, future keywords, and features. The full payload for every builtin is larger than the default response cap (OPA_MCP_MAX_RESPONSE_BYTES), so `names_only: false` on its own needs that cap raised; use `builtins` to get full records for a few names instead.',
+      'When true, or omitted, return only builtin names, count, future keywords, and features. The full payload for every builtin is larger than the default response cap (OPA_MCP_MAX_RESPONSE_BYTES), so `names_only: false` on its own needs that cap raised; use `builtins` to get full records for a few names instead.',
     ),
   builtins: z
     .array(z.string().min(1))
@@ -40,7 +39,7 @@ const RegoCapabilitiesInput = {
     .max(100)
     .optional()
     .describe(
-      'Return the full record (type signature, documentation, metadata) for up to 100 builtin names, exact matches only. `matched` counts the records returned and names not found are listed under `missing`. When the records would not fit the response cap the tool returns OUTPUT_TOO_LARGE rather than a truncated result; ask for fewer names. Implies `names_only: false`.',
+      'Return the full record (type signature, documentation, metadata) for up to 100 builtin names, exact matches only. `matched` counts the records returned and names not found are listed under `missing`. When the records would not fit the response cap the tool returns OUTPUT_TOO_LARGE rather than a truncated result; ask for fewer names. Do not combine with `names_only: true`, which asks for the opposite.',
     ),
 };
 
@@ -81,6 +80,12 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
           return err(
             'INVALID_INPUT',
             'rego_capabilities accepts at most one of `current` or `version`.',
+          );
+        }
+        if (names_only === true && builtins !== undefined) {
+          return err(
+            'INVALID_INPUT',
+            'rego_capabilities: `names_only: true` asks for names alone and `builtins` asks for full records; pass one or the other.',
           );
         }
         // The schema bounds the filter; the handler does too, before opa is
