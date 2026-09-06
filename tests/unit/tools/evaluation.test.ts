@@ -1009,6 +1009,18 @@ describe('rego_bench', () => {
     expect(args).toContain('1000');
   });
 
+  it('reports whole numbers per iteration, as opa does', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ N: 3, T: 10, MemAllocs: 7 })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ nsPerOp?: number; allocsPerOp?: number }>(server, 'rego_bench', {
+      query: 'data.x',
+      paths: [validRegoPath()],
+    });
+    expect(env.data?.nsPerOp).toBe(3);
+    expect(env.data?.allocsPerOp).toBe(2);
+  });
+
   it('reads every repetition opa prints for count > 1', async () => {
     // opa bench prints one JSON document per repetition, back to back, which
     // JSON.parse rejects outright: any count above 1 failed as unparseable.

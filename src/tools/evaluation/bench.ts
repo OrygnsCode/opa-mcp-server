@@ -33,7 +33,7 @@ const RegoBenchInput = {
     .positive()
     .optional()
     .describe(
-      "Number of times to repeat the benchmark (`--count N`). Defaults to OPA's built-in default of one. Every repetition is returned in `runs`; the top-level figures come from the fastest of them.",
+      "Number of times to repeat the benchmark (`--count N`). Defaults to OPA's built-in default of one. Above one, every repetition is returned in `runs` and the top-level figures come from the fastest of them.",
     ),
 };
 
@@ -77,8 +77,9 @@ function nsPerOp(run: BenchRun): number {
 /** The per-iteration figures of one run, each present only when derivable. */
 function summarize(run: BenchRun): RegoBenchOutput {
   const n = typeof run.N === 'number' && run.N > 0 ? run.N : undefined;
+  // Whole numbers, as Go's BenchmarkResult reports them.
   const per = (total: unknown): number | undefined =>
-    n !== undefined && typeof total === 'number' ? total / n : undefined;
+    n !== undefined && typeof total === 'number' ? Math.floor(total / n) : undefined;
   const out: RegoBenchOutput = { raw: run };
   if (n !== undefined) out.iterations = n;
   const ns = per(run.T);

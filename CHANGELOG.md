@@ -27,6 +27,14 @@ not part of the public surface and may change in minor releases.
   an existing Gist secret, so a Gist created earlier that should not have been
   public has to be deleted at github.com/gists and shared again.
 
+### Changed
+
+- `rego_bench` reports `iterations`, `nsPerOp`, `allocsPerOp` and
+  `bytesPerOp`, whole numbers as opa's own summary prints them, and keeps the
+  document opa printed under `raw`. Its fields `N`, `T`, `Bytes`, `MemAllocs`,
+  `MemBytes` and `Extra` were top-level before and now sit under `raw`; the
+  type had promised `iterations` and `metrics`, which were never set.
+
 ### Fixed
 
 - Windows: a Rego module on a different drive from the server's working
