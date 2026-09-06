@@ -29,3 +29,16 @@ describe('input path rendering', () => {
     expect(parseInputPath('input.user.role')).toEqual(['user', 'role']);
   });
 });
+
+describe('parseInputPath on text it did not produce', () => {
+  it('does not throw on a bracket without its closing quote', () => {
+    expect(parseInputPath('input["abc')).toEqual(['["abc']);
+    expect(parseInputPath('input["a"x')).toEqual(['["a"x']);
+  });
+
+  it('strips the input prefix only at a boundary', () => {
+    expect(parseInputPath('inputxyz')).toEqual(['inputxyz']);
+    expect(parseInputPath('input')).toEqual([]);
+    expect(parseInputPath('data.a.b')).toEqual(['data.a.b']);
+  });
+});

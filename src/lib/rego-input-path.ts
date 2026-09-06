@@ -22,10 +22,12 @@ export function renderInputPath(segments: readonly string[]): string {
 /**
  * Parse a rendered path back into its segments. The inverse of
  * renderInputPath; anything it did not produce is read as best it can, one
- * dot-separated segment at a time, so a plain `input.a.b` still works.
+ * dot-separated segment at a time, so a plain `input.a.b` still works, and a
+ * bracket without a well-formed string inside is taken as literal text
+ * rather than thrown on.
  */
 export function parseInputPath(path: string): string[] {
-  let rest = path.startsWith('input') ? path.slice('input'.length) : path;
+  let rest = /^input(?=[.[]|$)/.test(path) ? path.slice('input'.length) : path;
   const segments: string[] = [];
   while (rest.length > 0) {
     if (rest.startsWith('.')) {
@@ -37,8 +39,20 @@ export function parseInputPath(path: string): string[] {
       // A JSON string literal: find its closing quote, honouring escapes.
       let i = 2;
       while (i < rest.length && rest[i] !== '"') i += rest[i] === '\\' ? 2 : 1;
-      const literal = rest.slice(1, i + 1);
-      segments.push(JSON.parse(literal) as string);
+      const closed = i < rest.length && rest[i + 1] === ']';
+      let literal: unknown;
+      if (closed) {
+        try {
+          literal = JSON.parse(rest.slice(1, i + 1));
+        } catch {
+          literal = undefined;
+        }
+      }
+      if (typeof literal !== 'string') {
+        segments.push(rest);
+        break;
+      }
+      segments.push(literal);
       rest = rest.slice(i + 2);
     } else {
       // Not a rendering of ours; take the remainder as one segment.
