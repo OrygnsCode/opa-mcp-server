@@ -148,6 +148,12 @@ not part of the public surface and may change in minor releases.
   Every error envelope now passes through the sanitiser, which also covers a
   JSON-encoded spelling, a directory name with a space, the inline schema and
   bundle-verify temp files, and takes linear time on any input.
+- `rego_explain_undefined` turned a spawn failure during its per-condition
+  evals or its parse step into a per-condition note or an empty analysis. A
+  binary that cannot run or a run that timed out now returns the tool's
+  `OPA_BINARY_NOT_FOUND` or `TIMEOUT` like every other tool.
+- `rego_explain_undefined` validated `inputPath` and then passed the argument
+  as written to opa instead of the resolved path.
 
 ## [0.5.0] - 2026-09-04
 

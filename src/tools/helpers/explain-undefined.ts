@@ -24,6 +24,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import type { Config } from '../../config.js';
+import type { ToolEnvelope } from '../../types.js';
 import { err, ok } from '../../lib/errors.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import {
@@ -289,7 +290,7 @@ async function evalPrefixStandalone(
   },
   opa: OpaCli,
   signal: AbortSignal | undefined,
-): Promise<Pick<ConditionResult, 'result' | 'note'>> {
+): Promise<Pick<ConditionResult, 'result' | 'note'> | { spawnFailure: ToolEnvelope<never> }> {
   const result = await opa.eval(
     {
       query: prefixText,
@@ -304,6 +305,11 @@ async function evalPrefixStandalone(
     },
     signal,
   );
+
+  // A binary that could not be run, or a run that was killed, is the tool's
+  // failure, not a fact about this condition.
+  const spawnFailure = mapSubprocessFailure(result, 'opa');
+  if (spawnFailure) return { spawnFailure };
 
   if (result.exitCode === null || result.exitCode !== 0) {
     // With --format=json OPA writes its error document to stdout; the first
@@ -423,9 +429,11 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
           if (!pv.ok) return pv.error;
           resolvedPaths = pv.resolved;
         }
+        let resolvedInputPath: string | undefined;
         if (args.inputPath) {
           const iv = validatePaths([args.inputPath], config, { mustExist: true });
           if (!iv.ok) return iv.error;
+          resolvedInputPath = iv.resolved[0];
         }
 
         const evalBase = {
@@ -433,7 +441,7 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
           source: args.source,
           paths: resolvedPaths.length > 0 ? resolvedPaths : undefined,
           input: args.input,
-          inputPath: args.inputPath,
+          inputPath: resolvedInputPath,
         };
 
         // ── Step 1: plain eval ────────────────────────────────────────────
@@ -464,6 +472,8 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
 
         if (args.source) {
           const pr = await opa.parse({ source: args.source, includeLocations: true }, signal);
+          const parseFailure = mapSubprocessFailure(pr, 'opa');
+          if (parseFailure) return parseFailure;
           if (pr.exitCode === 0) {
             const ast = tryParseJson<OpaAst>(pr.stdout);
             if (ast) asts.push(ast);
@@ -474,6 +484,8 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             try {
               const src = await readFile(filePath, 'utf8');
               const pr = await opa.parse({ source: src, includeLocations: true }, signal);
+              const parseFailure = mapSubprocessFailure(pr, 'opa');
+              if (parseFailure) return parseFailure;
               if (pr.exitCode === 0) {
                 const ast = tryParseJson<OpaAst>(pr.stdout);
                 if (ast) asts.push(ast);
@@ -620,7 +632,8 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
               while (prefix.length > 1 && prefix.join('; ').length > MAX_PREFIX_CHARS) {
                 prefix = prefix.slice(1);
               }
-              let evalOut: Pick<ConditionResult, 'result' | 'note'>;
+              let evalOut:
+                Pick<ConditionResult, 'result' | 'note'> | { spawnFailure: ToolEnvelope<never> };
               try {
                 evalOut = await evalPrefixStandalone(
                   prefix.join('; '),
@@ -637,6 +650,7 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
                   note: `Standalone eval failed: ${e instanceof Error ? e.message : String(e)}`,
                 };
               }
+              if ('spawnFailure' in evalOut) return evalOut.spawnFailure;
               cond.result = evalOut.result;
               if (evalOut.note) cond.note = evalOut.note;
               if (evalOut.result === 'true') {
