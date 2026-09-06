@@ -33,7 +33,7 @@ const RegoBenchInput = {
     .positive()
     .optional()
     .describe(
-      "Number of times to repeat the benchmark (`--count N`). Defaults to OPA's built-in default of one. Above one, every repetition is returned in `runs` and the top-level figures come from the fastest of them.",
+      "Number of times to repeat the benchmark (`--count N`). Defaults to OPA's built-in default of one. Above one, every repetition is returned in `runs`, `fastest` indexes the one the top-level figures come from, and `raw` is omitted since that document is in `runs`.",
     ),
 };
 
@@ -54,8 +54,9 @@ export interface RegoBenchOutput {
   nsPerOp?: number;
   allocsPerOp?: number;
   bytesPerOp?: number;
-  /** The document as opa printed it. */
-  raw: BenchRun;
+  /** The document as opa printed it; for a single run only, since with
+   * `count` above one it is `runs[fastest]`. */
+  raw?: BenchRun;
   /**
    * Every repetition, in the order OPA ran them, present only when `count` was
    * above 1. The figures above come from the fastest of them by nanoseconds per
@@ -65,6 +66,8 @@ export interface RegoBenchOutput {
   runs?: BenchRun[];
   /** How many repetitions ran, present only when more than one did. */
   repetitions?: number;
+  /** Index into `runs` of the repetition the figures above come from. */
+  fastest?: number;
 }
 
 /** Nanoseconds per iteration, or Infinity when the run says nothing useful. */
@@ -169,12 +172,12 @@ export function registerRegoBench(server: McpServer, config: Config): void {
 
         if (runs.length === 1) return ok<RegoBenchOutput>(summarize(runs[0]!));
 
-        const fastest = runs.reduce((best, run) => (nsPerOp(run) < nsPerOp(best) ? run : best));
-        return ok<RegoBenchOutput>({
-          ...summarize(fastest),
-          runs,
-          repetitions: runs.length,
-        });
+        let fastest = 0;
+        for (let i = 1; i < runs.length; i++) {
+          if (nsPerOp(runs[i]!) < nsPerOp(runs[fastest]!)) fastest = i;
+        }
+        const { raw: _raw, ...figures } = summarize(runs[fastest]!);
+        return ok<RegoBenchOutput>({ ...figures, runs, repetitions: runs.length, fastest });
       });
     },
   );

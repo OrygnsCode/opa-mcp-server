@@ -1069,6 +1069,7 @@ describe('rego_bench', () => {
       raw?: { T?: number };
       runs?: Array<{ T?: number }>;
       repetitions?: number;
+      fastest?: number;
     }>(server, 'rego_bench', { query: 'data.x', paths: [validRegoPath()], count: 3 });
 
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
@@ -1076,7 +1077,10 @@ describe('rego_bench', () => {
     expect(env.data?.runs).toHaveLength(3);
     // The top-level figures come from the fastest run by ns per iteration.
     expect(env.data?.nsPerOp).toBe(10);
-    expect(env.data?.raw?.T).toBe(1000);
+    expect(env.data?.fastest).toBe(1);
+    expect(env.data?.runs?.[1]?.T).toBe(1000);
+    // The document is not repeated under raw when runs carries it.
+    expect(env.data?.raw).toBeUndefined();
   });
 
   it('omits runs and repetitions for a single document', async () => {
