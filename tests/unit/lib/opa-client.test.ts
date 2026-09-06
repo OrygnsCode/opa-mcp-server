@@ -381,7 +381,7 @@ describe('credentials in OPA_URL', () => {
   it('never shows the secret, in the refusal or in an unreachable error', () => {
     const e = new OpaUrlCredentialsError('http://alice:s3cret@opa.example.com:8181');
     expect(e.message).not.toContain('s3cret');
-    expect(e.url).toBe('http://opa.example.com:8181/');
+    expect(e.url).toBe('http://opa.example.com:8181');
     const u = new OpaUnreachableError('https://bob:pw@opa.example.com/', new Error('refused'));
     expect(u.message).not.toContain('pw');
     expect(u.url).not.toContain('bob');
@@ -390,6 +390,13 @@ describe('credentials in OPA_URL', () => {
   it('redacts only what is there', () => {
     expect(redactUrlCredentials('http://localhost:8181')).toBe('http://localhost:8181');
     expect(redactUrlCredentials('http://u:p@h:1/x?y=1')).toBe('http://h:1/x?y=1');
+    // Only the userinfo goes; case, port and path stay as written.
+    expect(redactUrlCredentials('HTTP://User:Pw@LOCALHOST:80/x')).toBe('HTTP://LOCALHOST:80/x');
+    expect(redactUrlCredentials('http://user:p@ss@host:8181/v1')).toBe('http://host:8181/v1');
+    expect(redactUrlCredentials('http://us%40er:p%40ss@[::1]:8181/')).toBe('http://[::1]:8181/');
+    expect(redactUrlCredentials('http://host:8181/path@x?q=a@b')).toBe(
+      'http://host:8181/path@x?q=a@b',
+    );
     expect(redactUrlCredentials('not a url')).toBe('not a url');
   });
 });

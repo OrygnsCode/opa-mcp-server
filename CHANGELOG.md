@@ -251,6 +251,8 @@ not part of the public surface and may change in minor releases.
   `OPA_UNREACHABLE`, since the HTTP client refuses such a URL. They are now
   redacted wherever the URL is shown, and such a URL is refused with
   `OPA_URL_INVALID` and a hint to use `OPA_TOKEN`.
+  Only the credentials are removed from the URL shown; its case, port and
+  path stay as the operator wrote them.
 
 ## [0.5.0] - 2026-09-04
 
