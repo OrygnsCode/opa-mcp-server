@@ -23,6 +23,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import type { ToolEnvelope } from '../../types.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import {
@@ -56,7 +57,7 @@ const RegoCheckSchemaInput = {
     .string()
     .optional()
     .describe(
-      'Path to a JSON Schema file on disk to use for `input` validation. Must be inside an allowed root (OPA_MCP_ALLOWED_PATHS). Mutually exclusive with `inlineSchema`.',
+      'Path to a JSON Schema file on disk to use for `input` validation, or to a schema directory when the policy carries `# METADATA` / `schemas:` annotations naming files in it (opa reads a directory only through those). Must be inside an allowed root (OPA_MCP_ALLOWED_PATHS). Mutually exclusive with `inlineSchema`.',
     ),
   strict: z
     .boolean()
@@ -77,6 +78,48 @@ export interface RegoCheckSchemaOutput {
   valid: boolean;
   /** Structured diagnostics. Empty when `valid` is true. */
   errors: CheckErrorRecord[];
+}
+
+/**
+ * Whether the source carries a `# METADATA` comment block with a `schemas:`
+ * entry, the one way opa reads a schema directory: each entry names a file
+ * in it for a path in `input` or `data`.
+ */
+export function declaresSchemas(source: string): boolean {
+  const lines = source.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*#\s*METADATA\b/.test(lines[i]!)) continue;
+    for (let j = i + 1; j < lines.length && /^\s*#/.test(lines[j]!); j++) {
+      if (/^\s*#\s*schemas\s*:/.test(lines[j]!)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether any policy under `paths` carries a `schemas:` annotation, as OPA
+ * itself reads it. Asking opa keeps this tool from reading policy files on
+ * its own, and a path opa cannot inspect is left for opa check to report.
+ */
+async function anyPathDeclaresSchemas(
+  opa: OpaCli,
+  paths: readonly string[],
+  signal: AbortSignal | undefined,
+): Promise<boolean | ToolEnvelope<never>> {
+  for (const target of paths) {
+    const result = await opa.inspect({ target }, signal);
+    const failure = mapSubprocessFailure(result, 'opa');
+    if (failure) return failure;
+    if (result.exitCode !== 0) continue;
+    const parsed = tryParseJson<{
+      annotations?: Array<{ annotations?: { schemas?: unknown } }>;
+    }>(result.stdout);
+    const declared = (parsed?.annotations ?? []).some(
+      (entry) => Array.isArray(entry.annotations?.schemas) && entry.annotations.schemas.length > 0,
+    );
+    if (declared) return true;
+  }
+  return false;
 }
 
 export function registerRegoCheckSchema(server: McpServer, config: Config): void {
@@ -141,17 +184,24 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
           if (!v.ok) return v.error;
           resolvedSchemaFile = v.resolved[0];
           // opa accepts a directory here, but reads from it only where the
-          // policy carries schema annotations naming files in it. This tool
-          // sets none up, so a directory checked nothing and came back valid.
+          // policy carries schema annotations naming files in it. Without
+          // those a directory checked nothing and came back valid.
           if ((await stat(resolvedSchemaFile!)).isDirectory()) {
-            return err(
-              'INVALID_INPUT',
-              'schemaPath must be a JSON Schema file for `input`. A directory is only used by opa where the policy carries schema annotations naming files in it, which this tool does not set up, so nothing would be checked.',
-              {
-                hint: 'Pass the schema file directly, or supply it as inlineSchema.',
-                details: { schemaPath },
-              },
-            );
+            const annotated =
+              source !== undefined
+                ? declaresSchemas(source)
+                : await anyPathDeclaresSchemas(opa, resolvedPaths ?? [], signal);
+            if (typeof annotated !== 'boolean') return annotated;
+            if (!annotated) {
+              return err(
+                'INVALID_INPUT',
+                'schemaPath is a directory, which opa reads only where the policy carries `schemas:` annotations naming files in it; this policy carries none, so nothing would be checked.',
+                {
+                  hint: 'Pass the schema file directly, supply it as inlineSchema, or annotate the policy with a `# METADATA` block whose `schemas:` entry names a file in the directory.',
+                  details: { schemaPath },
+                },
+              );
+            }
           }
         }
 

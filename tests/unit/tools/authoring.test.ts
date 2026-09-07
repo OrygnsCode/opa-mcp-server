@@ -1417,7 +1417,23 @@ describe('rego_check_schema', () => {
 });
 
 describe('rego_check_schema with a directory as schemaPath', () => {
-  it('refuses it before running opa, since nothing would be checked', async () => {
+  it('accepts it when the policy carries schemas annotations, and passes it to opa', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ valid?: boolean }>(server, 'rego_check_schema', {
+      source:
+        '# METADATA\n# schemas:\n#   - input: schema.input\npackage x\n\nimport rego.v1\n\nallow if input.a == 1\n',
+      schemaPath: fixturePath('policies', 'valid'),
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).toContain('--schema');
+    expect(args[args.indexOf('--schema') + 1]).toBe(fixturePath('policies', 'valid'));
+  });
+
+  it('refuses it when the policy carries none, before running opa, since nothing would be checked', async () => {
     const server = makeServer();
     registerAuthoringTools(server, baseConfig);
     const env = await callTool(server, 'rego_check_schema', {
@@ -1427,7 +1443,67 @@ describe('rego_check_schema with a directory as schemaPath', () => {
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('INVALID_INPUT');
     expect(env.error?.hint).toMatch(/inlineSchema/);
+    expect(env.error?.hint).toMatch(/schemas:/);
     expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('asks opa whether the policies under paths carry the annotation, and refuses when none does', async () => {
+    // opa inspect --annotations reports none.
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ annotations: [] })));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      paths: [fixturePath('policies', 'valid')],
+      schemaPath: fixturePath('policies', 'valid'),
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).toHaveBeenCalledTimes(1);
+    expect(mockRun.mock.calls[0]![1].args).toContain('inspect');
+  });
+
+  it('passes the directory to opa check when opa inspect finds the annotation under paths', async () => {
+    const annotated = {
+      annotations: [
+        {
+          path: [{ type: 'var', value: 'data' }],
+          annotations: {
+            scope: 'package',
+            schemas: [
+              {
+                path: [{ type: 'var', value: 'input' }],
+                schema: [{ type: 'var', value: 'schema' }],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify(annotated)))
+      .mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ valid?: boolean }>(server, 'rego_check_schema', {
+      paths: [fixturePath('policies', 'valid')],
+      schemaPath: fixturePath('policies', 'valid'),
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    const args = mockRun.mock.calls[1]![1].args;
+    expect(args).toContain('--schema');
+  });
+
+  it('reports a missing opa from the inspect step by its code', async () => {
+    mockRun.mockResolvedValueOnce(spawnUnreachable());
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      paths: [fixturePath('policies', 'valid')],
+      schemaPath: fixturePath('policies', 'valid'),
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
   });
 });
 
