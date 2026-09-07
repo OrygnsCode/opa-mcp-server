@@ -38,10 +38,7 @@ const ConftestVerifyInput = {
         'Must be inside an allowed root (OPA_MCP_ALLOWED_PATHS). ' +
         "Omit to use conftest's default `./policy` directory.",
     ),
-  namespace: z
-    .string()
-    .optional()
-    .describe("Namespace to verify. Omit for conftest's default, `main`."),
+  namespace: z.string().optional().describe('Namespace to verify. Omit to verify all namespaces.'),
   data: z
     .array(z.string())
     .optional()

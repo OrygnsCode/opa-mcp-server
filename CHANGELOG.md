@@ -253,8 +253,8 @@ not part of the public surface and may change in minor releases.
 - The startup warning and hint for a missing `regal` named `rego_lint` alone;
   `rego_security_audit` and `rego_fix` need it too, and the manifest, the
   registry entry and the Smithery config say so now. `--help` lists
-  `OPA_MCP_BLOCK_ENV`. `conftest_verify` described an omitted `namespace` as
-  verifying all namespaces; it verifies conftest's default, `main`.
+  `OPA_MCP_BLOCK_ENV`. `conftest_verify` said an omitted `namespace` both
+  defaulted to `main` and verified all namespaces; it verifies all.
   `rego_check_schema` and `rego_playground_share` describe the schema
   directory form and the `public` field they already had.
 
