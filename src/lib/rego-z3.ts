@@ -69,7 +69,11 @@ let recoveriesLeft = 3;
 const NativeRegistry = globalThis.FinalizationRegistry;
 const registryGlobal = globalThis as unknown as { FinalizationRegistry: unknown };
 const initInFlight = new AsyncLocalStorage<{ generation: number }>();
-/** Inits whose window is open; the global goes back when the last closes. */
+/**
+ * Inits whose window is open; the global goes back when the last closes. An
+ * init that never settles leaves it on the subclass, which behaves natively
+ * for everything off an init's chain: only the class identity differs.
+ */
 let initWindows = 0;
 
 /**
