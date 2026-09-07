@@ -24,8 +24,9 @@ export {
 
 /**
  * Convert a subprocess outcome into a structured tool error envelope
- * for the cases that are universal across all CLI-backed tools:
- * binary missing, subprocess timed out. Returns `undefined` when the
+ * for the cases that are universal across all CLI-backed tools: cancelled
+ * by the client, timed out, output over the capture cap, killed by a
+ * signal from outside the server, binary missing. Returns `undefined` when the
  * subprocess exited normally (exitCode is a number) so the caller can
  * inspect the result.
  */

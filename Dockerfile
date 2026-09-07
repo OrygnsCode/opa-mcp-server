@@ -12,8 +12,8 @@ COPY package.json package-lock.json* ./
 # dependencies (e.g. @emnapi on Linux) are written into the lockfile
 # only on the platform where `npm install` was last run, which makes
 # `npm ci` brittle when the Dockerfile is built locally on Windows /
-# macOS. CI runs `npm ci` separately for the package itself; this
-# install is for the build stage only and `npm prune --omit=dev`
+# macOS. CI installs the same way. This install is for the build stage
+# only, and `npm prune --omit=dev`
 # below trims it back to the production tree before the runtime
 # stage copies node_modules in.
 RUN npm install --no-audit --no-fund --loglevel=error

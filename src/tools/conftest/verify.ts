@@ -41,7 +41,7 @@ const ConftestVerifyInput = {
   namespace: z
     .string()
     .optional()
-    .describe('Namespace to verify. Defaults to `main`. Omit to verify all namespaces.'),
+    .describe("Namespace to verify. Omit for conftest's default, `main`."),
   data: z
     .array(z.string())
     .optional()

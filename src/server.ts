@@ -79,8 +79,8 @@ export function buildServer(config: Config): McpServer {
 }
 
 /**
- * Probe the configured `opa` and `regal` binaries at startup and log
- * warnings if either is unreachable. Runs in the background so it
+ * Probe the configured `opa`, `regal` and `conftest` binaries at startup
+ * and log a warning for each that is unreachable. Runs in the background so it
  * doesn't delay the MCP `initialize` handshake. Most users only see
  * the failure when they call a tool; surfacing it early in the log
  * file gives operators a place to look when diagnosing
@@ -110,10 +110,10 @@ export async function runStartupSelfCheck(config: Config): Promise<void> {
 
   if (regalVersion === null) {
     logger.warn(
-      'startup self-check: regal binary not reachable; rego_lint will return REGAL_NOT_FOUND',
+      'startup self-check: regal binary not reachable; rego_lint, rego_security_audit and rego_fix will return REGAL_NOT_FOUND',
       {
         regalBinary: config.regalBinary,
-        hint: 'set REGAL_BINARY to an absolute path, or ensure regal is on PATH. Regal is optional; only rego_lint requires it.',
+        hint: 'set REGAL_BINARY to an absolute path, or ensure regal is on PATH. Regal is optional; only rego_lint, rego_security_audit and rego_fix require it.',
       },
     );
   } else {

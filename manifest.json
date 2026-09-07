@@ -64,7 +64,7 @@
     "regal_binary": {
       "type": "string",
       "title": "Regal Binary Path",
-      "description": "Path to the regal binary (used by rego_lint). Defaults to 'regal' on PATH.",
+      "description": "Path to the regal binary (used by rego_lint, rego_security_audit and rego_fix). Defaults to 'regal' on PATH.",
       "default": "regal",
       "required": false
     },

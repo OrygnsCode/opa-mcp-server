@@ -396,9 +396,8 @@ deny_reason := sprintf(
 
 ## Where these patterns came from
 
-Each is distilled from production policy code. The full Rego files,
-tests, and policy data fixtures live in this server's GitHub
-repository under \`tests/fixtures/policies/\`.
+Each is distilled from production policy code, and this server's
+integration tests evaluate every pattern against OPA.
 
 For more patterns, see:
 

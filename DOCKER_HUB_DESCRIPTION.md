@@ -11,7 +11,7 @@ CLI text.
 - **OPA Ecosystem:** https://www.openpolicyagent.org/ecosystem/entry/opa-mcp
 - **Source:** https://github.com/OrygnsCode/opa-mcp-server
 - **npm:** https://www.npmjs.com/package/@orygn/opa-mcp
-- **Releases (incl. signed .mcpb bundle):** https://github.com/OrygnsCode/opa-mcp-server/releases
+- **Releases (incl. the .mcpb bundle and its sha256):** https://github.com/OrygnsCode/opa-mcp-server/releases
 
 ---
 
@@ -53,8 +53,8 @@ The container speaks MCP over stdio. Wire it into your client by pointing it at
 | Tag        | Meaning                           |
 | ---------- | --------------------------------- |
 | `latest`   | Latest stable release.            |
-| `0.4.0`    | An exact, immutable release.      |
-| `0.4`, `0` | Track the newest patch and minor. |
+| `0.6.0`    | An exact, immutable release.      |
+| `0.6`, `0` | Track the newest patch and minor. |
 
 Versioned tags follow Semantic Versioning. The public surface for SemVer purposes is the set of
 registered tools, prompts, and resources, their input/output schemas, and the recognized
@@ -80,6 +80,8 @@ All configuration is via environment variables. Every variable is optional.
 | `OPA_MCP_NO_TELEMETRY`         | (unset)                      | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID. No policy content or file paths are ever sent.                                                                                                                |
 | `OPA_MCP_MAX_SUBPROCESS_BYTES` | `33554432`                   | Cap on bytes captured from a subprocess's stdout and stderr. On overflow the child is stopped and the tool returns `OUTPUT_TOO_LARGE`.                                                                                                                                                   |
 | `OPA_MCP_PASSTHROUGH_ENV`      | (unset)                      | Comma-separated variable names to pass through to the OPA binary. Everything else is withheld. Anything named here is readable by evaluated policy.                                                                                                                                      |
+| `OPA_MCP_BLOCK_ENV`            | (unset)                      | Comma-separated variable names withheld from `opa`, `regal` and `conftest` even when the built-in allow-list would pass them. Applied last, so it also overrides `OPA_MCP_PASSTHROUGH_ENV`; use it to drop the proxy variables, at the cost of proxy support.                            |
+| `GITHUB_TOKEN`                 | (unset)                      | Personal access token with the `gist` scope. Only `rego_playground_share` reads it.                                                                                                                                                                                                      |
 
 `OPA_BINARY` and `REGAL_BINARY` are not used in this image -- both binaries ship at known paths
 inside the container.

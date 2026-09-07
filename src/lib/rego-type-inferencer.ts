@@ -6,7 +6,7 @@
  *   1. Used in startswith/endswith/contains/regex_match → string
  *   2. Compared to a string literal → string
  *   3. Compared to a boolean literal → bool
- *   4. Compared to a number literal, or in gt/gte/lt/lte → int
+ *   4. Compared to a number literal, or in gt/gte/lt/lte → real
  *   5. Conflicting evidence → uninterpreted (equality-only in encoder)
  *   6. No evidence → string (safe default: Z3 string theory is flexible)
  *

@@ -4,7 +4,7 @@
 # pre-built .mcpb file; clients download and run it locally.
 #
 # Publishing:
-#   smithery mcp publish ./server.mcpb -n @orygn/opa-mcp
+#   smithery mcp publish ./opa-mcp.mcpb -n @orygn/opa-mcp
 #
 # See: https://smithery.ai/docs/build/publish
 runtime: typescript
@@ -33,7 +33,7 @@ startCommand:
       regalBinary:
         type: string
         title: Regal Binary Path
-        description: Path to the regal binary (used by rego_lint). Optional.
+        description: Path to the regal binary (used by rego_lint, rego_security_audit and rego_fix). Optional.
         default: regal
       allowedPaths:
         type: array

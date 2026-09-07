@@ -18,8 +18,10 @@ participating, you agree to uphold it.
 
 - Node.js **20** or later (the CI matrix runs on 20, 22 and 24).
 - A recent `npm` (ships with Node 20+).
-- For integration tests: nothing extra — the test runner downloads pinned
-  `opa` and `regal` binaries into a cache directory.
+- For integration tests: `opa` comes bundled with the package (or set
+  `OPA_BINARY`); `regal` and `conftest` must be on `PATH` or named by
+  `REGAL_BINARY` and `CONFTEST_BINARY`. CI pins their versions in
+  `.github/workflows/ci.yml`.
 
 ## Getting started
 
@@ -38,7 +40,7 @@ npm run dev
 
 `tsx watch` rebuilds on every change. The server speaks MCP over stdio, so
 the easiest way to drive it during development is to point a real client at
-the watched build — see [`examples/`](./examples) for client configs.
+the watched build - see [`examples/`](./examples) for client configs.
 
 ## Repository layout
 
@@ -55,13 +57,16 @@ src/
     subprocess.ts           # Safe subprocess runner (no shell, hard timeout)
     opa-cli.ts              # Wrapper around the `opa` binary
     regal-cli.ts            # Wrapper around the `regal` binary
+    conftest-cli.ts         # Wrapper around the `conftest` binary
     opa-client.ts           # HTTP client for the OPA REST API
   tools/
-    authoring/              # rego_format, rego_parse, rego_check, ...
-    evaluation/             # rego_eval, opa_query, ...
-    bundles/                # opa_bundle_build, opa_bundle_inspect, ...
-    server-management/      # opa_status, opa_health, ...
-    helpers/                # rego_explain_deny, ...
+    authoring/              # rego_format, rego_parse_ast, rego_check, ...
+    evaluation/             # rego_eval, rego_test, rego_bench, ...
+    bundles/                # opa_bundle_build, opa_bundle_sign, opa_bundle_verify
+    server-management/      # opa_status, opa_health, opa_query_decision, ...
+    helpers/                # rego_explain_decision, rego_verify, ...
+    conftest/               # conftest_test, conftest_verify, ...
+    meta/                   # mcp_server_info
   prompts/                  # MCP prompts (workflow templates)
   resources/                # MCP resources (read-only references)
 tests/
@@ -95,13 +100,15 @@ npm run test:integration
 
 ## Adding a new tool
 
-The five tool categories under `src/tools/` mirror the public taxonomy:
+The seven tool categories under `src/tools/` mirror the public taxonomy:
 
-- **`authoring/`** — operates on Rego source code (parse, format, lint).
-- **`evaluation/`** — runs a policy against an input.
-- **`bundles/`** — builds, signs, and inspects bundles.
-- **`server-management/`** — talks to a running OPA over its REST API.
-- **`helpers/`** — agent-friendly aggregations on top of the others.
+- **`authoring/`** - operates on Rego source code (parse, format, lint).
+- **`evaluation/`** - runs a policy against an input.
+- **`bundles/`** - builds, signs, and verifies bundles.
+- **`server-management/`** - talks to a running OPA over its REST API.
+- **`helpers/`** - agent-friendly aggregations on top of the others.
+- **`conftest/`** - runs `conftest` against configuration files.
+- **`meta/`** - reports on the server itself.
 
 To add a tool:
 
@@ -112,7 +119,7 @@ To add a tool:
    on `rego_capabilities`, and the `package_name` prompt argument predate the
    convention and stay for compatibility).
 3. Implement the handler. Return `ok(data)` or `err(code, message)` from
-   `src/lib/errors.ts` — never throw across the MCP boundary.
+   `src/lib/errors.ts` - never throw across the MCP boundary.
 4. Register the tool in the category's `index.ts`.
 5. Add unit tests under `tests/unit/tools/<category>/` and, where it makes
    sense, an integration test that exercises the real binary.
@@ -124,7 +131,7 @@ To add a tool:
 - **Tools that wrap the OPA _binary_** are prefixed `rego_` (e.g.
   `rego_eval`, `rego_format`).
 - **Tools that talk to an OPA _server_** are prefixed `opa_` (e.g.
-  `opa_query`, `opa_status`).
+  `opa_query_decision`, `opa_status`).
 - **Bundle operations** are prefixed `opa_bundle_` (e.g.
   `opa_bundle_build`).
 - Input fields are `camelCase`. Type names and exported symbols are
@@ -132,7 +139,7 @@ To add a tool:
 
 ## Logging discipline
 
-**Never write to stdout.** The MCP protocol owns that channel — anything else
+**Never write to stdout.** The MCP protocol owns that channel - anything else
 on stdout corrupts the JSON-RPC stream and breaks the client connection.
 
 Use the file logger from `src/lib/logger.ts`:
@@ -172,13 +179,20 @@ where appropriate.
 Releases are tag-driven. Pushing a `v*.*.*` tag triggers
 `.github/workflows/release.yml`, which:
 
-1. Re-runs lint, typecheck, build, and tests.
-2. Publishes `@orygn/opa-mcp` to npm with provenance.
-3. Builds and pushes a multi-arch Docker image to
-   `orygn/opa-mcp`.
-4. Builds the `opa-mcp.mcpb` bundle and attaches it to the GitHub release.
+1. Checks that the tag names the version in `package.json`, then re-runs
+   lint, typecheck, tests and build.
+2. Publishes the five platform binary packages to npm, skipping any whose
+   version is already there: they carry the bundled OPA and move only when
+   it does.
+3. Publishes `@orygn/opa-mcp` to npm with provenance.
+4. Builds and pushes a multi-arch Docker image to `orygn/opa-mcp`.
+5. Builds the `opa-mcp.mcpb` bundle, publishes it to Smithery, and attaches
+   it to the GitHub release with its sha256.
+6. Publishes `server.json` to the MCP Registry.
 
-Maintainers cut releases — see the launch playbook for the exact procedure.
+Maintainers cut releases: bump the version in `package.json`,
+`manifest.json` and `server.json`, add the changelog section, merge, then
+push the tag.
 
 ## Questions
 

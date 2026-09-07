@@ -28,8 +28,10 @@ environment.
 
 > **Upgrading to 0.6.0:** `rego_bench` reports `iterations`, `nsPerOp`,
 > `allocsPerOp` and `bytesPerOp`. The fields opa prints (`N`, `T`, `Bytes`,
-> `MemAllocs`, `MemBytes`, `Extra`) were top-level and now sit under `raw`,
-> so anything that read them from the top level has to look there.
+> `MemAllocs`, `MemBytes`, `Extra`) were top-level and now sit under `raw`
+> for a single run, so anything that read them from the top level has to
+> look there. With `count` above one, `raw` is omitted: every document is in
+> `runs`, and `fastest` indexes the one the top-level figures come from.
 
 > **Upgrading to 0.4.0:** subprocesses no longer inherit the server's
 > environment. A policy that read a variable through `opa.runtime().env`
@@ -302,17 +304,17 @@ Operate on Rego source code without needing a running OPA server. Wrap
 `opa fmt`, `opa parse`, `opa check`, `opa inspect`, `opa capabilities`,
 `opa deps`, and `regal`.
 
-| Tool                | What it does                                                                                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                                                                                        |
-| `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                                                                                        |
-| `rego_lint`         | Run Regal across a file or directory. Returns each violation with its category, level and location. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                               |
-| `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                                                                                              |
-| `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                                                                                       |
-| `rego_capabilities` | List the built-ins and features the resolved `opa` binary understands (`OPA_BINARY`, then `PATH`, then the bundled copy); `builtins` names up to 100 to return full records for                         |
-| `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                                                         |
-| `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`.                                |
-| `rego_check_schema` | Check Rego against a JSON Schema. Validates that every `input.*` field the policy reads exists in the schema using `opa check --schema`. Accepts inline schema or a path to a JSON Schema file on disk. |
+| Tool                | What it does                                                                                                                                                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rego_format`       | Format Rego source. Wraps `opa fmt`. Idempotent.                                                                                                                                                                                                                        |
+| `rego_check`        | Type-check and validate Rego. Wraps `opa check`.                                                                                                                                                                                                                        |
+| `rego_lint`         | Run Regal across a file or directory. Returns each violation with its category, level and location. **Requires `regal` on `PATH` or `REGAL_BINARY` set.**                                                                                                               |
+| `rego_parse_ast`    | Parse Rego to AST JSON. Wraps `opa parse`.                                                                                                                                                                                                                              |
+| `rego_inspect`      | Inspect a bundle or directory: packages, rules, annotations. Wraps `opa inspect`.                                                                                                                                                                                       |
+| `rego_capabilities` | List the built-ins and features the resolved `opa` binary understands (`OPA_BINARY`, then `PATH`, then the bundled copy); `builtins` names up to 100 to return full records for                                                                                         |
+| `rego_deps`         | Static dependency analysis: rule-level data references and cross-package calls.                                                                                                                                                                                         |
+| `rego_migrate_v1`   | Migrate Rego v0 source to v1 syntax. Runs `opa fmt --rego-v1` then validates with `opa check --v1-compatible`. Returns `{ original, migrated, changed, valid, errors }`.                                                                                                |
+| `rego_check_schema` | Check Rego against a JSON Schema. Validates that every `input.*` field the policy reads exists in the schema using `opa check --schema`. Accepts an inline schema, a path to a JSON Schema file, or a schema directory when the policy declares `schemas:` annotations. |
 
 #### Featured: `rego_format`
 
@@ -484,7 +486,14 @@ YAML/JSON/HCL/TOML/INI against Rego policies using
         "exceptions": []
       }
     ],
-    "summary": { "passed": 0, "failed": 1, "warnings": 0, "skipped": 0 }
+    "summary": {
+      "passed": 0,
+      "failed": 1,
+      "warnings": 0,
+      "skipped": 0,
+      "successes": 0,
+      "failures": 1
+    }
   }
 }
 ```
@@ -578,10 +587,12 @@ Agent: Done. Policy `rbac` is live on staging at $OPA_URL.
 │                          ├── tools/bundles/           ─┼─── lib/opa-cli.ts ──┐        │
 │                          ├── tools/server-management/ ─┤                     │        │
 │                          ├── tools/helpers/           ─┤                     │        │
+│                          ├── tools/conftest/          ─┤                     │        │
 │                          ├── tools/meta/              ─┘                     │        │
 │                          │                                                   ▼        │
 │                          │                              lib/subprocess.ts ──┴── opa   │
 │                          │                              lib/regal-cli.ts   ───── regal│
+│                          │                              lib/conftest-cli.ts ─ conftest│
 │                          │                              lib/opa-client.ts  ───── HTTP │
 │                          │                                                            │
 │                          └── lib/output.ts (envelope + truncation)                    │
@@ -765,7 +776,8 @@ npm run build             # compile to dist/
 
 CI runs lint, typecheck, build, and unit tests on every push and PR
 across Ubuntu and Windows on Node 20, 22 and 24, plus macOS on Node 22. Integration
-tests run on Linux against pinned `opa` and `regal` releases.
+tests run on Linux, and on Windows as a non-required check, against pinned
+`opa`, `regal` and `conftest` releases.
 
 For the full contributor workflow (adding tools, naming conventions,
 logging discipline, release process), see [CONTRIBUTING.md](./CONTRIBUTING.md).

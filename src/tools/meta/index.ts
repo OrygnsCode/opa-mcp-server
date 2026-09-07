@@ -1,5 +1,5 @@
 /**
- * Category F -- Meta / server info.
+ * Category G -- Meta / server info.
  *
  * Tools that expose information about the MCP server itself rather than
  * the OPA runtime or Rego policies.
