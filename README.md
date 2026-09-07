@@ -22,9 +22,14 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
-> **Status:** v0.4.0. Tool surface, error codes, and
+> **Status:** v0.6.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.6.0:** `rego_bench` reports `iterations`, `nsPerOp`,
+> `allocsPerOp` and `bytesPerOp`. The fields opa prints (`N`, `T`, `Bytes`,
+> `MemAllocs`, `MemBytes`, `Extra`) were top-level and now sit under `raw`,
+> so anything that read them from the top level has to look there.
 
 > **Upgrading to 0.4.0:** subprocesses no longer inherit the server's
 > environment. A policy that read a variable through `opa.runtime().env`

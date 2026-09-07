@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-07
+
 ### Security
 
 - `rego_playground_share` created public Gists, listed on the account and
@@ -36,6 +38,7 @@ not part of the public surface and may change in minor releases.
   sit under `raw`; the type had promised `iterations` and `metrics`, which
   were never set. With `count` above one, `runs` holds every document and
   `fastest` indexes the one the figures come from, so none is repeated.
+
 ### Added
 
 - `rego_capabilities` takes a `builtins` filter of up to 100 names and returns
@@ -1621,7 +1624,9 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.2.0...v0.2.1
