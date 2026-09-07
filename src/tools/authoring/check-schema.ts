@@ -15,7 +15,7 @@
  * rego_infer_input_schema to derive the schema from policy A, then pass its
  * output directly as `inlineSchema` here to validate policy B against it.
  */
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -23,6 +23,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import type { ToolEnvelope } from '../../types.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import {
@@ -95,25 +96,28 @@ export function declaresSchemas(source: string): boolean {
   return false;
 }
 
-const MAX_SCAN_DEPTH = 8;
-
-/** Whether any `.rego` file under the given paths declares schemas. */
-async function anyFileDeclaresSchemas(paths: readonly string[], depth = 0): Promise<boolean> {
-  for (const path of paths) {
-    const info = await stat(path);
-    if (info.isDirectory()) {
-      if (depth >= MAX_SCAN_DEPTH) continue;
-      const entries = await readdir(path);
-      if (
-        await anyFileDeclaresSchemas(
-          entries.map((e) => join(path, e)),
-          depth + 1,
-        )
-      )
-        return true;
-    } else if (path.endsWith('.rego') && declaresSchemas(await readFile(path, 'utf8'))) {
-      return true;
-    }
+/**
+ * Whether any policy under `paths` carries a `schemas:` annotation, as OPA
+ * itself reads it. Asking opa keeps this tool from reading policy files on
+ * its own, and a path opa cannot inspect is left for opa check to report.
+ */
+async function anyPathDeclaresSchemas(
+  opa: OpaCli,
+  paths: readonly string[],
+  signal: AbortSignal | undefined,
+): Promise<boolean | ToolEnvelope<never>> {
+  for (const target of paths) {
+    const result = await opa.inspect({ target }, signal);
+    const failure = mapSubprocessFailure(result, 'opa');
+    if (failure) return failure;
+    if (result.exitCode !== 0) continue;
+    const parsed = tryParseJson<{
+      annotations?: Array<{ annotations?: { schemas?: unknown } }>;
+    }>(result.stdout);
+    const declared = (parsed?.annotations ?? []).some(
+      (entry) => Array.isArray(entry.annotations?.schemas) && entry.annotations.schemas.length > 0,
+    );
+    if (declared) return true;
   }
   return false;
 }
@@ -186,7 +190,8 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
             const annotated =
               source !== undefined
                 ? declaresSchemas(source)
-                : await anyFileDeclaresSchemas(resolvedPaths ?? []);
+                : await anyPathDeclaresSchemas(opa, resolvedPaths ?? [], signal);
+            if (typeof annotated !== 'boolean') return annotated;
             if (!annotated) {
               return err(
                 'INVALID_INPUT',
