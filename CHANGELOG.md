@@ -270,8 +270,9 @@ not part of the public surface and may change in minor releases.
 - The server reported itself as 0.4.0 on the 0.5.0 release, in the MCP
   handshake, `mcp_server_info`, `--version` and the startup log: the version
   was a constant kept apart from package.json. It is now read from
-  package.json, and a test holds package.json, manifest.json and server.json
-  to one version.
+  package.json, a test holds package.json, manifest.json and server.json to
+  one version, and a release stops before publishing when its tag names a
+  version package.json does not carry.
 
 ## [0.5.0] - 2026-09-04
 
