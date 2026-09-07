@@ -69,9 +69,13 @@ let recoveriesLeft = 3;
  * hundred solves; the same collection while the worker was idle ran 1500
  * clean). So a finalizer that arrives while a section is open waits for the
  * section to close, and one from a module that has since faulted is dropped.
- * z3-solver constructs exactly one registry, so the global is put back the
- * moment the first one is built; anything else that happens to construct
- * one during init() gets the real class.
+ * z3-solver constructs exactly one registry, from its own module, so each
+ * construction during the window looks at its own stack: one from z3-solver
+ * is wrapped and puts the global back; any other gets the real behaviour and
+ * leaves the swap in place for z3-solver's to arrive. Restoring on the
+ * first construction regardless let an unrelated registry built early in
+ * the window take the wrap and hand z3-solver the real class, which turned
+ * the deferral off with nothing to show for it.
  */
 async function initModule(): Promise<Z3Api> {
   const Real = globalThis.FinalizationRegistry;
@@ -79,12 +83,17 @@ async function initModule(): Promise<Z3Api> {
   const generation = z3Generation;
   class DeferringRegistry extends Real<unknown> {
     constructor(callback: (held: unknown) => void) {
-      super((held: unknown) => {
-        if (generation !== z3Generation) return;
-        if (z3Depth > 0) deferredFinalizers.push(() => callback(held));
-        else callback(held);
-      });
-      g.FinalizationRegistry = Real;
+      const fromZ3 = (new Error().stack ?? '').includes('z3-solver');
+      super(
+        fromZ3
+          ? (held: unknown) => {
+              if (generation !== z3Generation) return;
+              if (z3Depth > 0) deferredFinalizers.push(() => callback(held));
+              else callback(held);
+            }
+          : callback,
+      );
+      if (fromZ3) g.FinalizationRegistry = Real;
     }
   }
   g.FinalizationRegistry = DeferringRegistry;
@@ -225,11 +234,13 @@ export function isZ3Failure(e: unknown): boolean {
   // project's compiler libs, so the name is the check.
   if (e instanceof Error && e.name === 'RuntimeError') return true;
   const message = e instanceof Error ? e.message : String(e);
-  // A call-stack overflow inside the worker's glue was also seen once as a
-  // symptom of a corrupted heap; while a solve is running it is Z3's.
-  return /Aborted\(|memory access out of bounds|out of memory|unreachable executed|Maximum call stack size exceeded/i.test(
-    message,
-  );
+  // A call-stack overflow was also seen once as a symptom of a corrupted
+  // heap; it counts only when the stack shows it came from the WASM glue,
+  // so an overflow elsewhere does not spend a recovery.
+  if (/Maximum call stack size exceeded/.test(message)) {
+    return e instanceof Error && (e.stack ?? '').includes('z3-built');
+  }
+  return /Aborted\(|memory access out of bounds|out of memory|unreachable executed/i.test(message);
 }
 
 /**

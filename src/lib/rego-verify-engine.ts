@@ -40,6 +40,7 @@ import {
 // when the same input path is inferred with different sorts across calls
 // (e.g. two policies using input.x as string vs int) within the shared Z3
 // singleton context.
+let _verifyCallCounter = 0;
 
 export type VerifyVerdict = 'proven' | 'counterexample' | 'inconclusive' | 'unsatisfiable';
 
@@ -61,11 +62,6 @@ const SOLVER_TIMEOUT_MS = 10_000;
  * Run formal verification on a pre-parsed OPA module.
  * The caller must pass the JSON-parsed result of `opa parse --format=json`.
  */
-// Monotonic counter for unique Z3 constant names across verification calls.
-// Prevents sort conflicts when the same input path is used with different sorts
-// across calls (Z3 caches sort per name within a context).
-let _verifyCallCounter = 0;
-
 export async function runVerify(
   ast: OpaModule,
   property: VerifyProperty,
@@ -324,8 +320,8 @@ async function verifyAttempt(
           };
         }
 
-        // SAT: pass solver.model() inline so the Model object is not kept alive
-        // beyond extractCounterexample -- it becomes GC-eligible immediately after.
+        // SAT: read the model and release it as soon as the witness is out; it
+        // is Z3 memory the collector cannot see.
         const witnessVars = new Map([...inputVars].filter(([path]) => rulePaths.has(path)));
         const witnessPresence = new Map([...presenceVars].filter(([path]) => rulePaths.has(path)));
         const model = solver.model();

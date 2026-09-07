@@ -94,7 +94,13 @@ describe('rego-z3', () => {
 
   it("routes z3-solver's own finalizers through the section, and puts the global back", async () => {
     const Real = globalThis.FinalizationRegistry;
-    const Z3 = await getZ3();
+    resetZ3ForTesting();
+    const pending = getZ3();
+    // An unrelated registry built while z3-solver initialises must not take
+    // the wrap: it gets the real behaviour, and z3-solver's is still wrapped.
+    const decoy = new FinalizationRegistry<string>(() => undefined);
+    expect(decoy).toBeInstanceOf(Real);
+    const Z3 = await pending;
     expect(globalThis.FinalizationRegistry).toBe(Real);
     // Make garbage Z3 objects inside a section and collect while it is open:
     // their frees must queue rather than run.

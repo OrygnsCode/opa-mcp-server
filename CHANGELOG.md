@@ -269,11 +269,11 @@ not part of the public surface and may change in minor releases.
   210 MB where they reached 950 MB before.
 - `rego_verify` never gave the Z3 engine's memory back: its solver and
   model were left to the JavaScript collector, which cannot see Z3's heap and
-  so had no reason to run, and the engine grew by close to a megabyte per
+  so had no reason to run, and the engine grew by half to one megabyte per
   solve until its ceiling, between 600 MB and 1.7 GB over 1500 solves in the
   same process depending on the run, with verdicts degrading to inconclusive
-  along the way. Both are released as each solve ends; 1500 solves now hold
-  at about 210 MB.
+  along the way. The solver is released as each solve ends, and its model
+  with it; 1500 solves now hold at about 210 MB.
 - `rego_verify` could fault Z3 intermittently, which disabled verification
   until the server restarted: z3-solver frees its objects from finalizers on
   the main thread while a solve runs on a worker over the same shared

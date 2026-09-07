@@ -1,11 +1,12 @@
 /**
  * The Z3 lifecycle under load, against the real engine.
  *
- * As shipped, 1500 solves in one process grew it from 59 MB to 950 MB, and a
- * collection forced mid-run crashed it inside a hundred solves: z3-solver's
- * finalizers ran on the main thread while the worker solved over the same
- * memory. Both are pinned here: memory stays bounded across many solves, and
- * collections forced between solves, the pattern that crashed, are survived.
+ * As shipped, 1500 solves in one process grew it from 59 MB to between
+ * 600 MB and 1.7 GB depending on the run, and a collection forced mid-run
+ * crashed it inside a few hundred solves: z3-solver's finalizers ran on the
+ * main thread while the worker solved over the same memory. Both are pinned
+ * here: memory stays bounded across many solves, and collections forced
+ * between solves, the pattern that crashed, are survived.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -59,7 +60,7 @@ describe('rego_verify lifecycle', () => {
     }
     const after = rssMb();
     // Process memory, which only grows while Z3 leaks; Z3's own memory
-    // statistic does not. As shipped, 300 solves added about 280 MB.
+    // statistic does not. As shipped, 300 solves added about 200 MB.
     expect(
       after - before,
       `RSS grew from ${before.toFixed(0)} to ${after.toFixed(0)} MB`,
