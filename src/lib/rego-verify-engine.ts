@@ -61,11 +61,25 @@ const SOLVER_TIMEOUT_MS = 10_000;
  * Run formal verification on a pre-parsed OPA module.
  * The caller must pass the JSON-parsed result of `opa parse --format=json`.
  */
+// Monotonic counter for unique Z3 constant names across verification calls.
+// Prevents sort conflicts when the same input path is used with different sorts
+// across calls (Z3 caches sort per name within a context).
+let _verifyCallCounter = 0;
+
 export async function runVerify(
   ast: OpaModule,
   property: VerifyProperty,
   signal?: AbortSignal,
-  attempt = 0,
+): Promise<VerifyResult> {
+  return verifyAttempt(ast, property, signal, 0);
+}
+
+/** One attempt; a fault that cuts it short earns one more on a fresh module. */
+async function verifyAttempt(
+  ast: OpaModule,
+  property: VerifyProperty,
+  signal: AbortSignal | undefined,
+  attempt: number,
 ): Promise<VerifyResult> {
   const walked = walkModule(ast);
   const warnings: string[] = [];
@@ -180,16 +194,14 @@ export async function runVerify(
     // Everything below touches the shared Z3 Context, which is one
     // single-threaded WASM heap. Concurrent MCP tool calls must not overlap
     // here: two solves interleaving on that heap degraded verdicts to
-    // inconclusive and crashed the WASM allocator.
+    // inconclusive and crashed the WASM allocator. The lock also makes the
+    // callId counter race-free.
     return await withZ3Lock(async () => {
       const Z3 = await getZ3();
 
       signal?.throwIfAborted();
 
-      // The same names every call: Z3 interns a declaration by name and
-      // sort, so it shares them across solves. A per-call counter here made
-      // every solve declare fresh ones and the context grew without bound.
-      const callId = 'v';
+      const callId = `v${_verifyCallCounter++}`;
       const { vars: inputVars, presence: presenceVars } = createInputVars(
         Z3,
         walked.inputPaths,
@@ -212,18 +224,18 @@ export async function runVerify(
         );
       }
 
-      // Released in the finally below rather than left to the collector,
-      // which cannot see Z3's memory; the model and the formula's nodes go
-      // through z3-solver's finalizers, which rego-z3 holds until no solve is
-      // running.
+      // Released in the finally below, along with its model, rather than
+      // left to the collector, which cannot see Z3's memory: measured, that
+      // release alone is what holds 1500 solves at about 210 MB. The
+      // formula's nodes go through z3-solver's finalizers, which rego-z3
+      // holds until no solve is running.
       const solver = new Z3.Solver();
-
-      // Bounded in time and in memory. The solver's memory bound sits below
-      // the process ceiling so that running out answers "unknown" at a
-      // checkpoint instead of failing an allocation; see rego-z3.ts.
-      solver.set('timeout', SOLVER_TIMEOUT_MS);
-      solver.set('max_memory', Z3_SOLVER_MAX_MEMORY_MB);
       try {
+        // Bounded in time and in memory. The solver's memory bound sits below
+        // the process ceiling so that running out answers "unknown" at a
+        // checkpoint instead of failing an allocation; see rego-z3.ts.
+        solver.set('timeout', SOLVER_TIMEOUT_MS);
+        solver.set('max_memory', Z3_SOLVER_MAX_MEMORY_MB);
         switch (property.kind) {
           case 'always_true':
             // Prove rule is always true: check if NOT(rule) is satisfiable.
@@ -316,12 +328,13 @@ export async function runVerify(
         // beyond extractCounterexample -- it becomes GC-eligible immediately after.
         const witnessVars = new Map([...inputVars].filter(([path]) => rulePaths.has(path)));
         const witnessPresence = new Map([...presenceVars].filter(([path]) => rulePaths.has(path)));
-        const ce = extractCounterexample(
-          solver.model(),
-          witnessVars,
-          typeResult.sorts,
-          witnessPresence,
-        );
+        const model = solver.model();
+        let ce: CounterexampleInput;
+        try {
+          ce = extractCounterexample(model, witnessVars, typeResult.sorts, witnessPresence);
+        } finally {
+          model.release();
+        }
         const ceFormatted = formatCounterexample(ce);
 
         if (property.kind === 'satisfiable') {
@@ -366,7 +379,7 @@ export async function runVerify(
     // A fault cut this solve short; the next getZ3 brings up a fresh module,
     // so the call is worth one more try before it is reported.
     if (attempt === 0 && isZ3RecoverableMessage(detail)) {
-      return runVerify(ast, property, signal, 1);
+      return verifyAttempt(ast, property, signal, 1);
     }
     const isSortConflict = /sort/i.test(detail) && /incompat/i.test(detail);
     // A dead Z3 says so in its message; that is the one thing the caller can

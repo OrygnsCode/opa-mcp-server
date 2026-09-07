@@ -4,9 +4,8 @@
  * The z3-solver WASM module takes ~500ms to load and is initialized once,
  * unless it faults, in which case a fresh one replaces it (see getZ3).
  * Concurrent calls safely await the same promise. Each verification call
- * creates its own fresh Solver from the shared Context and releases it as it
- * finishes; variables are named the same way every call, so Z3 shares their
- * declarations instead of growing.
+ * creates its own fresh Solver from the shared Context and releases it, and
+ * its model, as it finishes; that is what keeps the heap bounded.
  *
  * A fresh Solver is NOT enough to make concurrent verification safe. The whole
  * Context lives in one single-threaded WASM heap, and `check()` is async, so two
@@ -15,8 +14,6 @@
  * inside the WASM module. Everything touching the Context must therefore run
  * under `withZ3Lock`.
  */
-import { setFlagsFromString } from 'node:v8';
-import { runInNewContext } from 'node:vm';
 import { init } from 'z3-solver';
 import type { init as Z3Init } from 'z3-solver';
 
@@ -61,27 +58,6 @@ let z3Generation = 0;
 let deferredFinalizers: Array<() => void> = [];
 /** Fresh modules this process may still bring up after a fault. */
 let recoveriesLeft = 3;
-/** Solves since a collection was last requested. */
-let solvesSinceCollection = 0;
-/** Ask for a collection this often; cheap against a small heap. */
-const COLLECT_EVERY = 100;
-
-/**
- * Z3's memory lives outside the JavaScript heap, so the collector that runs
- * z3-solver's finalizers feels no pressure from it: measured, 1500 solves
- * took a process from 59 MB to 950 MB with the JavaScript heap at 20 MB
- * throughout, until Z3's own ceiling was reached. Node exposes `gc` only
- * behind a flag, which can be set at runtime for a context created after it.
- */
-const forceCollection: (() => void) | undefined = (() => {
-  try {
-    setFlagsFromString('--expose-gc');
-    return runInNewContext('gc') as () => void;
-  } catch {
-    return undefined;
-  }
-})();
-
 /**
  * Bring up z3-solver with its finalizers routed through this module.
  *
@@ -93,10 +69,13 @@ const forceCollection: (() => void) | undefined = (() => {
  * hundred solves; the same collection while the worker was idle ran 1500
  * clean). So a finalizer that arrives while a section is open waits for the
  * section to close, and one from a module that has since faulted is dropped.
- * The global is wrapped only for the duration of init().
+ * z3-solver constructs exactly one registry, so the global is put back the
+ * moment the first one is built; anything else that happens to construct
+ * one during init() gets the real class.
  */
 async function initModule(): Promise<Z3Api> {
   const Real = globalThis.FinalizationRegistry;
+  const g = globalThis as unknown as { FinalizationRegistry: unknown };
   const generation = z3Generation;
   class DeferringRegistry extends Real<unknown> {
     constructor(callback: (held: unknown) => void) {
@@ -105,9 +84,9 @@ async function initModule(): Promise<Z3Api> {
         if (z3Depth > 0) deferredFinalizers.push(() => callback(held));
         else callback(held);
       });
+      g.FinalizationRegistry = Real;
     }
   }
-  const g = globalThis as unknown as { FinalizationRegistry: unknown };
   g.FinalizationRegistry = DeferringRegistry;
   try {
     return await init();
@@ -116,11 +95,21 @@ async function initModule(): Promise<Z3Api> {
   }
 }
 
-/** Run the finalizers held back during a solve; only called with the worker idle. */
+/**
+ * Run the finalizers held back during a solve; only called with the worker
+ * idle. Each is a dec_ref; one that throws must not take the rest, or the
+ * lock, with it.
+ */
 function runDeferredFinalizers(): void {
   const run = deferredFinalizers;
   deferredFinalizers = [];
-  for (const finalizer of run) finalizer();
+  for (const finalizer of run) {
+    try {
+      finalizer();
+    } catch {
+      // A free that fails leaks one object; the section still closes.
+    }
+  }
 }
 
 /**
@@ -137,11 +126,11 @@ export async function getZ3(): Promise<Z3Context> {
     // The heap that faulted cannot be trusted, so bring up a fresh module.
     // Every init() is a new WASM instance with its own memory and worker
     // (measured: two live side by side, independent, ~100 ms each), so
-    // nothing is shared with the one that faulted; its finalizers are
-    // dropped by generation.
+    // nothing is shared with the one that faulted; its finalizers were
+    // dropped by generation when it was given up on. The faulted instance
+    // is retained, about 30 MB and one worker each, which is why the number
+    // of recoveries is bounded for the life of the process.
     recoveriesLeft--;
-    z3Generation++;
-    deferredFinalizers = [];
     z3Unusable = undefined;
     z3InitPromise = null;
     z3Api = undefined;
@@ -174,6 +163,12 @@ export function isZ3Busy(): boolean {
  */
 export function markZ3Unusable(reason: string): void {
   z3Unusable = reason;
+  // Move the generation now, before anything unwinds: the poison below ends
+  // the section, whose close would otherwise run every deferred free into
+  // the heap that just faulted, and any finalizer that arrives later from
+  // this module must be dropped rather than run.
+  z3Generation++;
+  deferredFinalizers = [];
   // A heap abort arrives from the WASM worker and leaves the solve's promise
   // unsettled for good. Settle it here, so the section releases the lock and
   // the calls queued behind it are answered instead of hanging.
@@ -197,9 +192,19 @@ export function isZ3RecoverableMessage(detail: string): boolean {
   return /Z3 became unusable during the solve/.test(detail);
 }
 
-/** How many fresh modules this process may still bring up after a fault. */
+/**
+ * How many fresh modules this process may still bring up after a fault.
+ * Three for the life of the process, however far apart the faults: each
+ * retained instance costs memory, and a fourth fault is a pattern to
+ * restart out of, not to ride.
+ */
 export function z3RecoveriesLeft(): number {
   return recoveriesLeft;
+}
+
+/** For tests: how many finalizers are waiting for the open section to close. */
+export function deferredFinalizersForTesting(): number {
+  return deferredFinalizers.length;
 }
 
 /**
@@ -220,7 +225,11 @@ export function isZ3Failure(e: unknown): boolean {
   // project's compiler libs, so the name is the check.
   if (e instanceof Error && e.name === 'RuntimeError') return true;
   const message = e instanceof Error ? e.message : String(e);
-  return /Aborted\(|memory access out of bounds|out of memory|unreachable executed/i.test(message);
+  // A call-stack overflow inside the worker's glue was also seen once as a
+  // symptom of a corrupted heap; while a solve is running it is Z3's.
+  return /Aborted\(|memory access out of bounds|out of memory|unreachable executed|Maximum call stack size exceeded/i.test(
+    message,
+  );
 }
 
 /**
@@ -256,16 +265,15 @@ export async function withZ3Lock<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     poisonInFlight = undefined;
     z3Depth--;
-    if (z3Depth === 0) {
+    try {
       // The worker is idle: whatever the collector noticed mid-solve can be
-      // freed now, and it is a safe moment to ask for the next collection.
-      runDeferredFinalizers();
-      if (forceCollection !== undefined && ++solvesSinceCollection >= COLLECT_EVERY) {
-        solvesSinceCollection = 0;
-        forceCollection();
-      }
+      // freed now.
+      if (z3Depth === 0) runDeferredFinalizers();
+    } finally {
+      // Whatever happened above, the lock must pass on, or every later call
+      // waits for ever.
+      release();
     }
-    release();
   }
 }
 
@@ -283,5 +291,4 @@ export function resetZ3ForTesting(): void {
   z3Generation++;
   deferredFinalizers = [];
   recoveriesLeft = 3;
-  solvesSinceCollection = 0;
 }

@@ -17,7 +17,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import type { OpaModule } from '../../src/lib/rego-ast-types.js';
 import { runVerify } from '../../src/lib/rego-verify-engine.js';
-import { getZ3, markZ3Unusable } from '../../src/lib/rego-z3.js';
+import { markZ3Unusable } from '../../src/lib/rego-z3.js';
 
 const OPA = process.env['OPA_BINARY'] ?? 'opa';
 const workDir = mkdtempSync(join(tmpdir(), 'orygn-verify-lifecycle-'));
@@ -39,22 +39,17 @@ function parse(src: string, i: number): OpaModule {
   ) as OpaModule;
 }
 
-/** Z3's own figure for its live allocations, in MB; independent of the process. */
-async function z3MemoryMb(): Promise<number> {
-  const Z3 = await getZ3();
-  const solver = new Z3.Solver();
-  solver.add(Z3.Bool.const('probe'));
-  await solver.check();
-  const value = Number(solver.statistics().get('memory'));
-  solver.release();
-  return value;
-}
+const rssMb = (): number => process.memoryUsage().rss / 1048576;
 
 describe('rego_verify lifecycle', () => {
   const asts = SOURCES.map(parse);
 
-  it('keeps Z3 memory bounded across many solves', async () => {
-    const before = await z3MemoryMb();
+  it('keeps memory bounded across many solves', async () => {
+    // Warm up, so the WASM instance and its first solves are not counted.
+    for (let i = 0; i < 20; i++) {
+      await runVerify(asts[i % asts.length]!, { kind: KINDS[i % 3]!, ruleName: 'allow' });
+    }
+    const before = rssMb();
     for (let i = 0; i < 300; i++) {
       const res = await runVerify(asts[i % asts.length]!, {
         kind: KINDS[i % 3]!,
@@ -62,14 +57,18 @@ describe('rego_verify lifecycle', () => {
       });
       expect(res.verdict, res.message).not.toBe('inconclusive');
     }
-    const after = await z3MemoryMb();
-    // As shipped this grew by roughly half a megabyte per solve.
-    expect(after - before, `Z3 memory grew from ${before} to ${after} MB`).toBeLessThan(48);
+    const after = rssMb();
+    // Process memory, which only grows while Z3 leaks; Z3's own memory
+    // statistic does not. As shipped, 300 solves added about 280 MB.
+    expect(
+      after - before,
+      `RSS grew from ${before.toFixed(0)} to ${after.toFixed(0)} MB`,
+    ).toBeLessThan(120);
   }, 120_000);
-
   it('survives collections forced between solves', async () => {
     setFlagsFromString('--expose-gc');
     const gc = runInNewContext('gc') as () => void;
+    setFlagsFromString('--no-expose-gc');
     for (let i = 0; i < 200; i++) {
       const res = await runVerify(asts[i % asts.length]!, {
         kind: KINDS[i % 3]!,

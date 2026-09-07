@@ -174,7 +174,9 @@ export async function main(transport?: Transport): Promise<McpServer> {
       if (isZ3Busy() && isZ3Failure(e)) {
         markZ3Unusable(detail);
         logger.error(
-          'Z3 faulted outside a try/catch; the solve in flight is inconclusive and the next call brings up a fresh Z3',
+          z3RecoveriesLeft() > 0
+            ? 'Z3 faulted outside a try/catch; the solve in flight is retried on a fresh Z3'
+            : 'Z3 faulted outside a try/catch and no recoveries remain; rego_verify is disabled until restart',
           { error: detail, recoveriesLeft: z3RecoveriesLeft() },
         );
         return;

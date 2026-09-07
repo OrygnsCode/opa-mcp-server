@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   Z3_MEMORY_MAX_MB,
   Z3_SOLVER_MAX_MEMORY_MB,
+  deferredFinalizersForTesting,
   enqueueFinalizerForTesting,
   getZ3,
   getZ3Param,
@@ -89,6 +90,55 @@ describe('rego-z3', () => {
     expect(z3RecoveriesLeft()).toBe(0);
     markZ3Unusable('one too many');
     await expect(getZ3()).rejects.toThrow(/repeated failures/);
+  });
+
+  it("routes z3-solver's own finalizers through the section, and puts the global back", async () => {
+    const Real = globalThis.FinalizationRegistry;
+    const Z3 = await getZ3();
+    expect(globalThis.FinalizationRegistry).toBe(Real);
+    // Make garbage Z3 objects inside a section and collect while it is open:
+    // their frees must queue rather than run.
+    const { setFlagsFromString } = await import('node:v8');
+    const { runInNewContext } = await import('node:vm');
+    setFlagsFromString('--expose-gc');
+    const gc = runInNewContext('gc') as () => void;
+    setFlagsFromString('--no-expose-gc');
+    let queuedInside = 0;
+    await withZ3Lock(async () => {
+      for (let i = 0; i < 2000; i++) Z3.Real.const(`g${i}`).add(1);
+      gc();
+      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
+      queuedInside = deferredFinalizersForTesting();
+    });
+    expect(queuedInside).toBeGreaterThan(0);
+    // The section closed with the worker idle, and they ran.
+    expect(deferredFinalizersForTesting()).toBe(0);
+  }, 30_000);
+
+  it('does not wedge the lock when a deferred finalizer throws', async () => {
+    await withZ3Lock(async () => {
+      enqueueFinalizerForTesting(() => {
+        throw new Error('a free that fails');
+      });
+      await Promise.resolve();
+    });
+    // The next section still acquires.
+    const ran = await withZ3Lock(() => Promise.resolve('ran'));
+    expect(ran).toBe('ran');
+  });
+
+  it('drops the deferred finalizers the moment the module is given up on', async () => {
+    await getZ3();
+    await withZ3Lock(async () => {
+      enqueueFinalizerForTesting(() => {
+        throw new Error('must never run against the dead heap');
+      });
+      expect(deferredFinalizersForTesting()).toBe(1);
+      markZ3Unusable('test fault');
+      expect(deferredFinalizersForTesting()).toBe(0);
+      await Promise.resolve();
+    }).catch(() => undefined);
+    expect(deferredFinalizersForTesting()).toBe(0);
   });
 
   it('holds a finalizer that arrives mid-section until the section closes', async () => {
