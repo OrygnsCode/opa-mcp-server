@@ -110,11 +110,15 @@ const escapeRegExp = (text: string): string => text.replace(/[\\^$*+?.()|[\]{}]/
  */
 function exactMatchers(root: string): RegExp[] {
   const sep = String.raw`(?:\\\\|\\|/)+`;
+  // The root must begin at a path boundary. Without this, a root such as
+  // `/tmp` matched inside `\\srv\tmp\...` or after `file://` and the text
+  // before it survived; the walk handles those spellings whole.
+  const boundary = String.raw`(?<![A-Za-z0-9_.~\\/-])`;
   const tail =
     String.raw`orygn-(?:opa-mcp|regal-mcp|schema)[^\\/\r\n]{0,255}` +
     sep +
     String.raw`(?:input\.rego|schema\.json|verified\.tar\.gz)`;
-  return rootSpellings(root).map((r) => new RegExp(escapeRegExp(r) + sep + tail, 'gi'));
+  return rootSpellings(root).map((r) => new RegExp(boundary + escapeRegExp(r) + sep + tail, 'gi'));
 }
 
 let ownMatchers: RegExp[] | undefined;

@@ -310,6 +310,20 @@ describe("sanitizeInlineText, the exact pass for the server's own temp root", ()
     );
   });
 
+  it('does not match the root inside a longer path, as a Linux /tmp would sit inside a UNC path', () => {
+    const roots = ['/tmp'];
+    expect(
+      sanitizeInlineText(win('', '', 'srv', 'tmp', 'orygn-opa-mcp-z', 'input.rego') + ':1', roots),
+    ).toBe('<inline>:1');
+    expect(sanitizeInlineText('at file:///tmp/orygn-opa-mcp-a/input.rego:1', roots)).toBe(
+      'at file:<inline>:1',
+    );
+    expect(sanitizeInlineText('see /tmp/orygn-opa-mcp-a/input.rego', roots)).toBe('see <inline>');
+    expect(sanitizeInlineText('{"f":"/tmp/orygn-opa-mcp-a/input.rego"}', roots)).toBe(
+      '{"f":"<inline>"}',
+    );
+  });
+
   it('still falls back to the walk for a path under some other root', () => {
     expect(
       sanitizeInlineText('at /var/folders/xx/T/orygn-opa-mcp-q/input.rego:1', ['/nowhere']),
