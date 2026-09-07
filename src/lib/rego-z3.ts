@@ -14,6 +14,8 @@
  * inside the WASM module. Everything touching the Context must therefore run
  * under `withZ3Lock`.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import { init } from 'z3-solver';
 import type { init as Z3Init } from 'z3-solver';
 
@@ -59,28 +61,17 @@ let deferredFinalizers: Array<() => void> = [];
 /** Fresh modules this process may still bring up after a fault. */
 let recoveriesLeft = 3;
 /**
- * Bring up z3-solver with its finalizers routed through this module.
- *
- * z3-solver frees every AST, solver and model from one FinalizationRegistry,
- * built inside its createApi, whose callbacks run on the main thread whenever
- * the collector gets to them. A solve runs on a worker over the same shared
- * memory, and a callback landing mid-solve raced it on Z3's allocator and
- * faulted the heap (measured: a collection forced mid-solve crashed inside a
- * hundred solves; the same collection while the worker was idle ran 1500
- * clean). So a finalizer that arrives while a section is open waits for the
- * section to close, and one from a module that has since faulted is dropped.
- * z3-solver constructs exactly one registry, from its own module, so each
- * construction during the window looks at its own stack: one from z3-solver
- * is wrapped and puts the global back; any other gets the real behaviour and
- * leaves the swap in place for z3-solver's to arrive. Restoring on the
- * first construction regardless let an unrelated registry built early in
- * the window take the wrap and hand z3-solver the real class, which turned
- * the deferral off with nothing to show for it.
- *
- * Releasing the solver and model as each solve ends removes most of the
- * finalizer traffic that made the race reachable; the deferral covers what
- * a collection still frees.
+ * The registry class this process started with, and the identity of each
+ * init along its own async chain: z3-solver builds its registry in the
+ * continuation after its WASM loads, so the store there names the init that
+ * owns it, however inits interleave.
  */
+const NativeRegistry = globalThis.FinalizationRegistry;
+const registryGlobal = globalThis as unknown as { FinalizationRegistry: unknown };
+const initInFlight = new AsyncLocalStorage<{ generation: number }>();
+/** Inits whose window is open; the global goes back when the last closes. */
+let initWindows = 0;
+
 /**
  * The stack at the call, with enough frames kept to reach the caller's module
  * whatever `Error.stackTraceLimit` the host has chosen: a limit of zero, a
@@ -97,32 +88,54 @@ function stackHere(): string {
   }
 }
 
-async function initModule(): Promise<Z3Api> {
-  const Real = globalThis.FinalizationRegistry;
-  const g = globalThis as unknown as { FinalizationRegistry: unknown };
-  const generation = z3Generation;
-  class DeferringRegistry extends Real<unknown> {
-    constructor(callback: (held: unknown) => void) {
-      const fromZ3 = stackHere().includes('z3-solver');
-      super(
-        fromZ3
-          ? (held: unknown) => {
-              if (generation !== z3Generation) return;
-              if (z3Depth > 0) deferredFinalizers.push(() => callback(held));
-              else callback(held);
-            }
-          : callback,
-      );
-      if (fromZ3) g.FinalizationRegistry = Real;
-    }
+/**
+ * The registry z3-solver gets while an init runs.
+ *
+ * z3-solver frees every AST, solver and model from one FinalizationRegistry,
+ * built inside its createApi, whose callbacks run on the main thread whenever
+ * the collector gets to them. A solve runs on a worker over the same shared
+ * memory, and a callback landing mid-solve raced it on Z3's allocator and
+ * faulted the heap (measured: a collection forced mid-solve crashed inside a
+ * hundred solves; the same collection while the worker was idle ran 1500
+ * clean). So a finalizer that arrives while a section is open waits for the
+ * section to close, and one from a module that has since faulted is dropped.
+ *
+ * Each construction looks at its own stack and async context: one from
+ * z3-solver on an init's chain is wrapped with that init's generation; any
+ * other gets the real behaviour. Inits can overlap, since a recovery starts
+ * the next while the one given up on is still coming up, and each still
+ * gets its own generation: the frees of the abandoned module are dropped
+ * and the recovered module's are routed.
+ *
+ * Releasing the solver and model as each solve ends removes most of the
+ * finalizer traffic that made the race reachable; the deferral covers what
+ * a collection still frees.
+ */
+class DeferringRegistry extends NativeRegistry<unknown> {
+  constructor(callback: (held: unknown) => void) {
+    const owner = initInFlight.getStore();
+    const mine = owner !== undefined && stackHere().includes('z3-solver') ? owner : undefined;
+    const generation = mine?.generation;
+    super(
+      mine === undefined
+        ? callback
+        : (held: unknown) => {
+            if (generation !== z3Generation) return;
+            if (z3Depth > 0) deferredFinalizers.push(() => callback(held));
+            else callback(held);
+          },
+    );
   }
-  g.FinalizationRegistry = DeferringRegistry;
+}
+
+/** Bring up z3-solver with its finalizers routed through this module. */
+async function initModule(): Promise<Z3Api> {
+  initWindows++;
+  registryGlobal.FinalizationRegistry = DeferringRegistry;
   try {
-    return await init();
+    return await initInFlight.run({ generation: z3Generation }, () => init());
   } finally {
-    // Undo this init's own swap only; one started after a reset may have
-    // its window open.
-    if (g.FinalizationRegistry === DeferringRegistry) g.FinalizationRegistry = Real;
+    if (--initWindows === 0) registryGlobal.FinalizationRegistry = NativeRegistry;
   }
 }
 
@@ -167,11 +180,15 @@ export async function getZ3(): Promise<Z3Context> {
     z3Api = undefined;
   }
   if (z3InitPromise === null) {
-    z3InitPromise = initModule().then((api) => {
+    const started: Promise<unknown> = initModule().then((api) => {
+      // An init a recovery superseded while it was coming up must not
+      // become the module in use; whoever was waiting on it is told.
+      if (z3InitPromise !== started) throw new Error('Z3 init superseded by a recovery');
       api.setParam('memory_max_size', Z3_MEMORY_MAX_MB);
       z3Api = api;
       return api.Context('main');
     });
+    z3InitPromise = started;
   }
   return z3InitPromise as Promise<Z3Context>;
 }

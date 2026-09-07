@@ -166,6 +166,31 @@ describe('rego-z3', () => {
     expect(deferredFinalizersForTesting()).toBe(0);
   }, 30_000);
 
+  it('routes the recovered module when its init overlaps the one given up on', async () => {
+    const Real = globalThis.FinalizationRegistry;
+    resetZ3ForTesting();
+    // Whoever was waiting on the first module is told it was superseded;
+    // the expectation is attached now so the rejection is never unhandled.
+    const first = expect(getZ3()).rejects.toThrow(/superseded/);
+    // A fault reported while the first module is still coming up: the
+    // recovery starts the next init before the first has finished.
+    markZ3Unusable('faulted while coming up');
+    const Z3 = await getZ3();
+    await first;
+    expect(z3RecoveriesLeft()).toBe(2);
+    expect(globalThis.FinalizationRegistry).toBe(Real);
+    const gc = await exposeGc();
+    let queuedInside = 0;
+    await withZ3Lock(async () => {
+      for (let i = 0; i < 2000; i++) Z3.Real.const(`k${i}`).add(1);
+      gc();
+      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
+      queuedInside = deferredFinalizersForTesting();
+    });
+    expect(queuedInside).toBeGreaterThan(0);
+    expect(deferredFinalizersForTesting()).toBe(0);
+  }, 30_000);
+
   it('does not wedge the lock when a deferred finalizer throws', async () => {
     await withZ3Lock(async () => {
       enqueueFinalizerForTesting(() => {
