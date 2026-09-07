@@ -4,13 +4,16 @@ Drop-in MCP client configurations for `@orygn/opa-mcp`. Pick the file that
 matches your client, copy the relevant entry into your client's config, and
 edit the environment variables to match your environment.
 
-> ⚠ **Before you save:** the example configs ship with placeholder
-> `OPA_BINARY` and `REGAL_BINARY` paths set to `/usr/local/bin/opa` and
-> `/usr/local/bin/regal`. **You almost certainly need to change these.**
-> Many MCP clients (notably Claude Desktop on Windows and macOS) launch
-> with a reduced `PATH` that does not include user-local bin directories,
-> so the server cannot find `opa` even when it works fine in your shell.
-> Find the absolute paths with:
+> ⚠ **Before you save:** the example configs set `OPA_BINARY` and
+> `REGAL_BINARY` to placeholder paths, `/usr/local/bin/opa` and
+> `/usr/local/bin/regal`. With the npm package, `opa` is bundled for the
+> five platforms it is built for, so `OPA_BINARY` can be removed or left
+> pointing at your own copy; the MCPB bundle has no bundled `opa`, so there
+> it must be a real path. `regal` and `conftest` are never bundled, and many
+> MCP clients (notably Claude Desktop on Windows and macOS) launch with a
+> reduced `PATH` that does not include user-local bin directories, so
+> `REGAL_BINARY` and `CONFTEST_BINARY` should be absolute paths. Find them
+> with:
 >
 > ```bash
 > which opa && which regal                                    # macOS / Linux
@@ -20,8 +23,9 @@ edit the environment variables to match your environment.
 > Get-Command opa, regal | Select-Object Source              # Windows
 > ```
 >
-> Substitute those into the `env` block. Skip this step and you will see
-> `OPA_BINARY_NOT_FOUND` on the first tool call.
+> Substitute those into the `env` block. A wrong path shows up as
+> `REGAL_NOT_FOUND` or `CONFTEST_NOT_FOUND` on the first call that needs the
+> binary, and as `OPA_BINARY_NOT_FOUND` where no bundled `opa` exists.
 
 | File                                           | Client                        | Config location                                                                                                                    |
 | ---------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -62,7 +66,7 @@ After that, every time Claude Code writes a `.rego` file the hook runs
 `opa check` and reports any syntax errors directly in the session -- no
 manual tool call required.
 
-If you do not see your client here, the server itself is just stdio — any
+If you do not see your client here, the server itself is just stdio - any
 MCP-compliant client can run it via:
 
 ```
@@ -74,24 +78,26 @@ args:     ["-y", "@orygn/opa-mcp"]
 
 All examples use the same environment variables. The most important are:
 
-- **`OPA_URL`** — base URL of your OPA REST endpoint (default
+- **`OPA_URL`** - base URL of your OPA REST endpoint (default
   `http://localhost:8181`). Required by the `opa_*` tools.
-- **`OPA_TOKEN`** — bearer token for OPA, if your instance requires auth.
+- **`OPA_TOKEN`** - bearer token for OPA, if your instance requires auth.
   **Never commit this to source control.** Use your client's secret-storage
   feature where available.
-- **`OPA_BINARY`** — absolute path to the `opa` CLI. The default is
-  `opa` (relying on `PATH`), but **you almost always need to set this
-  explicitly** — most MCP clients launch the server with a reduced
-  `PATH` that omits the directory `opa` lives in.
-- **`REGAL_BINARY`** — absolute path to the `regal` linter. Same caveat
-  as `OPA_BINARY`. Only used by the `rego_lint` tool, but worth setting
-  alongside.
-- **`OPA_MCP_ALLOWED_PATHS`** — comma- or semicolon-separated list of
+- **`OPA_BINARY`** - absolute path to the `opa` CLI. When unset the server
+  tries `opa` on `PATH`, then the copy bundled with the npm package on the
+  five platforms it is built for. Required with the MCPB bundle and on other
+  platforms.
+- **`REGAL_BINARY`** - absolute path to the `regal` linter, used by
+  `rego_lint`, `rego_security_audit` and `rego_fix`. Clients that launch
+  with a reduced `PATH` need the absolute path.
+- **`CONFTEST_BINARY`** - absolute path to `conftest`, used by the
+  `conftest_*` tools. Same `PATH` caveat.
+- **`OPA_MCP_ALLOWED_PATHS`** - comma- or semicolon-separated list of
   directories the server is allowed to read policies from. **Required for
   any tool that reads policy files from disk.** When unset, file-based
   tools refuse to run.
 
-The full list — including logging, response-size, and timeout settings — is
+The full list - including logging, response-size, and timeout settings - is
 in the [main README](../README.md#configuration).
 
 ## Two install paths
@@ -116,5 +122,5 @@ form in [`docker.json`](./docker.json).
 Paths in `OPA_MCP_ALLOWED_PATHS` and the `*_BINARY` variables must be
 absolute. JSON does not allow comments, so the placeholder values in these
 files (`/path/to/your/policies`, `/usr/local/bin/opa`, etc.) **must be
-edited** before the config will work — the server will reject relative
+edited** before the config will work - the server will reject relative
 paths and missing binaries with a clear error.

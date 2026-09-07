@@ -59,6 +59,7 @@ export function formatHelp(col: boolean): string {
     ['OPA_MCP_MAX_RESPONSE_BYTES', 'max response size in bytes', '100000'],
     ['OPA_MCP_MAX_SUBPROCESS_BYTES', 'max bytes captured per stream', '33554432'],
     ['OPA_MCP_PASSTHROUGH_ENV', 'extra env names to pass to child processes', ''],
+    ['OPA_MCP_BLOCK_ENV', 'env names withheld from child processes', ''],
     ['OPA_MCP_NO_TELEMETRY', 'set to 1 to disable the anonymous startup ping', ''],
   ];
 

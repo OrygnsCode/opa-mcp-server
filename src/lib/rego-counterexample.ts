@@ -6,7 +6,7 @@
  * strips the leading "input." prefix, and returns the nested object the
  * MCP caller can put directly into OPA's `--input` flag.
  *
- * Supported Z3 sorts: string, int, bool.
+ * Supported Z3 sorts: string, real, bool.
  * Uninterpreted sorts produce a placeholder string in the output.
  */
 import type { init as Z3Init } from 'z3-solver';
@@ -28,6 +28,8 @@ export type CounterexampleInput = Record<string, unknown>;
  * @param model   - the SAT model from solver.model()
  * @param inputVars - map from path ("input.user.role") to Z3 constant
  * @param sorts   - inferred sort for each path
+ * @param presenceVars - per path, the Z3 boolean saying whether the input
+ *   carries the field; a path the model leaves absent is omitted
  * @returns nested JSON for the "input" field (leading "input." stripped)
  */
 export function extractCounterexample(

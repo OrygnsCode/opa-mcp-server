@@ -74,10 +74,6 @@ not part of the public surface and may change in minor releases.
   ever settling. A child killed from outside the server is reported as
   `SUBPROCESS_KILLED` naming the signal, not as a missing binary. On SIGINT or
   SIGTERM the server now signals the children it started before exiting.
-- `rego_eval`: a string input that happened to parse as JSON, such as `"42"`
-  or `"true"`, was retyped to a number or boolean before evaluation. Strings
-  are now passed as strings; only an object or array that arrived serialised
-  as a string is still repaired, as every other tool does.
 - `rego_eval`, `rego_eval_with_explain`, `rego_eval_with_profile`,
   `rego_eval_with_coverage`, `rego_compile_query`, `rego_explain_decision`: a
   string input that happened to parse as JSON, such as `"42"`, `"true"` or a
@@ -92,10 +88,6 @@ not part of the public surface and may change in minor releases.
   `OPA_MCP_HTTP_TIMEOUT_MS` was reported as `OPA_UNREACHABLE`, with a hint to
   start a server that was already running. It is now `TIMEOUT`, naming the
   limit, and the timer covers the response body as well as the headers.
-- `conftest_test`, `conftest_verify`: a denial reported under `failOnWarn`
-  came back as a tool error rather than as a failed check, because conftest
-  exits 2 for it. Any exit code with results on stdout is now an outcome, and
-  only output without results is treated as a command error.
 - `conftest_test`: a denial reported under `failOnWarn` came back as a tool
   error rather than as a failed check, because conftest exits 2 for it. Any
   exit code with results on stdout is now an outcome, and only output without
@@ -104,20 +96,13 @@ not part of the public surface and may change in minor releases.
 - `rego_verify`: a policy that exhausted the Z3 WASM heap took the whole
   server down, since the abort surfaced outside every try/catch. The solver is
   now bounded at 768 MB, under a 1 GiB ceiling on Z3's allocations, so an
-  oversized problem comes back inconclusive. Should the heap still abort
-  during a solve, that call and any queued behind it fail with a reason,
-  verification stays disabled until the server restarts, and the server
-  stays up.
+  oversized problem comes back inconclusive.
 - `rego_verify`: a helper whose body contains a literal `false` was inlined as
   an always-true body, so a rule that can never fire was reported proven always
   true, and a negated literal (`not false`, `not true`) was read as the bare
   one in helpers and rule bodies alike. Boolean literals are now read as what
   they say, and a helper with a true default and a body that never holds is
   recognised as always holding.
-- Every tool that evaluates caller-supplied Rego now declares
-  `openWorldHint: true`, since a policy can reach the network through
-  `http.send`; a client that gates on the hint will ask before running one.
-  They keep `readOnlyHint: true`: they write nothing locally.
 - Every tool that evaluates Rego, including the Regal tools that run a
   project's custom rules, now declares `openWorldHint: true` and no longer
   claims `readOnlyHint`, since a policy's own `http.send` can reach, and write
@@ -157,10 +142,6 @@ not part of the public surface and may change in minor releases.
   The cap bounds a success envelope's warnings as well, and
   `OPA_MCP_MAX_RESPONSE_BYTES` refuses a value below 512, which sits above
   the smallest complete envelope, rather than exceeding it.
-- `rego_format`, `rego_parse_ast`, `rego_migrate_v1`, `rego_lint`,
-  `rego_describe_policy` and the eval family no longer put the temp file that
-  inline source was written to into their error details; the path is replaced
-  by `<inline>` there as it already was in results.
 - The temp directory inline source is written to could appear in the error
   details of a dozen tools, in the message a binary printed about the file.
   Every error envelope now passes through the sanitiser, which also covers a
@@ -192,10 +173,6 @@ not part of the public surface and may change in minor releases.
   object. Paths are now rendered the way Rego writes them and read back the
   same way.
   The soundness fuzz now carries quoted keys, so it exercises this.
-- `rego_bench` returned the benchmark document as opa prints it, Go's
-  `N`, `T` and `MemAllocs`, under a type that promised `iterations` and
-  `metrics`, so those were never set. It now reports `iterations`, `nsPerOp`,
-  `allocsPerOp` and `bytesPerOp` and keeps the document in `raw`.
 - `conftest_test`, `conftest_verify`: an error from conftest named the temp
   file an inline config or policy had been written to, a file the tool had
   already removed. The path is replaced in stderr as it already was in the
@@ -205,9 +182,6 @@ not part of the public surface and may change in minor releases.
   the policy compares against. The escapes are decoded now. A backslash in a
   policy literal is escaped on the way into Z3, so a literal that spells such
   an escape itself is no longer read as one.
-- `rego_capabilities` gained a `builtins` filter that returns the full record
-  for a few named builtins, which fits the response cap; `names_only: false`
-  returns every record and is now documented as needing the cap raised.
 - Docs: the README now says an argument that fails a tool's input schema is
   rejected by the MCP layer before the handler runs, names `rego_verify`'s
   `kind` field, and describes `rego_suggest_fix` as returning suggestions with
@@ -276,6 +250,13 @@ not part of the public surface and may change in minor releases.
   package.json, a test holds package.json, manifest.json and server.json to
   one version, and a release stops before publishing when its tag names a
   version package.json does not carry.
+- The startup warning and hint for a missing `regal` named `rego_lint` alone;
+  `rego_security_audit` and `rego_fix` need it too, and the manifest, the
+  registry entry and the Smithery config say so now. `--help` lists
+  `OPA_MCP_BLOCK_ENV`. `conftest_verify` said an omitted `namespace` both
+  defaulted to `main` and verified all namespaces; it verifies all.
+  `rego_check_schema` and `rego_playground_share` describe the schema
+  directory form and the `public` field they already had.
 
 ## [0.5.0] - 2026-09-04
 

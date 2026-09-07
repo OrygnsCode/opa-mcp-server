@@ -94,7 +94,7 @@ export function registerRegoPlaygroundShare(server: McpServer, _config: Config):
       description:
         'Share a Rego policy with teammates or create a reproducible example by publishing it ' +
         'as a GitHub Gist, secret unless `public: true` is passed, so only people holding the ' +
-        'link can read it. Returns { gistUrl, rawPolicyUrl, id }: the gistUrl renders ' +
+        'link can read it. Returns { gistUrl, rawPolicyUrl, id, public }: the gistUrl renders ' +
         'the policy with syntax highlighting on github.com; the rawPolicyUrl can be passed ' +
         'directly to OPA (`opa eval -d <rawPolicyUrl> <query>`) or used as a data source in ' +
         'Conftest. When query, input, or data are supplied, a metadata.json file is bundled ' +

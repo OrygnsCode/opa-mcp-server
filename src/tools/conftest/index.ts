@@ -1,3 +1,8 @@
+/**
+ * Category F -- Conftest.
+ *
+ * Tools that run `conftest` against configuration files.
+ */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';

@@ -125,7 +125,7 @@ describe('tools/list', () => {
     }
   });
 
-  it('exposes the five planned categories', async () => {
+  it('exposes every tool category', async () => {
     const { client } = await buildServerAndClient();
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name);
@@ -183,6 +183,17 @@ describe('tools/list', () => {
         'rego_suggest_fix',
       ]),
     );
+    // Conftest (Category F)
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'conftest_test',
+        'conftest_verify',
+        'conftest_pull',
+        'conftest_push',
+      ]),
+    );
+    // Meta (Category G)
+    expect(names).toContain('mcp_server_info');
   });
 
   it('produces JSON Schema with property descriptions for input fields', async () => {

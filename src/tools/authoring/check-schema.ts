@@ -130,7 +130,7 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
     {
       title: 'Check Rego against a JSON Schema',
       description:
-        "Validate that a Rego policy's input.* field references are consistent with a JSON Schema using `opa check --schema`. Every field the policy reads from `input` must exist in the schema; mismatches surface as rego_type_error diagnostics with file/line locations. Returns `{ valid: true, errors: [] }` when all references match the schema, or `{ valid: false, errors: [...] }` with structured diagnostics when they do not. Accepts the schema inline (pass the `schema` output of `rego_infer_input_schema` directly as `inlineSchema`) or as a path to an existing JSON Schema file on disk (`schemaPath`). Provide `source` for inline Rego or `paths` for file/directory checking.",
+        "Validate that a Rego policy's input.* field references are consistent with a JSON Schema using `opa check --schema`. Every field the policy reads from `input` must exist in the schema; mismatches surface as rego_type_error diagnostics with file/line locations. Returns `{ valid: true, errors: [] }` when all references match the schema, or `{ valid: false, errors: [...] }` with structured diagnostics when they do not. Accepts the schema inline (pass the `schema` output of `rego_infer_input_schema` directly as `inlineSchema`) or as a path to a JSON Schema file on disk, or to a schema directory when the policy declares `schemas:` annotations (`schemaPath`). Provide `source` for inline Rego or `paths` for file/directory checking.",
       inputSchema: RegoCheckSchemaInput,
       annotations: {
         readOnlyHint: true,

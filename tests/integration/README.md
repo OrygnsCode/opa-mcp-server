@@ -5,9 +5,11 @@ real running OPA server. They are slower than unit tests and require local setup
 
 ## Prerequisites
 
-- `opa` on PATH or `OPA_BINARY` set
-- For server-management tests: a local OPA running with `opa run --server`
-- For lint tests: `regal` on PATH or `REGAL_BINARY` set
+- `opa` on PATH or `OPA_BINARY` set; the package's bundled copy is used
+  when neither is available
+- For the lint and fix tests: `regal` on PATH or `REGAL_BINARY` set
+- For the conftest tests: `conftest` on PATH or `CONFTEST_BINARY` set
+- The server-management tests start their own `opa run --server`
 
 ## Running
 
@@ -15,5 +17,5 @@ real running OPA server. They are slower than unit tests and require local setup
 npm run test:integration
 ```
 
-CI runs these in a Docker-ised environment with a pinned OPA version — see
-`.github/workflows/ci.yml`.
+CI runs them on Linux, and on Windows as a non-required check, with pinned
+`opa`, `regal` and `conftest` releases - see `.github/workflows/ci.yml`.
