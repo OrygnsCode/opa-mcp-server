@@ -19,6 +19,16 @@ import {
   z3RecoveriesLeft,
 } from '../../../src/lib/rego-z3.js';
 
+/** A forced collection, without leaving the flag set for the rest of the run. */
+async function exposeGc(): Promise<() => void> {
+  const { setFlagsFromString } = await import('node:v8');
+  const { runInNewContext } = await import('node:vm');
+  setFlagsFromString('--expose-gc');
+  const gc = runInNewContext('gc') as () => void;
+  setFlagsFromString('--no-expose-gc');
+  return gc;
+}
+
 afterEach(() => {
   resetZ3ForTesting();
 });
@@ -68,6 +78,17 @@ describe('rego-z3', () => {
     expect(isZ3Failure(new Error('out of memory'))).toBe(true);
     expect(isZ3Failure(new Error('connect ECONNREFUSED 127.0.0.1:8181'))).toBe(false);
     expect(isZ3Failure(new TypeError('fetch failed'))).toBe(false);
+    const overflow = (frames: string) => {
+      const e = new RangeError('Maximum call stack size exceeded');
+      e.stack = `RangeError: Maximum call stack size exceeded${frames}`;
+      return e;
+    };
+    expect(
+      isZ3Failure(overflow('\n    at check (/x/node_modules/z3-solver/build/z3-built.js:9:1)')),
+    ).toBe(true);
+    expect(isZ3Failure(overflow('\n    at walk (/x/src/lib/rego-ast-walker.ts:9:1)'))).toBe(false);
+    // No frames to read: the conservative answer.
+    expect(isZ3Failure(overflow(''))).toBe(true);
   });
 
   it('brings up a fresh module after a fault, three times, then refuses', async () => {
@@ -98,26 +119,50 @@ describe('rego-z3', () => {
     const pending = getZ3();
     // An unrelated registry built while z3-solver initialises must not take
     // the wrap: it gets the real behaviour, and z3-solver's is still wrapped.
-    const decoy = new FinalizationRegistry<string>(() => undefined);
-    expect(decoy).toBeInstanceOf(Real);
+    const decoyFired: string[] = [];
+    const decoy = new FinalizationRegistry<string>((held) => decoyFired.push(held));
     const Z3 = await pending;
     expect(globalThis.FinalizationRegistry).toBe(Real);
     // Make garbage Z3 objects inside a section and collect while it is open:
     // their frees must queue rather than run.
-    const { setFlagsFromString } = await import('node:v8');
-    const { runInNewContext } = await import('node:vm');
-    setFlagsFromString('--expose-gc');
-    const gc = runInNewContext('gc') as () => void;
-    setFlagsFromString('--no-expose-gc');
+    const gc = await exposeGc();
+    let queuedInside = 0;
+    let decoyInside = 0;
+    await withZ3Lock(async () => {
+      // Registered from its own frame so nothing on this one keeps it alive.
+      (() => decoy.register({}, 'decoy-held'))();
+      for (let i = 0; i < 2000; i++) Z3.Real.const(`g${i}`).add(1);
+      gc();
+      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
+      for (let i = 0; i < 20 && decoyFired.length === 0; i++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      queuedInside = deferredFinalizersForTesting();
+      decoyInside = decoyFired.length;
+    });
+    // The decoy's callback ran at once; z3-solver's waited for the section.
+    expect(decoyInside).toBe(1);
+    expect(queuedInside).toBeGreaterThan(0);
+    // The section closed with the worker idle, and they ran.
+    expect(deferredFinalizersForTesting()).toBe(0);
+  }, 30_000);
+
+  it("still wraps z3-solver's registry when the host keeps no stack frames", async () => {
+    const limit = Error.stackTraceLimit;
+    Error.stackTraceLimit = 0;
+    resetZ3ForTesting();
+    const Z3 = await getZ3().finally(() => {
+      Error.stackTraceLimit = limit;
+    });
+    const gc = await exposeGc();
     let queuedInside = 0;
     await withZ3Lock(async () => {
-      for (let i = 0; i < 2000; i++) Z3.Real.const(`g${i}`).add(1);
+      for (let i = 0; i < 2000; i++) Z3.Real.const(`h${i}`).add(1);
       gc();
       for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
       queuedInside = deferredFinalizersForTesting();
     });
     expect(queuedInside).toBeGreaterThan(0);
-    // The section closed with the worker idle, and they ran.
     expect(deferredFinalizersForTesting()).toBe(0);
   }, 30_000);
 

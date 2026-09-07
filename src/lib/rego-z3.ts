@@ -76,14 +76,34 @@ let recoveriesLeft = 3;
  * first construction regardless let an unrelated registry built early in
  * the window take the wrap and hand z3-solver the real class, which turned
  * the deferral off with nothing to show for it.
+ *
+ * Releasing the solver and model as each solve ends removes most of the
+ * finalizer traffic that made the race reachable; the deferral covers what
+ * a collection still frees.
  */
+/**
+ * The stack at the call, with enough frames kept to reach the caller's module
+ * whatever `Error.stackTraceLimit` the host has chosen: a limit of zero, a
+ * common speed setting, would otherwise leave nothing to read and the wrap
+ * would quietly not happen.
+ */
+function stackHere(): string {
+  const limit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 20;
+  try {
+    return new Error().stack ?? '';
+  } finally {
+    Error.stackTraceLimit = limit;
+  }
+}
+
 async function initModule(): Promise<Z3Api> {
   const Real = globalThis.FinalizationRegistry;
   const g = globalThis as unknown as { FinalizationRegistry: unknown };
   const generation = z3Generation;
   class DeferringRegistry extends Real<unknown> {
     constructor(callback: (held: unknown) => void) {
-      const fromZ3 = (new Error().stack ?? '').includes('z3-solver');
+      const fromZ3 = stackHere().includes('z3-solver');
       super(
         fromZ3
           ? (held: unknown) => {
@@ -100,7 +120,9 @@ async function initModule(): Promise<Z3Api> {
   try {
     return await init();
   } finally {
-    g.FinalizationRegistry = Real;
+    // Undo this init's own swap only; one started after a reset may have
+    // its window open.
+    if (g.FinalizationRegistry === DeferringRegistry) g.FinalizationRegistry = Real;
   }
 }
 
@@ -236,9 +258,14 @@ export function isZ3Failure(e: unknown): boolean {
   const message = e instanceof Error ? e.message : String(e);
   // A call-stack overflow was also seen once as a symptom of a corrupted
   // heap; it counts only when the stack shows it came from the WASM glue,
-  // so an overflow elsewhere does not spend a recovery.
+  // so an overflow elsewhere does not spend a recovery. With no frames to
+  // read (a host that keeps none) the conservative answer stands: while a
+  // solve is running, the overflow is Z3's.
   if (/Maximum call stack size exceeded/.test(message)) {
-    return e instanceof Error && (e.stack ?? '').includes('z3-built');
+    if (!(e instanceof Error)) return false;
+    const stack = e.stack ?? '';
+    if (!/\n\s+at /.test(stack)) return true;
+    return stack.includes('z3-built');
   }
   return /Aborted\(|memory access out of bounds|out of memory|unreachable executed/i.test(message);
 }
