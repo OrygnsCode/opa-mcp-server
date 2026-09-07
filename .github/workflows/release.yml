@@ -25,11 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --no-audit --no-fund --loglevel=error
       # The tag decides the Docker tag and the release name; the tree decides
       # what npm, the bundle and the server itself report. They have to agree
       # before anything publishes.
@@ -39,6 +34,11 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           pkg=$(jq -r '.version' package.json)
           [ "${pkg}" = "${tag}" ] || { echo "::error::package.json version (${pkg}) != tag (${tag})"; exit 1; }
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

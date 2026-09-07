@@ -94,14 +94,14 @@ describe('buildServer()', () => {
     const registry = read('server.json') as {
       version: string;
       packages: Array<{ identifier: string; version?: string }>;
-      _meta: Record<string, { version?: string }>;
+      _meta?: Record<string, { version?: string }>;
     };
     expect(SERVER_VERSION).toBe(pkg.version);
     expect(manifest.version).toBe(pkg.version);
     expect(registry.version).toBe(pkg.version);
     // The version the entry was submitted to the registry as; the registry
     // does not reject a mismatch.
-    expect(registry._meta['io.modelcontextprotocol.registry/publisher-provided']?.version).toBe(
+    expect(registry._meta?.['io.modelcontextprotocol.registry/publisher-provided']?.version).toBe(
       pkg.version,
     );
     for (const entry of registry.packages) {
