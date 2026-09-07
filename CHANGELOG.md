@@ -259,14 +259,6 @@ not part of the public surface and may change in minor releases.
   `OPA_URL_INVALID` and a hint to use `OPA_TOKEN`.
   Only the credentials are removed from the URL shown; its case, port and
   path stay as the operator wrote them.
-- `rego_verify` grew the Z3 engine by about half a megabyte per solve and
-  never gave it back: Z3's memory lives outside the JavaScript heap, so the
-  collector that frees its objects felt no pressure from it, and every solve
-  named its variables afresh so Z3 could share nothing between them. After
-  enough solves the engine reached its ceiling and failed. Variables are now
-  named once, the solver is released as each solve ends, and a collection is
-  requested every hundred solves; measured, 1500 solves now hold at about
-  210 MB where they reached 950 MB before.
 - `rego_verify` never gave the Z3 engine's memory back: its solver and
   model were left to the JavaScript collector, which cannot see Z3's heap and
   so had no reason to run, and the engine grew by half to one megabyte per
