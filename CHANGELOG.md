@@ -267,6 +267,11 @@ not part of the public surface and may change in minor releases.
   memory, and one landing mid-solve corrupted the heap. Finalizers are now
   held while a solve runs, and a fault brings up a fresh Z3 on the next call,
   three times per process, with the interrupted call retried once.
+- The server reported itself as 0.4.0 on the 0.5.0 release, in the MCP
+  handshake, `mcp_server_info`, `--version` and the startup log: the version
+  was a constant kept apart from package.json. It is now read from
+  package.json, and a test holds package.json, manifest.json and server.json
+  to one version.
 
 ## [0.5.0] - 2026-09-04
 

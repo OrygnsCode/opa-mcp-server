@@ -9,6 +9,8 @@
  * file gets credit AND the boot wiring is unit-tested independently
  * of the SDK transport layer.
  */
+import { readFileSync } from 'node:fs';
+
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -82,6 +84,26 @@ describe('buildServer()', () => {
   it('exports the canonical server name and version', () => {
     expect(SERVER_NAME).toBe('orygn-opa-mcp');
     expect(SERVER_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it('reports the version every release artefact declares', () => {
+    const read = (name: string): unknown =>
+      JSON.parse(readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8'));
+    const pkg = read('package.json') as { version: string };
+    const manifest = read('manifest.json') as { version: string };
+    const registry = read('server.json') as {
+      version: string;
+      packages: Array<{ identifier: string; version?: string }>;
+    };
+    expect(SERVER_VERSION).toBe(pkg.version);
+    expect(manifest.version).toBe(pkg.version);
+    expect(registry.version).toBe(pkg.version);
+    for (const entry of registry.packages) {
+      if (entry.version !== undefined) expect(entry.version).toBe(pkg.version);
+      if (entry.identifier.startsWith('docker.io/')) {
+        expect(entry.identifier.endsWith(`:${pkg.version}`)).toBe(true);
+      }
+    }
   });
 
   it('registers every tool, prompt, and resource', () => {
