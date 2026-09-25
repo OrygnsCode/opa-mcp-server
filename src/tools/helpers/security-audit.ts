@@ -5,8 +5,10 @@
  *
  * This is a focused slice of `rego_lint`. regal ships no security category
  * of its own: its `bugs` rules are the correctness defects most likely to
- * open a policy up, and a `security` category stays enabled as the place a
- * project's custom rules can go. The result groups findings by severity
+ * open a policy up, and a `security` category is enabled as the place a
+ * project's custom rules can go. Regal 0.42 and later refuse a category no
+ * rule defines, so when that happens the sweep runs again with `bugs`
+ * alone. The result groups findings by severity
  * with remediation guidance so the agent can prioritize fixes without
  * wading through style and formatting noise.
  *
@@ -138,21 +140,34 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
           resolvedConfigFile = v.resolved[0];
         }
 
-        const result = await regal.lint(
-          {
-            paths: validation.resolved,
-            configFile: resolvedConfigFile,
-            ignoreFiles,
-            // Start from zero rules and enable regal's bugs category, plus a
-            // security category that regal does not ship but a project's
-            // custom rules may populate.
-            disableAll: true,
-            enableCategory: ['security', 'bugs'],
-            // Fail on errors only; warnings are still surfaced in JSON.
-            failLevel: 'error',
-          },
-          signal,
-        );
+        const sweep = (categories: string[]) =>
+          regal.lint(
+            {
+              paths: validation.resolved,
+              configFile: resolvedConfigFile,
+              ignoreFiles,
+              // Start from zero rules and enable regal's bugs category, plus a
+              // security category that regal does not ship but a project's
+              // custom rules may populate.
+              disableAll: true,
+              enableCategory: categories,
+              // Fail on errors only; warnings are still surfaced in JSON.
+              failLevel: 'error',
+            },
+            signal,
+          );
+
+        let result = await sweep(['security', 'bugs']);
+        // Regal 0.42 validates category names against the rules it loaded and
+        // refuses one that nothing defines, which is the case for `security`
+        // in a project without custom rules. Earlier releases ignored it.
+        if (
+          result.exitCode !== null &&
+          result.exitCode !== 0 &&
+          /unknown categor(?:y|ies)/i.test(result.stderr)
+        ) {
+          result = await sweep(['bugs']);
+        }
 
         const subprocessFailure = mapSubprocessFailure(result, 'regal');
         if (subprocessFailure) return subprocessFailure;

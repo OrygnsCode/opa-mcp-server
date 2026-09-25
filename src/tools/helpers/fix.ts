@@ -1,19 +1,25 @@
 /**
- * `rego_fix` -- run `regal fix` to auto-apply mechanical fixes for the
- * five rules regal 0.30.0 supports:
+ * `rego_fix` -- run `regal fix` to auto-apply mechanical fixes. As of
+ * regal 0.42.0 the fixable rules are:
  *
  *   opa-fmt                    format the file (like opa fmt --write)
  *   use-rego-v1                add `import rego.v1` and update syntax
  *   use-assignment-operator    replace `=` with `:=` in rule heads
  *   no-whitespace-comment      add a space after `#` in comments
  *   directory-package-mismatch move the file to a path matching its package
+ *   non-raw-regex-pattern      use a raw string for a regex pattern
+ *   prefer-equals-comparison   `==` rather than `=` in a comparison
+ *   redundant-existence-check  drop a check the following expression implies
+ *   constant-condition         drop a condition that is always true or false
+ *
+ * Older releases fix a subset of these.
  *
  * WARNING: `directory-package-mismatch` moves files on disk. The newPath
  * field in the output tells you where a file was moved. Run with
  * `dryRun: true` first to see what would change.
  *
- * Files with uncommitted git changes are refused unless `force: true`
- * is set. This is regal's own safety check, not ours.
+ * Regal before 0.42 refuses files with uncommitted git changes unless
+ * `force: true` is set; that is regal's own check, and 0.42 removed it.
  */
 import { join, normalize } from 'node:path';
 import { z } from 'zod';
@@ -187,7 +193,7 @@ export function registerRegoFix(server: McpServer, config: Config): void {
     {
       title: 'Auto-fix Rego violations',
       description:
-        'Run regal fix to automatically apply mechanical fixes for the five rules regal 0.30.0 supports: opa-fmt, use-rego-v1, use-assignment-operator, no-whitespace-comment, and directory-package-mismatch. Use dryRun: true to preview changes before modifying files. NOTE: directory-package-mismatch moves files to match their package path -- use disable: ["directory-package-mismatch"] to skip it. Files with uncommitted git changes require force: true. Requires regal.',
+        'Run regal fix to automatically apply mechanical fixes. Regal 0.42 fixes opa-fmt, use-rego-v1, use-assignment-operator, no-whitespace-comment, directory-package-mismatch, non-raw-regex-pattern, prefer-equals-comparison, redundant-existence-check and constant-condition; older releases fix a subset. Use dryRun: true to preview changes before modifying files. NOTE: directory-package-mismatch moves files to match their package path -- use disable: ["directory-package-mismatch"] to skip it. Regal before 0.42 refuses files with uncommitted git changes unless force: true. Requires regal.',
       inputSchema: RegoFixInput,
       annotations: {
         readOnlyHint: false,
