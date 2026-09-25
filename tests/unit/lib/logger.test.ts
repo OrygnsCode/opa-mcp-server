@@ -12,7 +12,7 @@
  *  - Filesystem failures (permission, disk full) never throw.
  *  - Level filtering works per-call.
  */
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,8 +23,7 @@ let workDir: string;
 let logFile: string;
 
 beforeEach(async () => {
-  workDir = join(tmpdir(), `orygn-logger-test-${Date.now()}-${Math.random()}`);
-  await mkdir(workDir, { recursive: true });
+  workDir = await mkdtemp(join(tmpdir(), 'orygn-logger-test-'));
   logFile = join(workDir, 'test.log');
 });
 

@@ -1,3 +1,4 @@
+import { mkdtempSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +13,9 @@ const validHttpAuthzPath = join(fixturesDir, 'policies', 'valid', 'http_authz.re
 const invalidUnsafePath = join(fixturesDir, 'policies', 'invalid', 'unsafe_var.rego');
 const rbacInputPath = join(fixturesDir, 'inputs', 'rbac.json');
 
+// One private directory for everything this file writes; removed in afterAll.
+const tmpRoot = mkdtempSync(join(tmpdir(), 'orygn-opa-mcp-it-'));
+
 const config: Config = {
   opaUrl: 'http://localhost:8181',
   opaBinary: process.env['OPA_BINARY'] ?? 'opa',
@@ -20,7 +24,7 @@ const config: Config = {
   subprocessTimeoutMs: 30_000,
   httpTimeoutMs: 15_000,
   allowedPaths: [],
-  logFile: join(tmpdir(), 'orygn-opa-mcp-test.log'),
+  logFile: join(tmpRoot, 'test.log'),
   logLevel: 'error',
   maxResponseBytes: 100_000,
   maxSubprocessBytes: 32 * 1024 * 1024,
@@ -31,12 +35,12 @@ const opa = new OpaCli(config);
 let tmpWorkDir: string;
 
 beforeAll(async () => {
-  tmpWorkDir = join(tmpdir(), `orygn-opa-mcp-it-${Date.now()}`);
+  tmpWorkDir = join(tmpRoot, 'work');
   await mkdir(tmpWorkDir, { recursive: true });
 });
 
 afterAll(async () => {
-  if (tmpWorkDir) await rm(tmpWorkDir, { recursive: true, force: true });
+  await rm(tmpRoot, { recursive: true, force: true });
 });
 
 describe('OpaCli integration', () => {
