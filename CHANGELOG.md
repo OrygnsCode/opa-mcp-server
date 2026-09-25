@@ -17,6 +17,17 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- The bundled OPA is now 1.21.0, from 1.19.0. Two upstream changes reach
+  users through it. OPA reads YAML against the 1.2 core schema, so the bare
+  words `yes`, `no`, `on` and `off` in data files and `yaml.unmarshal` are
+  strings now rather than booleans; quote them or use `true` and `false`.
+  Coverage reports from `rego_test`, `rego_eval_with_coverage` and
+  `rego_coverage_gaps` may tag a not-covered range with a `kind` of
+  `index_excluded` or `early_exit`, which says why evaluation skipped it.
+  Nothing changes when `OPA_BINARY` or `PATH` supplies the binary.
+
 ## [0.6.0] - 2026-09-07
 
 ### Security

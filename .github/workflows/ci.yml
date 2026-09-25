@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: unit-tests
     env:
-      OPA_VERSION: '1.19.0'
+      OPA_VERSION: '1.21.0'
       REGAL_VERSION: '0.30.0'
     steps:
       - uses: actions/checkout@v7
@@ -119,7 +119,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     env:
-      OPA_VERSION: '1.19.0'
+      OPA_VERSION: '1.21.0'
       REGAL_VERSION: '0.30.0'
       CONFTEST_VERSION: '0.69.0'
     steps:
@@ -160,7 +160,7 @@ jobs:
     # seen by the Linux leg. This leg is not a required check, so a failure
     # here shows on the pull request without blocking it.
     env:
-      OPA_VERSION: '1.19.0'
+      OPA_VERSION: '1.21.0'
       REGAL_VERSION: '0.30.0'
       CONFTEST_VERSION: '0.69.0'
     steps:
