@@ -65,8 +65,8 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
-      # Pin the npm major: npm 12 dropped Node 20, which .nvmrc still targets.
-      # 11.x satisfies the >= 11.5.1 the OIDC trusted publisher needs.
+      # Pin the npm major so a publish is reproducible; 11.x satisfies the
+      # >= 11.5.1 the OIDC trusted publisher needs.
       - run: npm install -g npm@^11
       # Defensive: ensure optionalDependencies point at the platform versions
       # that actually exist, even if the release-prep commit forgot to run
@@ -114,13 +114,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           registry-url: 'https://registry.npmjs.org'
-      # OIDC trusted-publisher auth requires npm CLI >= 11.5.1; the
-      # version bundled with Node 20 (npm 10.x) only does provenance,
-      # not the trusted-publisher token exchange, and the publish PUT
-      # falls back to the placeholder _authToken setup-node writes,
-      # which the registry answers with a 404.
-      # Pin the npm major: npm 12 dropped Node 20, which .nvmrc still targets.
-      # 11.x satisfies the >= 11.5.1 the OIDC trusted publisher needs.
+      # OIDC trusted-publisher auth requires npm CLI >= 11.5.1. An older
+      # npm only does provenance, not the trusted-publisher token exchange,
+      # and the publish PUT falls back to the placeholder _authToken
+      # setup-node writes, which the registry answers with a 404. Pin the
+      # major so a publish is reproducible.
       - run: npm install -g npm@^11
       - run: npm install --no-audit --no-fund --loglevel=error
       - run: npm run build

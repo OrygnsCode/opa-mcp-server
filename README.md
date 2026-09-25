@@ -775,7 +775,7 @@ npm run build             # compile to dist/
 ```
 
 CI runs lint, typecheck, build, and unit tests on every push and PR
-across Ubuntu and Windows on Node 20, 22 and 24, plus macOS on Node 22. Integration
+across Ubuntu and Windows on Node 22, 24 and 26, plus macOS on Node 22. Integration
 tests run on Linux, and on Windows as a non-required check, against pinned
 `opa`, `regal` and `conftest` releases.
 

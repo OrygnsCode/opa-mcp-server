@@ -27,6 +27,9 @@ not part of the public surface and may change in minor releases.
   `rego_coverage_gaps` may tag a not-covered range with a `kind` of
   `index_excluded` or `early_exit`, which says why evaluation skipped it.
   Nothing changes when `OPA_BINARY` or `PATH` supplies the binary.
+- Node.js 22 or later is required. Node 20 reached end of life in April
+  2026, and the CI matrix now covers 22, 24 and 26, the last being what the
+  Docker image runs.
 - The Docker image ships Regal 0.42.0, from 0.30.0, and CI tests against
   Regal 0.42.0 and conftest 0.70.1.
 
