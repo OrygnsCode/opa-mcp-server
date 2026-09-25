@@ -182,18 +182,35 @@ export class RegalCli {
 
   /**
    * Auto-fix Rego violations for rules that support mechanical fixes.
-   * In regal 0.30.0 the fixable rules are: opa-fmt, use-rego-v1,
-   * use-assignment-operator, no-whitespace-comment, and
-   * directory-package-mismatch. Modifies files in place unless
-   * `dryRun` is set. Always passes `--no-color` to keep output parseable.
+   * As of regal 0.42.0 the fixable rules are: opa-fmt, use-rego-v1,
+   * use-assignment-operator, no-whitespace-comment,
+   * directory-package-mismatch, non-raw-regex-pattern,
+   * prefer-equals-comparison, redundant-existence-check and
+   * constant-condition; older releases fix a subset. Modifies files in
+   * place unless `dryRun` is set. Always passes `--no-color` to keep output
+   * parseable.
    */
+  /**
+   * Regal 0.42 removed the check that refused files with uncommitted git
+   * changes, and deprecated `--force` with it; sending the flag to a current
+   * regal only earns a deprecation notice on stderr. It is sent to the
+   * releases that still have the check. A regal whose version cannot be
+   * read is treated as one of those.
+   */
+  private async hasGitCheck(signal?: AbortSignal): Promise<boolean> {
+    const version = await this.version(signal);
+    if (version === null) return true;
+    const [major = 0, minor = 0] = version.split('.').map((n) => parseInt(n, 10));
+    return major === 0 && minor < 42;
+  }
+
   async fix(input: FixInput, signal?: AbortSignal): Promise<SpawnResult> {
     if (input.paths.length === 0) {
       throw new Error('regal fix requires at least one path');
     }
     const args = ['fix', '--no-color'];
     if (input.dryRun) args.push('--dry-run');
-    if (input.force) args.push('--force');
+    if (input.force && (await this.hasGitCheck(signal))) args.push('--force');
     if (input.configFile) args.push('--config-file', input.configFile);
     for (const rule of input.disable ?? []) args.push('--disable', rule);
     for (const rule of input.enable ?? []) args.push('--enable', rule);

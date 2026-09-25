@@ -552,9 +552,9 @@ describe('rego_security_audit', () => {
     expect(env.error?.code).toBe('PATH_NOT_ALLOWED');
   });
 
-  // regal 0.30.0 ships no security category, so that flag enables nothing
-  // unless a project adds custom rules under it; the bugs category is what
-  // the sweep actually runs. The flags are pinned as they are passed.
+  // regal ships no security category, so that flag enables nothing unless a
+  // project adds custom rules under it; the bugs category is what the sweep
+  // actually runs. The flags are pinned as they are passed.
   it('passes --disable-all and --enable-category security/bugs to regal', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(mockLintResult([])));
     const server = makeServer();
@@ -574,6 +574,36 @@ describe('rego_security_audit', () => {
     }
     expect(catArgs).toContain('security');
     expect(catArgs).toContain('bugs');
+  });
+
+  // Regal 0.42 refuses a category no rule defines. The sweep then runs once
+  // more with bugs alone, so a project without custom security rules still
+  // gets its report.
+  it('runs again with only the bugs category when regal rejects security', async () => {
+    mockRun
+      .mockResolvedValueOnce(
+        spawnFailure(
+          1,
+          'failed to prepare for linting: validation failed: unknown categories: [security]',
+          '',
+        ),
+      )
+      .mockResolvedValueOnce(spawnFailure(3, '', mockLintResult([highViolation])));
+    const server = makeServer();
+    registerRegoSecurityAudit(server, baseConfig);
+    const env = await callTool<RegoSecurityAuditOutput>(server, 'rego_security_audit', {
+      paths: [fixturePath('policies', 'valid')],
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.totalFindings).toBe(1);
+    expect(mockRun).toHaveBeenCalledTimes(2);
+    const second = mockRun.mock.calls[1]![1].args;
+    const cats: string[] = [];
+    for (let i = 0; i < second.length; i++) {
+      if (second[i] === '--enable-category' && second[i + 1]) cats.push(second[i + 1] as string);
+    }
+    expect(cats).toEqual(['bugs']);
   });
 
   it('includes file, row, and col in each finding', async () => {

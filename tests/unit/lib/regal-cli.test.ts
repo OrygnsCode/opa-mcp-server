@@ -177,9 +177,23 @@ describe('RegalCli', () => {
       expect(mockRun.mock.calls[0]![1].args).toContain('--dry-run');
     });
 
-    it('adds --force when force is true', async () => {
+    it('adds --force when force is true and regal still has its git check', async () => {
+      mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: 'Version: 0.41.1\n' });
       await regal.fix({ paths: ['/abs/policy.rego'], force: true });
-      expect(mockRun.mock.calls[0]![1].args).toContain('--force');
+      expect(mockRun.mock.calls[0]![1].args).toEqual(['version']);
+      expect(mockRun.mock.calls[1]![1].args).toContain('--force');
+    });
+
+    it('drops --force on regal 0.42 and later, which removed the git check', async () => {
+      mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: 'Version:       0.42.0\n' });
+      await regal.fix({ paths: ['/abs/policy.rego'], force: true });
+      expect(mockRun.mock.calls[1]![1].args).not.toContain('--force');
+    });
+
+    it('sends --force when the regal version cannot be read', async () => {
+      mockRun.mockResolvedValueOnce({ ...okSpawn, exitCode: 1, stdout: '' });
+      await regal.fix({ paths: ['/abs/policy.rego'], force: true });
+      expect(mockRun.mock.calls[1]![1].args).toContain('--force');
     });
 
     it('omits --dry-run and --force when not set', async () => {

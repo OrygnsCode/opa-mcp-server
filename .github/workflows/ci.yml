@@ -82,7 +82,7 @@ jobs:
     needs: unit-tests
     env:
       OPA_VERSION: '1.21.0'
-      REGAL_VERSION: '0.30.0'
+      REGAL_VERSION: '0.42.0'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -120,8 +120,8 @@ jobs:
     needs: build
     env:
       OPA_VERSION: '1.21.0'
-      REGAL_VERSION: '0.30.0'
-      CONFTEST_VERSION: '0.69.0'
+      REGAL_VERSION: '0.42.0'
+      CONFTEST_VERSION: '0.70.1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -161,8 +161,8 @@ jobs:
     # here shows on the pull request without blocking it.
     env:
       OPA_VERSION: '1.21.0'
-      REGAL_VERSION: '0.30.0'
-      CONFTEST_VERSION: '0.69.0'
+      REGAL_VERSION: '0.42.0'
+      CONFTEST_VERSION: '0.70.1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
