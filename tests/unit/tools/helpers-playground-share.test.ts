@@ -69,7 +69,7 @@ describe('rego_playground_share', () => {
     const env = await callTool(server, 'rego_playground_share', { policy: POLICY });
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('GITHUB_TOKEN_MISSING');
-    expect(env.error?.hint).toMatch(/github\.com\/settings\/tokens/);
+    expect(env.error?.hint).toContain('https://github.com/settings/tokens');
   });
 
   it('creates a Gist and returns gistUrl, rawPolicyUrl, id on success', async () => {

@@ -32,8 +32,11 @@ const DIST_SERVER = join(REPO_ROOT, 'dist', 'server.js');
 function quoteForWindowsShell(arg: string): string {
   if (process.platform !== 'win32') return arg;
   if (!/\s/.test(arg)) return arg;
-  // Escape any embedded double-quotes, then wrap.
-  return `"${arg.replace(/"/g, '\\"')}"`;
+  // The C runtime reads a backslash as literal unless it precedes a double
+  // quote, so only those runs are doubled (and the quote escaped), plus a
+  // trailing run that would otherwise escape the closing quote.
+  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1');
+  return `"${escaped}"`;
 }
 
 function runSync(

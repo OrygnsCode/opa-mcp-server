@@ -14,7 +14,7 @@
  * unset — CI installs OPA before running this suite.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -52,8 +52,7 @@ async function waitForReady(url: string, timeoutMs = 30_000): Promise<void> {
 }
 
 async function startOpa(): Promise<void> {
-  workDir = join(tmpdir(), `orygn-opa-it-${Date.now()}`);
-  await mkdir(workDir, { recursive: true });
+  workDir = await mkdtemp(join(tmpdir(), 'orygn-opa-it-'));
 
   // Pre-seed one policy so list/get tests have something to find.
   await writeFile(
@@ -156,7 +155,7 @@ const buildConfig = (overrides: Partial<Config> = {}): Config => ({
   subprocessTimeoutMs: 30_000,
   httpTimeoutMs: 5_000,
   allowedPaths: [],
-  logFile: join(tmpdir(), 'orygn-opa-it.log'),
+  logFile: join(workDir, 'server.log'),
   logLevel: 'error',
   maxResponseBytes: 100_000,
   maxSubprocessBytes: 32 * 1024 * 1024,

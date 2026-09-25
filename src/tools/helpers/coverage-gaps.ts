@@ -115,7 +115,7 @@ function parseTestAndCoverage(stdout: string): {
     if (!parsed) continue;
     if (Array.isArray(parsed)) {
       testRecords.push(...(parsed as OpaTestRecord[]));
-    } else if (typeof parsed === 'object' && parsed !== null && 'files' in parsed) {
+    } else if (typeof parsed === 'object' && 'files' in parsed) {
       coverageReport = parsed as OpaCoverageReport;
     }
   }
