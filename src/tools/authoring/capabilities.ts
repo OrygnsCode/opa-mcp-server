@@ -25,7 +25,7 @@ const RegoCapabilitiesInput = {
     .string()
     .optional()
     .describe(
-      'A specific OPA capabilities version (e.g. "v1.19.0"). When neither flag is set, lists available versions.',
+      'A specific OPA capabilities version (e.g. "v1.21.0"). When neither flag is set, lists available versions.',
     ),
   names_only: z
     .boolean()

@@ -31,7 +31,7 @@ RUN npm prune --omit=dev
 # Pinned versions. Bumped via Dependabot or manual PR.
 FROM alpine:3.24 AS binaries
 
-ARG OPA_VERSION=1.19.0
+ARG OPA_VERSION=1.21.0
 ARG REGAL_VERSION=0.30.0
 ARG TARGETARCH
 
@@ -42,9 +42,9 @@ RUN apk add --no-cache curl ca-certificates
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) OPA_ASSET="opa_linux_amd64_static"; \
-             OPA_SHA256="1dd5c5591ff856f5e20a1d66bafae9511ddf3c5552ed3b5070c70b2b6580ee3f" ;; \
+             OPA_SHA256="5eef70644868bb04d0556bcc795ee42f2ab379e73f51d1bfa30f83e1305bc9b9" ;; \
       arm64) OPA_ASSET="opa_linux_arm64_static"; \
-             OPA_SHA256="06680087ed236c8c6aaa021660d83178db829a2ad30bdb3482481fada6791b2a" ;; \
+             OPA_SHA256="0ec34027c15b4d969c21d01ed570fe14fbebd508a08157043ab09f9a0dccbee6" ;; \
       *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /usr/local/bin/opa \

@@ -17,8 +17,8 @@
  * An operator who would rather lose proxy support than expose those credentials
  * to evaluated policy can name them in `OPA_MCP_BLOCK_ENV`.
  *
- * Measured against the bundled OPA 1.19.0, `version`, `eval`, `check`, `test`
- * and `build` all succeed with a completely empty environment, so the entries
+ * Measured against the bundled OPA 1.21.0, `version`, `eval`, `check`, `fmt`,
+ * `test`, `build` and `capabilities` all succeed with a completely empty environment, so the entries
  * below exist for correctness in real-world setups (proxies, custom CA bundles,
  * tool config discovery), not to make the binaries run.
  *
