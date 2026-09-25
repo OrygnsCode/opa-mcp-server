@@ -27,6 +27,20 @@ not part of the public surface and may change in minor releases.
   `rego_coverage_gaps` may tag a not-covered range with a `kind` of
   `index_excluded` or `early_exit`, which says why evaluation skipped it.
   Nothing changes when `OPA_BINARY` or `PATH` supplies the binary.
+- The Docker image ships Regal 0.42.0, from 0.30.0, and CI tests against
+  Regal 0.42.0 and conftest 0.70.1.
+
+### Fixed
+
+- `rego_security_audit` failed outright on Regal 0.42 and later, which refuse
+  a category no rule defines; the tool always enabled `security` as the home
+  for a project's custom rules. When Regal rejects it, the sweep runs again
+  with `bugs` alone.
+- `rego_fix` with `force: true` sent Regal 0.42 a flag that release
+  deprecated, since it no longer refuses files with uncommitted changes. The
+  flag now goes only to a Regal that still has that check. The tool's
+  description names the nine rules Regal 0.42 can fix; it named the five of
+  0.30.
 
 ## [0.6.0] - 2026-09-07
 
