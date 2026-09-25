@@ -16,8 +16,8 @@ participating, you agree to uphold it.
 
 ## Prerequisites
 
-- Node.js **20** or later (the CI matrix runs on 20, 22 and 24).
-- A recent `npm` (ships with Node 20+).
+- Node.js **22** or later (the CI matrix runs on 22, 24 and 26).
+- A recent `npm` (ships with Node 22+).
 - For integration tests: `opa` comes bundled with the package (or set
   `OPA_BINARY`); `regal` and `conftest` must be on `PATH` or named by
   `REGAL_BINARY` and `CONFTEST_BINARY`. CI pins their versions in
