@@ -13,6 +13,9 @@ fixtures/
     invalid/      Intentional parse / type errors, used to exercise error codes
   inputs/         JSON inputs paired with policies for evaluation tests
   conftest/       Policies and configs for the conftest_* tests
+  migrate/        Rego v0 policies for rego_migrate_v1, each with the AST
+                  `opa parse --v0-compatible --json-include locations,-comments`
+                  printed for it under OPA 1.21 (file paths removed)
 ```
 
 ## Conventions

@@ -33,6 +33,11 @@ export interface FmtInput {
   regoV1?: boolean;
   /** Read and write the source as Rego v0 (`--v0-compatible`). */
   v0Compatible?: boolean;
+  /**
+   * Set false to print the formatted text even when it does not parse
+   * (`--check-result=false`), to see the lines a failed check names.
+   */
+  checkResult?: boolean;
 }
 
 /** Input for `opa fmt --list` / `opa fmt --write` (file-based formatting). */
@@ -386,6 +391,7 @@ export class OpaCli {
     const args = ['fmt'];
     if (input.regoV1) args.push('--rego-v1');
     if (input.v0Compatible) args.push('--v0-compatible');
+    if (input.checkResult === false) args.push('--check-result=false');
     return this.withTempSource(input.source, (path) =>
       this.run([...args, path], undefined, signal),
     );
