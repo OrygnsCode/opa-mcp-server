@@ -559,7 +559,9 @@ export class OpaCli {
     for (const imp of input.imports ?? []) args.push('--import', imp);
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     if (input.schemaDir) args.push('--schema', input.schemaDir);
-    if (input.v0Compatible) args.push('--v0-compatible');
+    // --v0-compatible reads the query as v0 as well, where `in` and `every`
+    // are keywords only once imported.
+    if (input.v0Compatible) args.push('--v0-compatible', '--import', 'future.keywords');
 
     let stdin: string | undefined;
     if (input.input !== undefined) {
@@ -606,7 +608,7 @@ export class OpaCli {
     for (const path of input.paths ?? []) args.push('--data', path);
     if (input.inputPath) args.push('--input', input.inputPath);
     if (input.count !== undefined) args.push('--count', String(input.count));
-    if (input.v0Compatible) args.push('--v0-compatible');
+    if (input.v0Compatible) args.push('--v0-compatible', '--import', 'future.keywords');
 
     let stdin: string | undefined;
     if (input.input !== undefined) {
@@ -643,7 +645,8 @@ export class OpaCli {
     for (const pat of input.ignore ?? []) args.push('--ignore', pat);
     if (input.verificationKey) args.push('--verification-key', input.verificationKey);
     if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
-    args.push(...input.paths);
+    // After `--`, a path that starts with a dash is still a path.
+    args.push('--', ...input.paths);
     return this.run(args, undefined, signal, input.paths);
   }
 

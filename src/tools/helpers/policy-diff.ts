@@ -21,9 +21,17 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import type { ToolEnvelope } from '../../types.js';
+import type { SpawnResult } from '../../lib/subprocess.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
+import { sanitizeInlinePathsDeep } from '../../lib/inline-paths.js';
+import {
+  mapSubprocessFailure,
+  tryParseJson,
+  validatePaths,
+  withToolEnvelope,
+} from '../../lib/tool-helpers.js';
 
 const RegoPolicyDiffInput = {
   sourceA: z
@@ -169,6 +177,28 @@ export function diffValues(a: unknown, b: unknown, path = ''): string[] {
   return diffs;
 }
 
+/**
+ * One side's eval failed. `opa eval --format=json` reports why on stdout as
+ * `{"errors": [...]}`, so that is what the caller needs to see; stderr is
+ * usually empty. Runtime errors (`eval_*` codes) are EVAL_ERROR, anything
+ * else is the policy or query not compiling.
+ */
+function sideFailure(side: 'A' | 'B', result: SpawnResult): ToolEnvelope<never> {
+  const parsed = tryParseJson<{ errors?: Array<{ code?: unknown }> }>(result.stdout);
+  const errors = Array.isArray(parsed?.errors) ? parsed.errors : [];
+  const runtime =
+    errors.length > 0 &&
+    errors.every((e) => typeof e.code === 'string' && e.code.startsWith('eval_'));
+  return err(runtime ? 'EVAL_ERROR' : 'INVALID_REGO', `Policy ${side} failed to evaluate.`, {
+    details: sanitizeInlinePathsDeep({
+      policy: side,
+      exitCode: result.exitCode,
+      ...(errors.length > 0 ? { errors } : { stdout: result.stdout.trim() }),
+      stderr: result.stderr.trim(),
+    }),
+  });
+}
+
 export function registerRegoPolicyDiff(server: McpServer, config: Config): void {
   const opa = new OpaCli(config);
 
@@ -260,20 +290,12 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
         const binaryFailure = mapSubprocessFailure(resultA, 'opa');
         if (binaryFailure) return binaryFailure;
 
-        if (resultA.exitCode !== 0) {
-          return err('INVALID_REGO', 'Policy A failed to evaluate.', {
-            details: { policy: 'A', stderr: resultA.stderr.trim(), exitCode: resultA.exitCode },
-          });
-        }
+        if (resultA.exitCode !== 0) return sideFailure('A', resultA);
 
         const binaryFailureB = mapSubprocessFailure(resultB, 'opa');
         if (binaryFailureB) return binaryFailureB;
 
-        if (resultB.exitCode !== 0) {
-          return err('INVALID_REGO', 'Policy B failed to evaluate.', {
-            details: { policy: 'B', stderr: resultB.stderr.trim(), exitCode: resultB.exitCode },
-          });
-        }
+        if (resultB.exitCode !== 0) return sideFailure('B', resultB);
 
         // ── Extract and compare ───────────────────────────────────────────
         const valueA = extractResultValue(resultA.stdout);

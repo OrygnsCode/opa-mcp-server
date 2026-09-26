@@ -9,7 +9,8 @@
  *      `:=` for rule values, `import rego.v1`.
  *   3. `opa check` validates the result as Rego v1.
  *   4. Given `inputs`, the original is evaluated as v0 and the result as v1
- *      against each one, and every rule of the package is compared.
+ *      against each one, and every rule of the package is compared, along
+ *      with any `queries`, which is how functions get compared.
  *
  * Returns the migrated source even when check finds remaining issues so the
  * caller can inspect the diff and decide how to resolve them.
@@ -22,9 +23,12 @@ import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import {
+  calledNames,
   documentRules,
+  functionRules,
   packageQuery,
   planV0Migration,
+  renameRuleRefs,
   type MigrationRewrite,
 } from '../../lib/rego-migrate.js';
 import {
@@ -39,6 +43,23 @@ import type { ToolEnvelope } from '../../types.js';
 
 /** Most inputs one migration is checked against. */
 const MAX_INPUTS = 20;
+
+/** Most expressions compared besides the package's rules. */
+const MAX_QUERIES = 10;
+
+/**
+ * Built-ins that can return a different value each time a policy is
+ * evaluated. `time.now_ns` is not here: both sides get the same clock.
+ */
+const UNSTABLE_BUILTINS = [
+  'http.send',
+  'io.jwt.decode_verify',
+  'io.jwt.encode_sign',
+  'io.jwt.encode_sign_raw',
+  'net.lookup_ip_addr',
+  'rand.intn',
+  'uuid.rfc4122',
+];
 
 /** How many rule-level differences are reported. */
 const MAX_DIFFERENCES = 20;
@@ -62,7 +83,15 @@ const RegoMigrateV1Input = {
     .max(MAX_INPUTS)
     .optional()
     .describe(
-      `Up to ${MAX_INPUTS} input documents to check the migration against. The original is evaluated as Rego v0 and the migrated policy as Rego v1 against each one, every rule of the package is compared by value and by type, and \`equivalence\` reports any that differ.`,
+      `Up to ${MAX_INPUTS} input documents to check the migration against. The original is evaluated as Rego v0 and the migrated policy as Rego v1 against each one, every rule of the package that is not a function is compared by value and by type, and \`equivalence\` reports any that differ.`,
+    ),
+  queries: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(MAX_QUERIES)
+    .optional()
+    .describe(
+      `Up to ${MAX_QUERIES} Rego expressions to compare on each of \`inputs\` as well. A function has no value without arguments, so this is how functions are compared: \`data.lib.names.label_ok(input.name, input.label)\`. An expression that names a rule this tool renames, as \`data.<package>.<rule>\`, reaches it under its new name on the migrated side.`,
     ),
 };
 
@@ -80,6 +109,8 @@ export interface MigrationDifference {
   input: number;
   /** The rule that differs, by its original name. Absent when a whole evaluation failed on one side. */
   rule?: string;
+  /** The expression from `queries` that differs. */
+  query?: string;
   original: Outcome;
   migrated: Outcome;
 }
@@ -87,6 +118,8 @@ export interface MigrationDifference {
 export interface MigrationEquivalence {
   /** Inputs compared. */
   compared: number;
+  /** The rules compared on each input, by their original name; functions are compared only through `queries`. */
+  rules: string[];
   /** True when every rule gave the same value, of the same type, for every input. */
   identical: boolean;
   /** The differences found, up to 20. */
@@ -155,6 +188,21 @@ interface SideResult {
 /** Both sides failing is the same outcome, whatever the wording of each error. */
 const bothErrors = (a: Outcome, b: Outcome): boolean => 'error' in a && 'error' in b;
 
+/** One expression's outcome on both sides for every input. */
+interface QueryComparison {
+  expr: string;
+  original: Outcome[];
+  migrated: Outcome[];
+}
+
+/** An expression's values for one input, from its `[value, type]` pairs. */
+const queryOutcome = (pairs: Array<[unknown, string]>): Outcome =>
+  pairs.length === 0
+    ? { undefined: true }
+    : pairs.length === 1
+      ? { value: pairs[0]![0], type: pairs[0]![1] }
+      : { value: pairs.map(([v]) => v), type: `${pairs.length} values` };
+
 const PER_INPUT_CONCURRENCY = 4;
 
 export function registerRegoMigrateV1(server: McpServer, config: Config): void {
@@ -178,12 +226,13 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     query: string,
     inputs: unknown[],
     v0Compatible: boolean,
+    mocks: string,
     signal: AbortSignal | undefined,
   ): Promise<SideResult[] | ToolEnvelope<never>> => {
     const batch = await opa.eval(
       {
         source,
-        query: `r := [[d, t] | some i; x := input[i]; d := ${query} with input as x; t := {k: type_name(v) | v := d[k]}]`,
+        query: `r := [[d, t] | some i; x := input[i]; d := ${query} with input as x${mocks}; t := {k: type_name(v) | v := d[k]}]`,
         input: inputs,
         v0Compatible,
       },
@@ -212,7 +261,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         const one = await opa.eval(
           {
             source,
-            query: `d := ${query}; t := {k: type_name(v) | v := d[k]}`,
+            query: `d := ${query}${mocks}; t := {k: type_name(v) | v := d[k]}`,
             input: inputs[index],
             v0Compatible,
           },
@@ -251,12 +300,13 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     rule: string,
     input: unknown,
     v0Compatible: boolean,
+    mocks: string,
     signal: AbortSignal | undefined,
   ): Promise<{ outcome: Outcome } | { fatal: ToolEnvelope<never> }> => {
     const one = await opa.eval(
       {
         source,
-        query: `d := ${query}[${JSON.stringify(rule)}]; t := type_name(d)`,
+        query: `d := ${query}[${JSON.stringify(rule)}]${mocks}; t := type_name(d)`,
         input,
         v0Compatible,
       },
@@ -275,6 +325,83 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
   };
 
   /**
+   * One expression's outcome for every input on one side. One process
+   * evaluates them all; when that fails at runtime, each input is evaluated
+   * alone. An expression that does not compile fails alike for every input,
+   * and comes back as `compileError`.
+   */
+  const evaluateQuery = async (
+    source: string,
+    expr: string,
+    inputs: unknown[],
+    v0Compatible: boolean,
+    mocks: string,
+    signal: AbortSignal | undefined,
+  ): Promise<{ outcomes: Outcome[] } | { compileError: string } | ToolEnvelope<never>> => {
+    // The wrapper's variables carry a prefix, so a variable the expression
+    // leaves free, such as `x` in `data.p.deny[x]`, cannot unify with one.
+    const batch = await opa.eval(
+      {
+        source,
+        query: `q__r := {[q__i, q__v, type_name(q__v)] | some q__i; q__in := input[q__i]; q__v := (${expr}) with input as q__in${mocks}}`,
+        input: inputs,
+        v0Compatible,
+      },
+      signal,
+    );
+    const failure = mapSubprocessFailure(batch, 'opa');
+    if (failure) return failure;
+    if (batch.exitCode === 0) {
+      const rows =
+        tryParseJson<{
+          result?: Array<{ bindings?: { q__r?: Array<[number, unknown, string]> } }>;
+        }>(batch.stdout)?.result?.[0]?.bindings?.q__r ?? [];
+      const byInput = inputs.map((): Array<[unknown, string]> => []);
+      for (const [i, value, type] of rows) byInput[i]?.push([value, type]);
+      return { outcomes: byInput.map(queryOutcome) };
+    }
+    const errors = tryParseJson<{ errors?: Array<{ code?: string }> }>(batch.stdout)?.errors ?? [];
+    if (errors.length > 0 && errors.every((e) => e.code?.startsWith('rego_'))) {
+      return { compileError: evalError(batch.stdout, batch.stderr) };
+    }
+
+    const outcomes = new Array<Outcome>(inputs.length);
+    let next = 0;
+    let fatal: ToolEnvelope<never> | undefined;
+    const worker = async (): Promise<void> => {
+      while (fatal === undefined && next < inputs.length) {
+        const index = next++;
+        const one = await opa.eval(
+          {
+            source,
+            query: `q__r := {[q__v, type_name(q__v)] | q__v := (${expr})${mocks}}`,
+            input: inputs[index],
+            v0Compatible,
+          },
+          signal,
+        );
+        const oneFailure = mapSubprocessFailure(one, 'opa');
+        if (oneFailure) {
+          fatal = oneFailure;
+          return;
+        }
+        outcomes[index] =
+          one.exitCode !== 0
+            ? { error: evalError(one.stdout, one.stderr) }
+            : queryOutcome(
+                tryParseJson<{
+                  result?: Array<{ bindings?: { q__r?: Array<[unknown, string]> } }>;
+                }>(one.stdout)?.result?.[0]?.bindings?.q__r ?? [],
+              );
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(PER_INPUT_CONCURRENCY, inputs.length) }, () => worker()),
+    );
+    return fatal ?? { outcomes };
+  };
+
+  /**
    * For each input whose whole package failed on either side, evaluate every
    * document rule on its own on both sides, so one rule's conflict does not
    * hide a difference in another. Returns how many such inputs were left
@@ -289,6 +416,8 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     inputs: unknown[],
     before: SideResult[],
     after: SideResult[],
+    v0Flag: boolean,
+    mocks: string,
     signal: AbortSignal | undefined,
   ): Promise<number | ToolEnvelope<never>> => {
     const failing = inputs
@@ -300,7 +429,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
 
     const jobs = chosen.flatMap((i) =>
       rules.flatMap((rule) => [
-        { i, rule, side: before, source: original, name: rule, v0: true },
+        { i, rule, side: before, source: original, name: rule, v0: v0Flag },
         { i, rule, side: after, source: migrated, name: renamed.get(rule) ?? rule, v0: false },
       ]),
     );
@@ -319,6 +448,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
           job.name,
           inputs[job.i],
           job.v0,
+          mocks,
           signal,
         );
         if ('fatal' in result) {
@@ -352,6 +482,8 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     original: SideResult[],
     migrated: SideResult[],
     renamed: Record<string, string>,
+    rules: string[],
+    queries: QueryComparison[],
   ): MigrationEquivalence => {
     const differences: MigrationDifference[] = [];
     let total = 0;
@@ -361,6 +493,15 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     const back = new Map(Object.entries(renamed).map(([from, to]) => [to, from]));
     for (const [input, a] of original.entries()) {
       const b = migrated[input]!;
+      for (const { expr, original: before, migrated: after } of queries) {
+        const left = before[input]!;
+        const right = after[input]!;
+        if (bothErrors(left, right) || canonical(left) === canonical(right)) continue;
+        total++;
+        if (differences.length < MAX_DIFFERENCES) {
+          differences.push({ input, query: expr, original: left, migrated: right });
+        }
+      }
       if (a.rules && b.rules) {
         for (const [rule, left] of a.rules) {
           const right = b.rules.get(rule) ?? { undefined: true };
@@ -403,7 +544,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         }
       }
     }
-    return { compared: original.length, identical: total === 0, differences };
+    return { compared: original.length, rules, identical: total === 0, differences };
   };
 
   /** Step 3: validate the result as Rego v1 and build the report. */
@@ -438,16 +579,15 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     {
       title: 'Migrate Rego to v1 syntax',
       description:
-        "Migrate Rego v0 source to Rego v1. First renames what v1 reserves (a rule called `contains`, `every`, `if` or `in`, and every reference to it in the module) and replaces built-ins v1 removed: `re_match` and `net.cidr_overlap` by their v1 names, and `all`, `any`, `set_diff` and the `cast_*` family by a helper function appended to the module that returns exactly what the built-in did, so behaviour does not change. Then `opa fmt --rego-v1` converts the syntax (`if`, `contains`, `import rego.v1`) and `opa check` validates the result. `rewrites` lists each change by line and `notes` says why; a renamed rule must also be renamed in any other module that uses it. Pass `inputs` to evaluate the original as v0 and the result as v1 against each and compare every rule of the package; `equivalence` reports any difference. Returns the migrated source even when check finds remaining errors. A source that is already Rego v1 is returned unchanged. If the source parses as neither, returns `INVALID_REGO` with opa's own message.",
+        "Migrate Rego v0 source to Rego v1. First renames what v1 reserves (a rule called `contains`, `every`, `if` or `in`, and every reference to it in the module) and replaces built-ins v1 removed: `re_match` and `net.cidr_overlap` by their v1 names, and `all`, `any`, `set_diff` and the `cast_*` family by a helper function appended to the module that returns exactly what the built-in did, so behaviour does not change. Then `opa fmt --rego-v1` converts the syntax (`if`, `contains`, `import rego.v1`) and `opa check` validates the result. `rewrites` lists each change by line and `notes` says why; a renamed rule must also be renamed in any other module that uses it. Pass `inputs` to evaluate the original as v0 and the result as v1 against each and compare every rule of the package, and `queries` to compare expressions too, such as calls to its functions; `equivalence` reports any difference. Evaluating runs the policy, `http.send` included. Returns the migrated source even when check finds remaining errors. A source that parses only as Rego v1 is returned unchanged; one that parses as both, such as v1 that imports `rego.v1`, is reformatted like any other. If the source parses as neither, returns `INVALID_REGO` with opa's own message.",
       inputSchema: RegoMigrateV1Input,
       annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
+        readOnlyHint: false,
+        // With `inputs` it runs the policy, and a policy can reach the network through http.send.
+        openWorldHint: true,
       },
     },
-    async ({ source, inputs }, { signal }) => {
+    async ({ source, inputs, queries }, { signal }) => {
       return withToolEnvelope<RegoMigrateV1Output>(config, async () => {
         if (inputs !== undefined && (inputs.length === 0 || inputs.length > MAX_INPUTS)) {
           return err(
@@ -455,8 +595,28 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
             `\`inputs\` must hold between 1 and ${MAX_INPUTS} documents; it holds ${inputs.length}.`,
           );
         }
+        if (queries !== undefined) {
+          if (queries.length === 0 || queries.length > MAX_QUERIES) {
+            return err(
+              'INVALID_INPUT',
+              `\`queries\` must hold between 1 and ${MAX_QUERIES} expressions; it holds ${queries.length}.`,
+            );
+          }
+          if (inputs === undefined) {
+            return err(
+              'INVALID_INPUT',
+              '`queries` are compared on each of `inputs`; pass those too.',
+              {
+                hint: 'For expressions that read no input, pass `inputs: [{}]`.',
+              },
+            );
+          }
+        }
 
-        // Step 1: find what the formatter would refuse.
+        // Step 1: find what the formatter would refuse. OPA before 1.0 reads
+        // v0 by default and has no flag to ask for it, so the flag is dropped
+        // for every call that reads the original.
+        let v0Flag = true;
         let parseResult = await opa.parse(
           { source, includeLocations: true, v0Compatible: true },
           signal,
@@ -465,7 +625,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
           parseResult.exitCode !== 0 &&
           /unknown flag: --v0-compatible/.test(parseResult.stderr)
         ) {
-          // OPA before 1.0 reads v0 by default and has no flag to ask for it.
+          v0Flag = false;
           parseResult = await opa.parse({ source, includeLocations: true }, signal);
         }
         const parseFailure = mapSubprocessFailure(parseResult, 'opa');
@@ -572,7 +732,13 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
 
         const migrated = fmtResult.stdout;
         const report = await checkAndReport(source, migrated, rewrites, notes, signal);
-        if (!report.ok || inputs === undefined || !report.data!.valid) return report;
+        if (!report.ok || inputs === undefined) return report;
+        if (!report.data!.valid) {
+          report.data!.notes.push(
+            'The migrated source does not pass `opa check`, so `inputs` were not compared.',
+          );
+          return report;
+        }
 
         // Step 4: compare the two on the inputs given.
         const query = ast !== undefined ? packageQuery(ast) : undefined;
@@ -582,29 +748,75 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
           );
           return report;
         }
-        const before = await evaluateSide(source, query, inputs, true, signal);
+        // Each side is its own opa process, so a clock read on each would
+        // differ; both get the same time.
+        const called = calledNames(ast);
+        const mocks = called.has('time.now_ns') ? ` with time.now_ns as ${Date.now()}000000` : '';
+        const rules = documentRules(ast);
+        const renamedRules = plan?.renamedRules ?? {};
+
+        const before = await evaluateSide(source, query, inputs, v0Flag, mocks, signal);
         if (!Array.isArray(before)) return before;
-        const after = await evaluateSide(migrated, query, inputs, false, signal);
+        const after = await evaluateSide(migrated, query, inputs, false, mocks, signal);
         if (!Array.isArray(after)) return after;
-        const renamed = new Map(Object.entries(plan?.renamedRules ?? {}));
         const left = await pinDownFailures(
           source,
           migrated,
           query,
-          documentRules(ast),
-          renamed,
+          rules,
+          new Map(Object.entries(renamedRules)),
           inputs,
           before,
           after,
+          v0Flag,
+          mocks,
           signal,
         );
         if (typeof left !== 'number') return left;
+
+        const compared: QueryComparison[] = [];
+        for (const [i, expr] of (queries ?? []).entries()) {
+          const a = await evaluateQuery(source, expr, inputs, v0Flag, mocks, signal);
+          if ('ok' in a) return a;
+          const migratedExpr = renameRuleRefs(expr, ast, renamedRules);
+          const b = await evaluateQuery(migrated, migratedExpr, inputs, false, mocks, signal);
+          if ('ok' in b) return b;
+          if ('compileError' in a && 'compileError' in b) {
+            return err('INVALID_INPUT', `\`queries[${i}]\` does not compile: ${a.compileError}`, {
+              hint: "Give an expression, such as a call to one of the package's functions, that names the package by its full path: `data.<package>.<rule>`.",
+            });
+          }
+          const outcomes = (r: typeof a): Outcome[] =>
+            'compileError' in r ? inputs.map(() => ({ error: r.compileError })) : r.outcomes;
+          compared.push({ expr, original: outcomes(a), migrated: outcomes(b) });
+        }
+
+        const reportNotes = report.data!.notes;
         if (left > 0) {
-          report.data!.notes.push(
+          reportNotes.push(
             `${left} input(s) raised an error on at least one side and were compared as a whole package, not rule by rule, so an error on both sides there counts as agreement.`,
           );
         }
-        report.data!.equivalence = compare(before, after, plan?.renamedRules ?? {});
+        const functions = functionRules(ast);
+        if (functions.length > 0 && queries === undefined) {
+          reportNotes.push(
+            `${rules.length === 0 ? 'Nothing was compared: ' : ''}the functions ${functions.map((f) => `\`${f}\``).join(', ')} have no value without arguments; pass \`queries\` that call them to compare them.`,
+          );
+        } else if (rules.length === 0 && queries === undefined) {
+          reportNotes.push('The package defines no rules, so nothing was compared.');
+        }
+        if (mocks) {
+          reportNotes.push(
+            '`time.now_ns()` gave both sides the same time, so rules that read the clock were compared.',
+          );
+        }
+        const unstable = UNSTABLE_BUILTINS.filter((b) => called.has(b));
+        if (unstable.length > 0) {
+          reportNotes.push(
+            `${unstable.map((b) => `\`${b}\``).join(', ')} can return something different each time the policy is evaluated, and each side is evaluated separately, so a difference in a rule that depends on it need not come from the migration.`,
+          );
+        }
+        report.data!.equivalence = compare(before, after, renamedRules, rules, compared);
         return report;
       });
     },

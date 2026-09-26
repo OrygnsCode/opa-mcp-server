@@ -770,6 +770,21 @@ describe('rego_deps', () => {
       ref: 'data.rbac.allow',
     });
     expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.hint).toBeUndefined();
+  });
+
+  it('points a pre-1.0 policy at rego_migrate_v1, since opa deps cannot read v0', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(1, 'legacy.rego:3: rego_parse_error: `if` keyword is required before rule body'),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_deps', {
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+      ref: 'data.rbac.allow',
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.hint).toMatch(/rego_migrate_v1/);
   });
 });
 
@@ -1239,6 +1254,36 @@ describe('rego_check_schema', () => {
   });
 });
 
+describe('rego_check_schema with a schema that constrains nothing', () => {
+  it('warns that nothing was checked', async () => {
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    for (const inlineSchema of [
+      { type: 'object', properties: {} },
+      { type: 'object', additionalProperties: false },
+    ]) {
+      mockRun.mockResolvedValueOnce(spawnSuccess(''));
+      const env = await callTool(server, 'rego_check_schema', {
+        source: 'package x\n\nimport rego.v1\n\nallow if input.a == 1\n',
+        inlineSchema,
+      });
+      expect(env.ok).toBe(true);
+      expect(env.warnings?.[0]).toMatch(/nothing was checked/);
+    }
+  });
+
+  it('does not warn about a schema with properties', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_check_schema', {
+      source: 'package x\n\nimport rego.v1\n\nallow if input.a == 1\n',
+      inlineSchema: { type: 'object', properties: { a: { type: 'number' } } },
+    });
+    expect(env.warnings).toBeUndefined();
+  });
+});
+
 describe('rego_check_schema with a directory as schemaPath', () => {
   it('accepts it when the policy carries schemas annotations, and passes it to opa', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(''));
@@ -1315,6 +1360,32 @@ describe('rego_check_schema with a directory as schemaPath', () => {
     expect(env.data?.valid).toBe(true);
     const args = mockRun.mock.calls[1]![1].args;
     expect(args).toContain('--schema');
+  });
+
+  it('leaves a policy opa cannot load for opa check to report, not as carrying no annotation', async () => {
+    const parseError = JSON.stringify({
+      errors: [
+        {
+          message: '`if` keyword is required before rule body',
+          code: 'rego_parse_error',
+          location: { file: 'legacy.rego', row: 5, col: 1 },
+        },
+      ],
+    });
+    mockRun
+      .mockResolvedValueOnce(spawnFailure(1, 'error: 1 error occurred'))
+      .mockResolvedValueOnce(spawnFailure(1, parseError));
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool<{ valid?: boolean; errors?: Array<{ code?: string }> }>(
+      server,
+      'rego_check_schema',
+      { paths: [fixturePath('policies', 'valid')], schemaPath: fixturePath('policies', 'valid') },
+    );
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors?.[0]?.code).toBe('rego_parse_error');
+    expect(mockRun.mock.calls[1]![1].args).toContain('check');
   });
 
   it('reports a missing opa from the inspect step by its code', async () => {

@@ -25,6 +25,7 @@ const EVALUATING = [
   'rego_explain_undefined',
   'rego_policy_diff',
   'rego_coverage_gaps',
+  'rego_migrate_v1',
   'conftest_test',
   'conftest_verify',
   'rego_lint',
@@ -43,7 +44,6 @@ const STATIC = [
   'rego_generate_test_skeleton',
   'rego_suggest_fix',
   'rego_capabilities',
-  'rego_migrate_v1',
 ];
 
 /**

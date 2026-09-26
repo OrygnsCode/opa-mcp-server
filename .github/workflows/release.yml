@@ -289,23 +289,24 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-      - name: Authenticate via GitHub OIDC
-        run: ./mcp-publisher login github-oidc
-      # The registry checks that the npm version it is handed exists. npm can
-      # take minutes to serve a fresh publish at that URL, and the 0.7.0 run
-      # failed on exactly that, so wait for it first.
+      # The registry checks that the npm version it is handed exists, and npm
+      # can take minutes to serve a fresh publish. The wait comes before the
+      # login because the registry token it issues lasts five minutes.
       - name: Wait for npm to serve the published version
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
           url="https://registry.npmjs.org/@orygn%2fopa-mcp/${tag}"
           for i in $(seq 1 40); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "${url}")
+            # A connection error prints 000; retry it like any other status.
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${url}" || true)
             [ "${code}" = "200" ] && { echo "npm serves @orygn/opa-mcp@${tag}"; exit 0; }
             sleep 15
           done
           echo "::error::npm is not serving @orygn/opa-mcp@${tag} after 10 minutes (last status ${code})"
           exit 1
+      - name: Authenticate via GitHub OIDC
+        run: ./mcp-publisher login github-oidc
       - name: Publish server.json to the MCP Registry
         run: ./mcp-publisher publish
 

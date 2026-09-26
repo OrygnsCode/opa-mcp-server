@@ -87,6 +87,12 @@ export function registerRegoFormatWrite(server: McpServer, config: Config): void
     },
     async ({ paths, dryRun, regoV1, v0Compatible, v1Compatible }, { signal }) => {
       return withToolEnvelope<RegoFormatWriteOutput>(config, async () => {
+        if (v0Compatible && v1Compatible) {
+          return err(
+            'INVALID_INPUT',
+            '`v0Compatible` and `v1Compatible` ask for opposite Rego versions; set one.',
+          );
+        }
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
 

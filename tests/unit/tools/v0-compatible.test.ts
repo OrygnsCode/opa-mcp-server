@@ -80,6 +80,34 @@ describe('v0Compatible', () => {
     );
   });
 
+  // --v0-compatible reads the query as v0 as well, where `in` and `every` are
+  // keywords only once imported.
+  const QUERY_TOOLS = [
+    'rego_eval',
+    'rego_eval_with_explain',
+    'rego_eval_with_profile',
+    'rego_eval_with_coverage',
+    'rego_compile_query',
+    'rego_explain_decision',
+    'rego_bench',
+  ];
+  const importsKeywords = (a: string[]) =>
+    a.some((arg, i) => arg === '--import' && a[i + 1] === 'future.keywords');
+
+  for (const tool of QUERY_TOOLS) {
+    it(`${tool} imports the future keywords into a v0 query, and only then`, async () => {
+      const server = makeServer();
+      registerTools(server, baseConfig);
+
+      await callTool(server, tool, { ...CALLS[tool]!(), v0Compatible: true });
+      expect(mockRun.mock.calls.some((c) => importsKeywords(c[1].args))).toBe(true);
+
+      mockRun.mockClear();
+      await callTool(server, tool, CALLS[tool]!());
+      expect(mockRun.mock.calls.some((c) => importsKeywords(c[1].args))).toBe(false);
+    });
+  }
+
   for (const [tool, args] of Object.entries(CALLS)) {
     it(`${tool} passes --v0-compatible to opa when set, and not otherwise`, async () => {
       const server = makeServer();

@@ -8,9 +8,12 @@
  */
 import { z } from 'zod';
 
+/** The parse errors a pre-1.0 policy raises when OPA reads it as v1. */
+export const PRE_V1_SYNTAX = /`(if|contains)` keyword is required/;
+
 export const v0CompatibleField = z
   .boolean()
   .optional()
   .describe(
-    'Read the policy as Rego v0 (`--v0-compatible`), the syntax OPA used before 1.0: rules without `if`, partial sets as `deny[msg] { ... }`. Needed for a policy that has not been migrated, which OPA 1.x otherwise refuses to load.',
+    'Read the policy as Rego v0 (`--v0-compatible`), the syntax OPA used before 1.0: rules without `if`, partial sets as `deny[msg] { ... }`. Needed for a policy that has not been migrated, which OPA 1.x otherwise refuses to load. Where the tool also takes a query, the query is read as v0 too, with the future keywords imported so `in`, `every` and `some x in` still work in it.',
   );

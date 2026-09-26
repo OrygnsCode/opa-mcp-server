@@ -106,6 +106,17 @@ describe('rewriteLoadPaths', () => {
     expect(join(out.cwd!, out.args[1]!)).toBe(workDir);
   });
 
+  it.runIf(WINDOWS)(
+    'keeps a rewritten path that starts with a dash from reading as a flag',
+    async () => {
+      const dashed = join(workDir, '-data');
+      await mkdir(dashed, { recursive: true });
+      const out = rewriteLoadPaths(['build', '-o', 'out.tar.gz', '--', dashed], [dashed]);
+      expect(out.args[4]).toBe(`.\\-data`);
+      expect(join(out.cwd!, out.args[4]!)).toBe(dashed);
+    },
+  );
+
   it.runIf(WINDOWS)('keeps flags and the query untouched while rewriting paths', () => {
     const out = rewriteLoadPaths(
       ['eval', '--format=json', '--data', dataFile, 'data.p.allow'],

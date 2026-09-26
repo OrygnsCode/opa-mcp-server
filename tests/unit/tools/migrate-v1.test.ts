@@ -169,6 +169,25 @@ describe('rego_migrate_v1', () => {
     expect(callsTo('parse')[1]).not.toContain('--v0-compatible');
   });
 
+  it('evaluates the original without --v0-compatible on an OPA older than 1.0 too', async () => {
+    opaAnswers({
+      parse: (args) =>
+        args.includes('--v0-compatible')
+          ? spawnFailure(1, 'Error: unknown flag: --v0-compatible')
+          : spawnSuccess(plainAst),
+      fmt: spawnSuccess(v1Source),
+      check: spawnSuccess(''),
+      eval: (args) =>
+        args.includes('--v0-compatible')
+          ? spawnFailure(1, 'Error: unknown flag: --v0-compatible')
+          : spawnSuccess(JSON.stringify({ result: [{ bindings: { r: [[{}, {}]] } }] })),
+    });
+    const env = await run({ source: v0Source, inputs: [{}] });
+
+    expect(env.data?.equivalence?.identical).toBe(true);
+    expect(callsTo('eval').some((a) => a.includes('--v0-compatible'))).toBe(false);
+  });
+
   it('names the line and message of the first error the formatter reports, and counts the rest', async () => {
     const stderr =
       'failed to format Rego source file: 2 errors occurred:\n' +
@@ -270,6 +289,13 @@ describe('rego_migrate_v1', () => {
     expect(env.error?.code).toBe(code);
   });
 
+  it('rejects `queries` without `inputs` to evaluate them on', async () => {
+    const env = await run({ source: v0Source, queries: ['data.example.allow'] });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.hint).toMatch(/inputs: \[\{\}\]/);
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
   it('rejects more than 20 inputs before running anything', async () => {
     const env = await run({ source: v0Source, inputs: Array.from({ length: 21 }, () => ({})) });
     expect(env.error?.code).toBe('INVALID_INPUT');
@@ -294,7 +320,7 @@ describe('rego_migrate_v1 with inputs', () => {
     });
     const env = await run({ source: v0Source, inputs: [{ user: 'admin' }, { user: 'bob' }] });
 
-    expect(env.data?.equivalence).toEqual({ compared: 2, identical: true, differences: [] });
+    expect(env.data?.equivalence).toMatchObject({ compared: 2, identical: true, differences: [] });
     const evals = callsTo('eval');
     expect(evals).toHaveLength(2);
     expect(evals[0]).toContain('--v0-compatible');
@@ -376,7 +402,7 @@ describe('rego_migrate_v1 with inputs', () => {
           : batch([[{ contains_: [1] }, { contains_: 'set' }]]),
     });
     const env = await run({ source, inputs: [{}] });
-    expect(env.data?.equivalence).toEqual({ compared: 1, identical: true, differences: [] });
+    expect(env.data?.equivalence).toMatchObject({ compared: 1, identical: true, differences: [] });
   });
 
   it('falls back to one process per input when the batch fails, and pins the error to its input', async () => {

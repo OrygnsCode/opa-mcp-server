@@ -101,19 +101,25 @@ export function declaresSchemas(source: string): boolean {
 /**
  * Whether any policy under `paths` carries a `schemas:` annotation, as OPA
  * itself reads it. Asking opa keeps this tool from reading policy files on
- * its own, and a path opa cannot inspect is left for opa check to report.
+ * its own. A path opa cannot load leaves the answer open (`undefined`), for
+ * opa check to report why: counting it as carrying none turned a policy that
+ * does not parse, such as a pre-1.0 one read as v1, into that complaint.
  */
 async function anyPathDeclaresSchemas(
   opa: OpaCli,
   paths: readonly string[],
   v0Compatible: boolean | undefined,
   signal: AbortSignal | undefined,
-): Promise<boolean | ToolEnvelope<never>> {
+): Promise<boolean | undefined | ToolEnvelope<never>> {
+  let unloaded = false;
   for (const target of paths) {
     const result = await opa.inspect({ target, v0Compatible }, signal);
     const failure = mapSubprocessFailure(result, 'opa');
     if (failure) return failure;
-    if (result.exitCode !== 0) continue;
+    if (result.exitCode !== 0) {
+      unloaded = true;
+      continue;
+    }
     const parsed = tryParseJson<{
       annotations?: Array<{ annotations?: { schemas?: unknown } }>;
     }>(result.stdout);
@@ -122,7 +128,25 @@ async function anyPathDeclaresSchemas(
     );
     if (declared) return true;
   }
-  return false;
+  return unloaded ? undefined : false;
+}
+
+/**
+ * Whether a schema says nothing opa can check a reference against: no
+ * properties and nothing that brings any in. opa then accepts every `input`
+ * reference, even with `additionalProperties: false`. An inferred schema comes
+ * out like this when no policy file could be read.
+ */
+export function constrainsNothing(schema: unknown): boolean {
+  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) return false;
+  const s = schema as Record<string, unknown>;
+  const properties = s['properties'];
+  const hasProperties =
+    typeof properties === 'object' && properties !== null && Object.keys(properties).length > 0;
+  const composed = ['$ref', 'allOf', 'anyOf', 'oneOf', 'items', 'patternProperties'].some(
+    (k) => k in s,
+  );
+  return !hasProperties && !composed;
 }
 
 export function registerRegoCheckSchema(server: McpServer, config: Config): void {
@@ -194,8 +218,8 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
               source !== undefined
                 ? declaresSchemas(source)
                 : await anyPathDeclaresSchemas(opa, resolvedPaths ?? [], v0Compatible, signal);
-            if (typeof annotated !== 'boolean') return annotated;
-            if (!annotated) {
+            if (typeof annotated === 'object') return annotated;
+            if (annotated === false) {
               return err(
                 'INVALID_INPUT',
                 'schemaPath is a directory, which opa reads only where the policy carries `schemas:` annotations naming files in it; this policy carries none, so nothing would be checked.',
@@ -234,7 +258,14 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
           if (subprocessFailure) return subprocessFailure;
 
           if (result.exitCode === 0) {
-            return ok<RegoCheckSchemaOutput>({ valid: true, errors: [] });
+            return ok<RegoCheckSchemaOutput>(
+              { valid: true, errors: [] },
+              inlineSchema !== undefined && constrainsNothing(inlineSchema)
+                ? [
+                    'The schema names no properties, so opa accepts every `input` reference against it and nothing was checked. A schema from rego_infer_input_schema comes out like this when it could not read the policy; see the warnings it gave.',
+                  ]
+                : undefined,
+            );
           }
 
           // `opa check --format=json` writes diagnostics to stderr.

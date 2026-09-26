@@ -111,7 +111,9 @@ function prepareEval(
   }
 
   const evalInput: EvalInput = { query: args.query };
-  if (args.source !== undefined) evalInput.source = args.source;
+  // An empty `source` is no policy, as it was before a policy became
+  // optional; handed to opa it fails as an `empty module`.
+  if (args.source !== undefined && args.source.trim() !== '') evalInput.source = args.source;
 
   if (args.paths?.length) {
     const validation = validatePaths(args.paths, config, { mustExist: true });
@@ -251,18 +253,21 @@ export interface RegoEvalBatchOutput {
 
 /**
  * Whether a failure is the same whatever the input, so the call fails once
- * instead of once per input: cancellation, a missing binary, and a policy or
- * query that does not compile (OPA's `rego_*` codes, as against the `eval_*`
- * codes of a runtime error).
+ * instead of once per input. Only a runtime error belongs to an input: an
+ * EVAL_ERROR whose every error carries one of OPA's `eval_*` codes. Anything
+ * else fails the same way for every input: cancellation, a missing binary, a
+ * policy or query that does not compile (`rego_*`), and a data file that does
+ * not load, which OPA reports with no code at all.
  */
 function failsBatch(error: { code: string; details?: unknown }): boolean {
   if (error.code === 'CANCELLED' || error.code === 'OPA_BINARY_NOT_FOUND') return true;
+  if (error.code !== 'EVAL_ERROR') return false;
   const errors = (error.details as { errors?: Array<{ code?: unknown }> } | undefined)?.errors;
-  return (
-    error.code === 'EVAL_ERROR' &&
+  const runtime =
     Array.isArray(errors) &&
-    errors.some((e) => typeof e.code === 'string' && e.code.startsWith('rego_'))
-  );
+    errors.length > 0 &&
+    errors.every((e) => typeof e.code === 'string' && e.code.startsWith('eval_'));
+  return !runtime;
 }
 
 /**
@@ -296,6 +301,13 @@ export async function runEvalBatch(
     return err(
       'INVALID_INPUT',
       `\`inputs\` must hold between 1 and ${MAX_BATCH_INPUTS} documents; it holds ${inputs.length}.`,
+    );
+  }
+  if (args.partial && !args.unknowns?.length) {
+    return err(
+      'INVALID_INPUT',
+      'With `partial` and no `unknowns`, opa treats the whole input as unknown and ignores each document, so every entry would get the same residual.',
+      { hint: 'Name what stays unknown, for example `unknowns: ["input.region"]`.' },
     );
   }
   const prepared = prepareEval(config, args, {});

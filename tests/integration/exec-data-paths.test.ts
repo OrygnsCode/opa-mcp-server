@@ -154,6 +154,80 @@ describe('opa_exec dataPaths', () => {
     expect(env.error?.message).toMatch(/merge error/);
   });
 
+  it('loads a path whose name starts with a dash', async () => {
+    // Given to opa as a relative path on Windows, `-admins.json` would read
+    // as the flags `-a dmins.json`.
+    await writeFile(p('-admins.json'), '{"admins": ["alice"]}');
+    const env = await exec({ dataPaths: [p('policy'), p('-admins.json')] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(decisions(env.data)).toEqual({ 'alice.json': true, 'bob.json': false });
+  });
+
+  it('names a bundle archive in a directory, which the built bundle leaves out', async () => {
+    const dir = p('vendored');
+    await mkdir(join(dir, 'vendor'), { recursive: true });
+    await writeFile(
+      join(dir, 'authz.rego'),
+      'package authz\n\nimport rego.v1\n\ndefault allow := false\n\nallow if input.user in data.admins\n',
+    );
+    await writeFile(join(dir, 'admins.json'), '{"admins": ["alice"]}');
+    execFileSync(config.opaBinary, [
+      'build',
+      '-o',
+      join(dir, 'vendor', 'lib.tar.gz'),
+      p('data', 'admins.json'),
+    ]);
+    const env = await exec({ dataPaths: [dir] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.warnings?.[0]).toContain(join(dir, 'vendor', 'lib.tar.gz'));
+  });
+
+  it('names the first of several load errors, not only their count', async () => {
+    const dir = p('two-v0-rules');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'policy.rego'),
+      'package authz\n\nallow {\n\tinput.user == "alice"\n}\n\ndeny[msg] {\n\tinput.user == "bob"\n\tmsg := "no"\n}\n',
+    );
+    const env = await exec({ dataPaths: [dir] });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toMatch(/policy\.rego:3: rego_parse_error/);
+    expect(env.error?.hint).toMatch(/v0Compatible/);
+  });
+
+  it('points a directory holding a file that is not data at `bundle`, which still loads it', async () => {
+    const dir = p('with-editor-settings');
+    await mkdir(join(dir, '.vscode'), { recursive: true });
+    await writeFile(
+      join(dir, 'authz.rego'),
+      'package authz\n\nimport rego.v1\n\ndefault allow := false\n\nallow if input.user in data.admins\n',
+    );
+    await writeFile(join(dir, 'data.json'), '{"admins": ["alice"]}');
+    await writeFile(join(dir, '.vscode', 'settings.json'), '{\n  // editor settings\n}\n');
+
+    const asData = await exec({ dataPaths: [dir] });
+    expect(asData.error?.code).toBe('INVALID_REGO');
+    expect(asData.error?.hint).toMatch(/pass it as `bundle`/);
+
+    const asBundle = await exec({ bundle: dir });
+    expect(asBundle.ok, JSON.stringify(asBundle.error)).toBe(true);
+  });
+
+  it('reports data that conflicts with a rule as INVALID_REGO, naming the conflict', async () => {
+    const dir = p('rule-data-conflict');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'p.rego'),
+      'package authz\n\ndefault allow := false\n\nallow if input.user == "alice"\n',
+    );
+    await writeFile(join(dir, 'data.json'), '{"authz": {"allow": "fromdata"}}');
+    for (const source of [{ dataPaths: [dir] }, { bundle: dir }]) {
+      const env = await exec(source);
+      expect(env.error?.code, JSON.stringify(source)).toBe('INVALID_REGO');
+      expect(env.error?.message).toMatch(/conflicting rule for data path authz\/allow/);
+    }
+  });
+
   it('builds and runs a v0 policy file with v0Compatible', async () => {
     const env = await exec({ dataPaths: [p('legacy.rego')], v0Compatible: true });
     expect(env.ok, JSON.stringify(env.error)).toBe(true);

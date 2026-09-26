@@ -83,9 +83,10 @@ on the network.
 - Stdout is reserved for the MCP protocol; logs go to a file.
 - `OPA_TOKEN` is never echoed in tool responses or log entries.
 - Tools that evaluate Rego (`rego_eval` and its variants, `rego_test`,
-  `rego_test_multiroot`, `rego_bench`, `rego_compile_query`, `opa_exec`, the
-  explain, diff and coverage helpers, the conftest tools, and the Regal tools,
-  which run a project's custom rules) declare `openWorldHint: true` and not
+  `rego_test_multiroot`, `rego_bench`, `rego_compile_query`, `opa_exec`,
+  `rego_migrate_v1`, which runs the policy when given `inputs`, the explain,
+  diff and coverage helpers, the conftest tools, and the Regal tools, which
+  run a project's custom rules) declare `openWorldHint: true` and not
   `readOnlyHint`, because OPA's `http.send` lets a policy reach, and write to,
   any network address. `opa_query_decision` and `opa_compile_query` are the
   exception: the remote OPA evaluates a policy it already holds, and their
