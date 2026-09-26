@@ -21,6 +21,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const OpaExecInput = {
   inputPaths: z
@@ -75,6 +76,7 @@ const OpaExecInput = {
     .boolean()
     .optional()
     .describe('Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`).'),
+  v0Compatible: v0CompatibleField,
 };
 
 interface ExecResultEntry {
@@ -155,10 +157,18 @@ export function registerOpaExec(server: McpServer, config: Config): void {
         failNonEmpty,
         timeout,
         v1Compatible,
+        v0Compatible,
       },
       { signal },
     ) => {
       return withToolEnvelope<OpaExecOutput>(config, async () => {
+        if (v0Compatible && v1Compatible) {
+          return err(
+            'INVALID_INPUT',
+            '`v0Compatible` and `v1Compatible` ask for opposite Rego versions; set one.',
+          );
+        }
+
         if (bundle && dataPaths?.length) {
           return err(
             'INVALID_INPUT',
@@ -212,6 +222,7 @@ export function registerOpaExec(server: McpServer, config: Config): void {
             failNonEmpty,
             timeout,
             v1Compatible,
+            v0Compatible,
           },
           signal,
         );

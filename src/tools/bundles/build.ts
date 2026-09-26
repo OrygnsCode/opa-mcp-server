@@ -10,6 +10,7 @@ import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const OpaBundleBuildInput = {
   paths: z
@@ -66,6 +67,7 @@ const OpaBundleBuildInput = {
     .describe(
       "Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). Affects the built bundle's runtime semantics.",
     ),
+  v0Compatible: v0CompatibleField,
   verificationKey: z
     .string()
     .optional()
@@ -102,6 +104,12 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
     },
     async (input, { signal }) => {
       return withToolEnvelope<OpaBundleBuildOutput>(config, async () => {
+        if (input.v0Compatible && input.v1Compatible) {
+          return err(
+            'INVALID_INPUT',
+            '`v0Compatible` and `v1Compatible` ask for opposite Rego versions; set one.',
+          );
+        }
         const inputPaths = [...input.paths, input.output];
         const validation = validatePaths(inputPaths, config);
         if (!validation.ok) return validation.error;
@@ -160,6 +168,7 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
             pruneUnused: input.pruneUnused,
             ignore: input.ignore,
             v1Compatible: input.v1Compatible,
+            v0Compatible: input.v0Compatible,
             verificationKey: resolvedVerificationKey,
             verificationKeyId: input.verificationKeyId,
           },

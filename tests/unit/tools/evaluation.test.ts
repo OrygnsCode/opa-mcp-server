@@ -168,12 +168,71 @@ describe('rego_eval', () => {
     expect(opts.args).not.toContain('--stdin-input');
   });
 
-  it('rejects calls with neither source nor paths', async () => {
+  it('runs a query with no policy loaded', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: 2, text: '1 + 1' }] }] })),
+    );
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool(server, 'rego_eval', { query: 'data.x' });
-    expect(env.error?.code).toBe('INVALID_INPUT');
-    expect(env.error?.message).toMatch(/source.*paths/);
+    const env = await callTool<{ result?: unknown[]; hint?: string }>(server, 'rego_eval', {
+      query: '1 + 1',
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.hint).toBeUndefined();
+    const args = mockRun.mock.calls[0]![1].args;
+    expect(args).not.toContain('--data');
+    expect(args[args.length - 1]).toBe('1 + 1');
+  });
+
+  it('says so when a data query comes back undefined with nothing loaded', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ hint?: string }>(server, 'rego_eval', { query: 'data.x.allow' });
+    expect(env.ok).toBe(true);
+    expect(env.data?.hint).toMatch(/No policy or data was loaded/);
+  });
+
+  it('gives no such hint for a field of input that happens to be called data', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ hint?: string }>(server, 'rego_eval', {
+      query: 'input.data.x',
+      input: {},
+    });
+    expect(env.data?.hint).toBeUndefined();
+  });
+
+  it('gives no such hint when a policy was loaded', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ hint?: string }>(server, 'rego_eval', {
+      query: 'data.x.allow',
+      paths: [validRegoPath()],
+    });
+    expect(env.data?.hint).toBeUndefined();
+  });
+
+  it('passes --v0-compatible when v0Compatible is true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      v0Compatible: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--v0-compatible');
+  });
+
+  it('does not emit --v0-compatible when omitted', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout()));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_eval', { query: 'data.rbac.allow', paths: [validRegoPath()] });
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--v0-compatible');
   });
 
   it('rejects calls with both input and inputPath', async () => {
@@ -231,6 +290,123 @@ describe('rego_eval', () => {
       paths: [validRegoPath()],
     });
     expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+  });
+});
+
+// ─── rego_eval with `inputs` ──────────────────────────────────────────────
+
+describe('rego_eval batch', () => {
+  interface BatchOut {
+    batch: Array<{ index: number; result?: unknown[]; error?: { code: string } }>;
+    errorCount: number;
+    hint?: string;
+  }
+
+  const resultFor = (value: unknown) =>
+    JSON.stringify({ result: [{ expressions: [{ value, text: 'data.rbac.allow' }] }] });
+
+  it('evaluates each input in its own opa eval and keeps them in order', async () => {
+    // Answer by the input piped in, not by call order: the batch runs in parallel.
+    mockRun.mockImplementation((_bin, opts) => {
+      const input = JSON.parse(opts.stdin!) as { user: string };
+      return Promise.resolve(
+        spawnSuccess(input.user === 'none' ? '{}' : resultFor(input.user === 'alice')),
+      );
+    });
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<BatchOut>(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      inputs: [{ user: 'alice' }, { user: 'bob' }, { user: 'none' }],
+    });
+    expect(env.ok).toBe(true);
+    expect(mockRun).toHaveBeenCalledTimes(3);
+    expect(env.data?.batch.map((e) => e.index)).toEqual([0, 1, 2]);
+    expect(env.data?.batch[0]!.result).toEqual(JSON.parse(resultFor(true)).result);
+    expect(env.data?.batch[1]!.result).toEqual(JSON.parse(resultFor(false)).result);
+    // Undefined for that input: an empty result rather than a missing one.
+    expect(env.data?.batch[2]!.result).toEqual([]);
+    expect(env.data?.errorCount).toBe(0);
+    for (const call of mockRun.mock.calls) {
+      expect(call[1].args).toContain('--stdin-input');
+      expect(call[1].args).toContain(validRegoPath());
+    }
+  });
+
+  it('reports a failing input in its own entry and still runs the rest', async () => {
+    mockRun.mockImplementation((_bin, opts) => {
+      const input = JSON.parse(opts.stdin!) as { user: string };
+      return Promise.resolve(
+        input.user === 'bad'
+          ? spawnFailure(2, '', JSON.stringify({ errors: [{ message: 'conflict' }] }))
+          : spawnSuccess(resultFor(true)),
+      );
+    });
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<BatchOut>(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      inputs: [{ user: 'a' }, { user: 'bad' }, { user: 'c' }],
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.errorCount).toBe(1);
+    expect(env.data?.batch[1]!.error?.code).toBe('EVAL_ERROR');
+    expect(env.data?.batch[0]!.result).toBeDefined();
+    expect(env.data?.batch[2]!.result).toBeDefined();
+  });
+
+  it('fails the whole call when the binary is missing', async () => {
+    mockRun.mockResolvedValue(spawnUnreachable());
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      inputs: Array.from({ length: 10 }, (_, i) => ({ i })),
+    });
+    expect(env.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+    // The workers stop at the first such failure instead of trying every input.
+    expect(mockRun.mock.calls.length).toBeLessThan(10);
+  });
+
+  it('rejects `inputs` alongside `input` or `inputPath`', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    for (const extra of [{ input: { a: 1 } }, { inputPath: validInputPath() }]) {
+      const env = await callTool(server, 'rego_eval', {
+        query: 'data.rbac.allow',
+        paths: [validRegoPath()],
+        inputs: [{ a: 2 }],
+        ...extra,
+      });
+      expect(env.error?.code).toBe('INVALID_INPUT');
+    }
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects more than 50 inputs', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      inputs: Array.from({ length: 51 }, (_, i) => ({ i })),
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('carries the nothing-loaded hint through a batch', async () => {
+    mockRun.mockResolvedValue(spawnSuccess('{}'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<BatchOut>(server, 'rego_eval', {
+      query: 'data.x.allow',
+      inputs: [{}, {}],
+    });
+    expect(env.data?.hint).toMatch(/No policy or data was loaded/);
   });
 });
 
@@ -913,6 +1089,26 @@ describe('rego_test', () => {
     expect(mockRun.mock.calls[0]![1].args).not.toContain('--v1-compatible');
   });
 
+  it('passes --v0-compatible when v0Compatible is true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_test', { paths: [validRegoPath()], v0Compatible: true });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--v0-compatible');
+  });
+
+  it('rejects v0Compatible together with v1Compatible', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      v0Compatible: true,
+      v1Compatible: true,
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
   // ─── NO_TESTS_FOUND hint improvement ──────────────────────────────────
 
   it('includes runPattern in NO_TESTS_FOUND hint when no tests match', async () => {
@@ -1083,6 +1279,18 @@ describe('rego_bench', () => {
     expect(env.data?.raw).toBeUndefined();
   });
 
+  it('passes --v0-compatible when v0Compatible is true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ N: 10, T: 100 })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_bench', {
+      query: 'data.x',
+      paths: [validRegoPath()],
+      v0Compatible: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--v0-compatible');
+  });
+
   it('omits runs and repetitions for a single document', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ N: 10, T: 100 })));
     const server = makeServer();
@@ -1213,6 +1421,18 @@ describe('rego_compile_query', () => {
     expect(unknownIdxs).toHaveLength(2);
     expect(args[unknownIdxs[0]! + 1]).toBe('input.user');
     expect(args[unknownIdxs[1]! + 1]).toBe('input.action');
+  });
+
+  it('passes --v0-compatible when v0Compatible is true', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(evalSuccessStdout({ partial: { queries: [] } })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'rego_compile_query', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      v0Compatible: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--v0-compatible');
   });
 });
 
@@ -1571,6 +1791,33 @@ describe('opa_exec', () => {
     expect(args).toContain('--timeout');
     expect(args[args.indexOf('--timeout') + 1]).toBe('30s');
     expect(args).toContain('--v1-compatible');
+  });
+
+  it('passes --v0-compatible through to argv', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      v0Compatible: true,
+    });
+    expect(mockRun.mock.calls[0]![1].args).toContain('--v0-compatible');
+  });
+
+  it('rejects v0Compatible together with v1Compatible', async () => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      v0Compatible: true,
+      v1Compatible: true,
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it('rejects more than one gate flag', async () => {

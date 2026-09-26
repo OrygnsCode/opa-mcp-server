@@ -20,6 +20,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoCoverageGapsInput = {
   paths: z
@@ -37,6 +38,7 @@ const RegoCoverageGapsInput = {
       'Report only files below this coverage percentage (0-100). When omitted, all files with uncovered ranges are reported.',
     ),
   runPattern: z.string().optional().describe('Run only tests whose names match this regex.'),
+  v0Compatible: v0CompatibleField,
 };
 
 interface CoverageRange {
@@ -142,7 +144,7 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
         openWorldHint: true,
       },
     },
-    async ({ paths, threshold, runPattern }, { signal }) => {
+    async ({ paths, threshold, runPattern, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoCoverageGapsOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
@@ -152,6 +154,7 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
             paths: validation.resolved,
             coverage: true,
             runPattern,
+            v0Compatible,
           },
           signal,
         );

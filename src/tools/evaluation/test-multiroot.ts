@@ -31,6 +31,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 import type { SpawnResult } from '../../lib/subprocess.js';
 import type { ToolErrorCode } from '../../types.js';
 import type { CoverageReport, TestRecord } from './test.js';
@@ -214,6 +215,7 @@ const RegoTestMultirootInput = {
     .describe(
       'Include local variable bindings in trace output (`--var-values`). Only useful with `verbose: true`.',
     ),
+  v0Compatible: v0CompatibleField,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -497,6 +499,7 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
         runPattern,
         threshold,
         varValues,
+        v0Compatible,
       },
       { signal },
     ) => {
@@ -610,7 +613,15 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
           const paths = [root.path, ...root.include];
 
           const result = await opa.test(
-            { paths, verbose, coverage: coverageMode, runPattern, varValues, threshold },
+            {
+              paths,
+              verbose,
+              coverage: coverageMode,
+              runPattern,
+              varValues,
+              threshold,
+              v0Compatible,
+            },
             signal,
           );
 

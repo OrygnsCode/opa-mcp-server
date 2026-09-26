@@ -18,6 +18,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoBenchInput = {
   query: z.string().min(1).describe('Rego query to benchmark.'),
@@ -35,6 +36,7 @@ const RegoBenchInput = {
     .describe(
       "Number of times to repeat the benchmark (`--count N`). Defaults to OPA's built-in default of one. Above one, every repetition is returned in `runs`, `fastest` indexes the one the top-level figures come from, and `raw` is omitted since that document is in `runs`.",
     ),
+  v0Compatible: v0CompatibleField,
 };
 
 /** One repetition as OPA reports it: Go's testing.BenchmarkResult. */
@@ -110,7 +112,7 @@ export function registerRegoBench(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ query, paths, input, inputPath, count }, { signal }) => {
+    async ({ query, paths, input, inputPath, count, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoBenchOutput>(config, async () => {
         if (input !== undefined && inputPath) {
           return err(
@@ -138,6 +140,7 @@ export function registerRegoBench(server: McpServer, config: Config): void {
             input,
             inputPath: resolvedInputPath,
             count,
+            v0Compatible,
           },
           signal,
         );
