@@ -9,7 +9,7 @@
  * a per-file allow/deny without writing a shell loop.
  */
 import { existsSync } from 'node:fs';
-import { mkdtemp, open, rm, stat } from 'node:fs/promises';
+import { mkdtemp, open, rm, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -123,18 +123,23 @@ export interface OpaExecOutput {
  * one), or a directory holding a bundle `.manifest`.
  */
 async function isBundlePath(path: string): Promise<boolean> {
+  // Opened once and inspected through the handle, so what is read is what
+  // was classified. Windows refuses to open a directory at all.
+  let file: FileHandle;
   try {
-    if ((await stat(path)).isDirectory()) return existsSync(join(path, '.manifest'));
-    const file = await open(path, 'r');
-    try {
-      const head = Buffer.alloc(2);
-      const { bytesRead } = await file.read(head, 0, 2, 0);
-      return bytesRead === 2 && head[0] === 0x1f && head[1] === 0x8b;
-    } finally {
-      await file.close();
-    }
+    file = await open(path, 'r');
+  } catch {
+    return existsSync(join(path, '.manifest'));
+  }
+  try {
+    if ((await file.stat()).isDirectory()) return existsSync(join(path, '.manifest'));
+    const head = Buffer.alloc(2);
+    const { bytesRead } = await file.read(head, 0, 2, 0);
+    return bytesRead === 2 && head[0] === 0x1f && head[1] === 0x8b;
   } catch {
     return false;
+  } finally {
+    await file.close();
   }
 }
 
