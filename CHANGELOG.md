@@ -50,9 +50,12 @@ not part of the public surface and may change in minor releases.
   failed with "gzip: invalid header", two directories failed as bundles with
   overlapping roots, and a data file not named `data.json` was skipped. Plain
   files and directories are now built into one bundle first, which adds one
-  `opa build` to the call; a directory therefore contributes every JSON and
-  YAML file in it, not only `data.json`. A `.tar.gz` or a directory holding a
-  `.manifest` is still loaded as a bundle.
+  `opa build` to the call. A directory therefore contributes every JSON and
+  YAML file in it, not only `data.json`, so one that loaded before and keeps
+  conflicting files beside its policy, such as test fixtures, now fails with
+  a merge error; pass it as `bundle` to load it as before. An archive, whatever
+  its name, and a directory holding a `.manifest` are still loaded as
+  bundles.
 - The release workflow waits for npm to serve a newly published version
   before registering it with the MCP Registry, which checks that it exists.
 

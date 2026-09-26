@@ -9,7 +9,7 @@
  * a per-file allow/deny without writing a shell loop.
  */
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, open, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -53,7 +53,7 @@ const OpaExecInput = {
     .array(z.string())
     .optional()
     .describe(
-      'Policy and data files or directories, loaded the way `opa eval --data` loads them: a `.rego` file as a module, a JSON or YAML file merged into the data root, a directory recursively. A bundle among them (a `.tar.gz`, or a directory holding a `.manifest`) is loaded as a bundle instead; bundles and plain paths cannot be mixed. Mutually exclusive with `bundle`.',
+      'Policy and data files or directories, loaded the way `opa eval --data` loads them: a `.rego` file as a module, a JSON or YAML file merged into the data root, a directory recursively, so every JSON and YAML file in it is data. A bundle among them (an archive, or a directory holding a `.manifest`) is loaded as a bundle instead; bundles and plain paths cannot be mixed. To load a directory as a bundle, reading only its data.json, pass it as `bundle`. Mutually exclusive with `bundle`.',
     ),
   fail: z
     .boolean()
@@ -118,14 +118,58 @@ export interface OpaExecOutput {
   hint?: string;
 }
 
-/** A `.tar.gz` archive, or a directory holding a bundle `.manifest`. */
+/**
+ * A bundle archive, whatever its name (a gzip file, as `opa build` writes
+ * one), or a directory holding a bundle `.manifest`.
+ */
 async function isBundlePath(path: string): Promise<boolean> {
-  if (/\.(tar\.gz|tgz)$/i.test(path)) return true;
   try {
-    return (await stat(path)).isDirectory() && existsSync(join(path, '.manifest'));
+    if ((await stat(path)).isDirectory()) return existsSync(join(path, '.manifest'));
+    const file = await open(path, 'r');
+    try {
+      const head = Buffer.alloc(2);
+      const { bytesRead } = await file.read(head, 0, 2, 0);
+      return bytesRead === 2 && head[0] === 0x1f && head[1] === 0x8b;
+    } finally {
+      await file.close();
+    }
   } catch {
     return false;
   }
+}
+
+/**
+ * The first thing `opa build` names as wrong, and a hint that fits it. It
+ * prints errors on stdout, as `error: <summary>` and, when there are several,
+ * one line per error after an `N errors occurred:` summary.
+ */
+function describeBuildFailure(
+  build: SpawnResult,
+  v0Compatible: boolean | undefined,
+): { reason: string; hint: string } {
+  const lines = `${build.stdout}\n${build.stderr}`
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const summary = (lines.find((l) => l.startsWith('error:')) ?? lines[0] ?? '').replace(
+    /^error:\s*/,
+    '',
+  );
+  const first = lines.find((l) => /: rego_[a-z_]+: /.test(l));
+  const reason = /errors? occurred:?$/.test(summary) && first ? first : summary;
+  const all = lines.join('\n');
+
+  let hint: string;
+  if (/merge error/.test(all)) {
+    hint =
+      'Paths load as `opa eval --data` loads them: every JSON and YAML file is merged into the data root at its directory, so two files setting the same key conflict. Test fixtures kept beside a policy are the usual cause. To load a directory as a bundle instead, reading only its data.json, pass it as `bundle`.';
+  } else if (!v0Compatible && /rego_parse_error/.test(all)) {
+    hint =
+      'If the policy predates OPA 1.0 (rules without `if`), set `v0Compatible`; otherwise fix the syntax at the line given.';
+  } else {
+    hint = 'Fix the policy at the line given, or check that every path is one opa can load.';
+  }
+  return { reason, hint };
 }
 
 /** Turn what `opa exec` printed into the tool's result. */
@@ -329,20 +373,12 @@ export function registerOpaExec(server: McpServer, config: Config): void {
             const buildFailure = mapSubprocessFailure(build, 'opa');
             if (buildFailure) return buildFailure;
             if (build.exitCode !== 0) {
-              // opa build prints its error on stdout; warnings may be on stderr.
-              const lines = `${build.stdout}\n${build.stderr}`
-                .split(/\r?\n/)
-                .map((l) => l.trim())
-                .filter(Boolean);
-              const reason = (lines.find((l) => l.startsWith('error:')) ?? lines[0] ?? '').replace(
-                /^error:\s*/,
-                '',
-              );
+              const { reason, hint } = describeBuildFailure(build, v0Compatible);
               return err(
                 'INVALID_REGO',
                 `The policy and data in \`dataPaths\` did not load${reason ? `: ${reason}` : '.'}`,
                 {
-                  hint: 'Each JSON or YAML file is merged into the data root and each directory is read recursively, as with `opa eval --data`, so two files setting the same key conflict.',
+                  hint,
                   details: { stdout: build.stdout.trim(), stderr: build.stderr.trim() },
                 },
               );
@@ -366,7 +402,11 @@ export function registerOpaExec(server: McpServer, config: Config): void {
           );
           return readExecResult(result, gateFlagSet, decisionPath);
         } finally {
-          if (workDir !== undefined) await rm(workDir, { recursive: true, force: true });
+          // A scanner still holding the new archive must not turn a finished
+          // evaluation into an error; the directory is in the temp root.
+          if (workDir !== undefined) {
+            await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+          }
         }
       });
     },

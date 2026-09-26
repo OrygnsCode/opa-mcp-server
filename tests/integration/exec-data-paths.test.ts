@@ -106,6 +106,41 @@ describe('opa_exec dataPaths', () => {
     expect(decisions(env.data)).toEqual({ 'alice.json': true, 'bob.json': false });
   });
 
+  it('recognises an archive by its contents, whatever it is called', async () => {
+    const archive = p('policy.bundle');
+    execFileSync(config.opaBinary, [
+      'build',
+      '-o',
+      archive,
+      p('policy', 'authz.rego'),
+      p('data', 'admins.json'),
+    ]);
+    const env = await exec({ dataPaths: [archive] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(decisions(env.data)).toEqual({ 'alice.json': true, 'bob.json': false });
+  });
+
+  it('points a directory whose fixtures conflict at `bundle`, which still loads it', async () => {
+    // A bundle-style directory: policy, data.json, and input fixtures beside them.
+    const dir = p('with-fixtures');
+    await mkdir(join(dir, 'testdata'), { recursive: true });
+    await writeFile(
+      join(dir, 'authz.rego'),
+      'package authz\n\nimport rego.v1\n\ndefault allow := false\n\nallow if input.user in data.admins\n',
+    );
+    await writeFile(join(dir, 'data.json'), '{"admins": ["alice"]}');
+    await writeFile(join(dir, 'testdata', 'a.json'), '{"user": "alice"}');
+    await writeFile(join(dir, 'testdata', 'b.json'), '{"user": "bob"}');
+
+    const asData = await exec({ dataPaths: [dir] });
+    expect(asData.error?.code).toBe('INVALID_REGO');
+    expect(asData.error?.hint).toMatch(/pass it as `bundle`/);
+
+    const asBundle = await exec({ bundle: dir });
+    expect(asBundle.ok, JSON.stringify(asBundle.error)).toBe(true);
+    expect(decisions(asBundle.data)).toEqual({ 'alice.json': true, 'bob.json': false });
+  });
+
   it('refuses a bundle mixed with plain paths', async () => {
     const env = await exec({ dataPaths: [p('bundle.tar.gz'), p('data', 'admins.json')] });
     expect(env.error?.code).toBe('INVALID_INPUT');

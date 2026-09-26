@@ -1788,9 +1788,13 @@ describe('opa_exec', () => {
       expect(existsSync(dirname(output))).toBe(false);
     });
 
+    /** The gzip magic bytes are all the detection reads. */
+    const gzip = Buffer.from([0x1f, 0x8b, 0x08, 0x00]);
+
     it('passes bundles straight to --bundle without building them', async () => {
-      const archive = join(workDir, 'policy.tar.gz');
-      await writeFile(archive, 'not really gzip');
+      // Named as the caller likes: an archive is recognised by its bytes.
+      const archive = join(workDir, 'policy.bundle');
+      await writeFile(archive, gzip);
       const manifestDir = join(workDir, 'bundle-dir');
       await mkdir(manifestDir);
       await writeFile(join(manifestDir, '.manifest'), '{"roots": ["x"]}');
@@ -1810,7 +1814,7 @@ describe('opa_exec', () => {
 
     it('refuses bundles mixed with plain paths, whose built bundle would overlap them', async () => {
       const archive = join(workDir, 'policy.tar.gz');
-      await writeFile(archive, 'x');
+      await writeFile(archive, gzip);
       const server = makeServer();
       registerEvaluationTools(server, withWorkDir());
       const env = await callTool(server, 'opa_exec', {
@@ -1841,9 +1845,55 @@ describe('opa_exec', () => {
       expect(env.error?.message).toBe(
         'The policy and data in `dataPaths` did not load: load error: 1 error occurred during loading: b.json: merge error',
       );
+      // A merge conflict points at loading the directory as a bundle instead.
+      expect(env.error?.hint).toMatch(/pass it as `bundle`/);
       expect(callsTo('exec')).toHaveLength(0);
       const output = callsTo('build')[0]!.args;
       expect(existsSync(dirname(output[output.indexOf('-o') + 1]!))).toBe(false);
+    });
+
+    it('names the first of several errors rather than their count', async () => {
+      answerBuildThenExec(
+        spawnFailure(
+          1,
+          '',
+          [
+            'error: 2 errors occurred:',
+            't.rego:3: rego_type_error: plus: invalid argument(s)',
+            '\thave: (number, string, ???)',
+            't.rego:4: rego_type_error: count: invalid argument(s)',
+          ].join('\n'),
+        ),
+      );
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'data.rbac.allow',
+        dataPaths: [validRegoPath()],
+      });
+      expect(env.error?.message).toBe(
+        'The policy and data in `dataPaths` did not load: t.rego:3: rego_type_error: plus: invalid argument(s)',
+      );
+      expect(env.error?.hint).not.toMatch(/merge/);
+    });
+
+    it('suggests v0Compatible when a policy does not parse as v1', async () => {
+      answerBuildThenExec(
+        spawnFailure(
+          1,
+          '',
+          'error: load error: 1 error occurred during loading: v0.rego:3: rego_parse_error: `if` keyword is required before rule body',
+        ),
+      );
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'data.rbac.allow',
+        dataPaths: [validRegoPath()],
+      });
+      expect(env.error?.hint).toMatch(/v0Compatible/);
     });
 
     it('builds and executes a v0 policy as v0', async () => {
