@@ -49,6 +49,8 @@ const RESERVED = new Set(['contains', 'every', 'if', 'in']);
 interface Helper {
   /** Preferred function name. */
   name: string;
+  /** The built-in the helper calls, which a `with` in the module must not mock. */
+  calls?: string;
   /**
    * Module text defining the function, with NAME for its name and @IF@ where
    * a module that imports rego.v1 needs `if`; without that import it is v0.
@@ -58,12 +60,26 @@ interface Helper {
 
 /**
  * A removed built-in is renamed to its v1 counterpart, or replaced by a
- * helper. A renamed one also carries a helper (`apart`) for a module that
- * mocks it or its counterpart with `with` and calls both: in v0 each mock
- * reached only calls made under its own name, and after a rename both names
- * are one built-in.
+ * helper. A renamed one also carries helpers (`apart`), each calling a
+ * different built-in, for a module where the rename would change what a call
+ * reaches: one that mocks either name with `with` while calling both, since
+ * in v0 each mock reached only calls made under its own name, and one that
+ * binds the counterpart's first segment (a variable named `regex`), which
+ * hides the built-in. The first helper whose built-in the module does not
+ * mock is used.
  */
-type Replacement = { rename: string; apart: Helper } | { helper: Helper };
+type Replacement = { rename: string; apart: Helper[] } | { helper: Helper };
+
+const reMatchHelper = (calls: string, test: string): Helper => ({
+  name: 're_match_',
+  calls,
+  body: `# re_match() was removed in Rego v1. NAME(pattern, value) returns what
+# re_match(pattern, value) did, without calling regex.match.
+NAME(pattern, value) = r@IF@ {
+	r := ${test}
+}
+`,
+});
 
 const castHelper = (builtin: string, name: string, check: string, what: string): Helper => ({
   name,
@@ -83,31 +99,31 @@ NAME(x) = x@IF@ {
 const REMOVED_BUILTINS: Record<string, Replacement> = {
   re_match: {
     rename: 'regex.match',
-    apart: {
-      name: 're_match_',
-      body: `# re_match() was removed in Rego v1. NAME(pattern, value) returns what
-# re_match(pattern, value) did, without calling regex.match, which a \`with\` in
-# this module mocks.
-NAME(pattern, value) = r@IF@ {
-	r := count(regex.find_n(pattern, value, 1)) > 0
-}
-`,
-    },
+    apart: [
+      reMatchHelper('regex.find_n', 'count(regex.find_n(pattern, value, 1)) > 0'),
+      reMatchHelper(
+        'regex.find_all_string_submatch_n',
+        'count(regex.find_all_string_submatch_n(pattern, value, 1)) > 0',
+      ),
+    ],
   },
   'net.cidr_overlap': {
     rename: 'net.cidr_contains',
-    apart: {
-      name: 'cidr_overlap',
-      body: `# net.cidr_overlap() was removed in Rego v1. NAME(cidr, cidr_or_ip) returns
+    apart: [
+      {
+        name: 'cidr_overlap',
+        calls: 'net.cidr_contains_matches',
+        body: `# net.cidr_overlap() was removed in Rego v1. NAME(cidr, cidr_or_ip) returns
 # what net.cidr_overlap(cidr, cidr_or_ip) did, without calling
-# net.cidr_contains, which a \`with\` in this module mocks.
+# net.cidr_contains.
 NAME(cidr, cidr_or_ip) = r@IF@ {
 	is_string(cidr)
 	is_string(cidr_or_ip)
 	r := count(net.cidr_contains_matches(cidr, cidr_or_ip)) > 0
 }
 `,
-    },
+      },
+    ],
   },
   all: {
     helper: {
@@ -274,6 +290,122 @@ export function calledNames(ast: unknown): Set<string> {
     if (name !== undefined) names.add(name);
   }
   return names;
+}
+
+/**
+ * Names the module binds itself: its rules, its imports, and its variables,
+ * function arguments included. A var at the head of a call or of a `with`
+ * target names a function there, so it does not count.
+ */
+function boundNames(ast: unknown): Set<string> {
+  const names = new Set([...ruleNames(ast), ...importBindings(ast)]);
+  const operatorHeads = new Set<unknown>();
+  for (const term of operatorRefs(ast)) {
+    operatorHeads.add(
+      term.type === 'ref' && Array.isArray(term.value) ? (term.value as unknown[])[0] : term,
+    );
+  }
+  for (const node of walk(ast)) {
+    if (isTerm(node) && node.type === 'var' && typeof node.value === 'string') {
+      if (!operatorHeads.has(node)) names.add(node.value);
+    }
+  }
+  return names;
+}
+
+/** The variables a pattern binds: a var, or those inside an array or object. */
+function patternVars(term: unknown, out: Set<string>): void {
+  if (!isTerm(term)) return;
+  if (term.type === 'var' && typeof term.value === 'string') {
+    out.add(term.value);
+  } else if (term.type === 'array' && Array.isArray(term.value)) {
+    for (const item of term.value as unknown[]) patternVars(item, out);
+  } else if (term.type === 'object' && Array.isArray(term.value)) {
+    for (const pair of term.value as unknown[]) {
+      if (Array.isArray(pair)) patternVars(pair[1], out);
+    }
+  }
+}
+
+/**
+ * The variables a body declares at its own level: the target of `:=` and the
+ * names `some` introduces. Nested bodies (comprehensions, `every`) declare
+ * their own.
+ */
+function declaredIn(body: unknown): Set<string> {
+  const out = new Set<string>();
+  if (!Array.isArray(body)) return out;
+  for (const expr of body as unknown[]) {
+    const terms = isObject(expr) ? expr['terms'] : undefined;
+    if (Array.isArray(terms)) {
+      const op: unknown = terms[0];
+      if (isTerm(op) && refName(op) === 'assign') patternVars(terms[1], out);
+    } else if (isObject(terms) && Array.isArray(terms['symbols'])) {
+      for (const symbol of terms['symbols'] as unknown[]) {
+        // `some k, v in xs` is a call whose last argument is the collection.
+        if (isTerm(symbol) && symbol.type === 'call' && Array.isArray(symbol.value)) {
+          for (const arg of (symbol.value as unknown[]).slice(1, -1)) patternVars(arg, out);
+        } else {
+          patternVars(symbol, out);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The refs that start with a local variable of their rule: a function
+ * argument, or a variable declared in the body or in an enclosing one. In v0 a
+ * local may reuse the name an import binds, and then `name.field` reads the
+ * local, not the imported document.
+ */
+function localRefs(ast: unknown): Set<Term> {
+  const out = new Set<Term>();
+  const visit = (node: unknown, scope: ReadonlySet<string>): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child, scope);
+      return;
+    }
+    if (!isObject(node)) return;
+    if (isTerm(node)) {
+      if (node.type === 'ref' && Array.isArray(node.value)) {
+        const head = (node.value as unknown[])[0];
+        if (isTerm(head) && head.type === 'var' && scope.has(head.value as string)) out.add(node);
+      }
+      if (node.type.endsWith('comprehension') && isObject(node.value)) {
+        const inner = new Set([...scope, ...declaredIn(node.value['body'])]);
+        for (const child of Object.values(node.value)) visit(child, inner);
+        return;
+      }
+    }
+    // `every k, v in domain { body }`
+    if ('domain' in node && Array.isArray(node['body'])) {
+      visit(node['domain'], scope);
+      const inner = new Set([...scope, ...declaredIn(node['body'])]);
+      patternVars(node['key'], inner);
+      patternVars(node['value'], inner);
+      visit(node['body'], inner);
+      return;
+    }
+    for (const child of Object.values(node)) visit(child, scope);
+  };
+  const visitRule = (rule: unknown, args: ReadonlySet<string>): void => {
+    if (!isObject(rule)) return;
+    const head = isObject(rule['head']) ? rule['head'] : undefined;
+    const own = new Set(args);
+    for (const arg of Array.isArray(head?.['args']) ? (head['args'] as unknown[]) : []) {
+      patternVars(arg, own);
+    }
+    const scope = new Set([...own, ...declaredIn(rule['body'])]);
+    visit(head, scope);
+    visit(rule['body'], scope);
+    // An `else` shares its function's arguments.
+    if (rule['else'] !== undefined) visitRule(rule['else'], own);
+  };
+  const rules = isObject(ast) && Array.isArray(ast['rules']) ? (ast['rules'] as unknown[]) : [];
+  for (const rule of rules) visitRule(rule, new Set());
+  return out;
 }
 
 /** The names a module mocks with `with`. */
@@ -595,18 +727,27 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
     if (!addEdit(alias, to, name, to, (t) => t === name)) return undefined;
   }
 
-  // Removed built-ins kept apart from their v1 counterpart (see Replacement):
-  // the module names both and mocks one of them.
+  // Removed built-ins kept apart from their v1 counterpart (see Replacement),
+  // and why: the module mocks one while calling both, or binds the first
+  // segment of the counterpart's name itself.
   const called = calledNames(ast);
   const mocked = mockedNames(ast);
-  const apart = new Set<string>();
+  const bound = boundNames(ast);
+  const apart = new Map<string, 'mocked' | 'bound'>();
   for (const [fn, replacement] of Object.entries(REMOVED_BUILTINS)) {
     if (!('rename' in replacement) || shadowing.has(fn.split('.')[0]!)) continue;
     const { rename } = replacement;
-    if (called.has(fn) && called.has(rename) && (mocked.has(fn) || mocked.has(rename))) {
-      apart.add(fn);
+    if (bound.has(rename.split('.')[0]!)) {
+      apart.set(fn, 'bound');
+    } else if (called.has(fn) && called.has(rename) && (mocked.has(fn) || mocked.has(rename))) {
+      apart.set(fn, 'mocked');
     }
   }
+  /** The helper a removed built-in is replaced by. */
+  const helperFor = (replacement: Replacement): Helper =>
+    'rename' in replacement
+      ? (replacement.apart.find((h) => !mocked.has(h.calls!)) ?? replacement.apart[0]!)
+      : replacement.helper;
 
   const helpersUsed = new Map<string, string>();
   const renamedBuiltins = new Set<string>();
@@ -616,8 +757,7 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
       renamedBuiltins.add(fn);
       return replacement.rename;
     }
-    const helper = 'rename' in replacement ? replacement.apart : replacement.helper;
-    const to = helpersUsed.get(fn) ?? freeName(helper.name, taken);
+    const to = helpersUsed.get(fn) ?? freeName(helperFor(replacement).name, taken);
     helpersUsed.set(fn, to);
     return to;
   };
@@ -626,6 +766,7 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
   // the package, or of one above it, binds. After `import data.policy.ingress`,
   // `ingress.contains` refers to the rule `contains` here.
   const packageRefs: Array<{ head: string; rest: string[] }> = [];
+  const locals = localRefs(ast);
   if (pkgPath) {
     packageRefs.push({ head: 'data', rest: pkgPath });
     for (const { path, alias } of importPaths(ast)) {
@@ -659,6 +800,8 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
       const first = segs[0];
       for (const { head: prefix, rest } of packageRefs) {
         if (!isTerm(first) || first.type !== 'var' || first.value !== prefix) continue;
+        // A local that reuses the import's name is not the package.
+        if (prefix !== 'data' && locals.has(node)) continue;
         if (segs.length <= rest.length + 1) continue;
         const matches = rest.every((p, i) => {
           const seg = segs[i + 1];
@@ -777,15 +920,29 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
       }
     }
     if (name === undefined) continue;
-    const helper = 'rename' in replacement ? replacement.apart : replacement.helper;
+    const helper = helperFor(replacement);
     if (!rewritten.endsWith('\n')) rewritten += '\n';
     rewritten +=
       '\n' + helper.body.replaceAll('NAME', name).replaceAll('@IF@', importsRegoV1 ? ' if' : '');
+    if (!('rename' in replacement)) {
+      notes.push(
+        `Replaced \`${fn}()\`, which Rego v1 removed, with \`${name}()\`, added at the end of the module, which returns what \`${fn}()\` did for every argument.`,
+      );
+      continue;
+    }
+    const { rename } = replacement;
+    const segment = rename.split('.')[0]!;
     notes.push(
-      'rename' in replacement
-        ? `Replaced \`${fn}()\`, which Rego v1 removed, with \`${name}()\`, added at the end of the module, which returns what \`${fn}()\` did without calling \`${replacement.rename}\`: this module mocks one of the two, and renaming would have let the mock reach calls made under the other name.`
-        : `Replaced \`${fn}()\`, which Rego v1 removed, with \`${name}()\`, added at the end of the module, which returns what \`${fn}()\` did for every argument.`,
+      `Replaced \`${fn}()\`, which Rego v1 removed, with \`${name}()\`, added at the end of the module, which returns what \`${fn}()\` did without calling \`${rename}\`: ` +
+        (apart.get(fn) === 'bound'
+          ? `this module binds the name \`${segment}\` itself, which would hide the built-in.`
+          : 'this module mocks one of the two, and renaming would have let the mock reach calls made under the other name.'),
     );
+    if (helper.calls !== undefined && mocked.has(helper.calls)) {
+      notes.push(
+        `A \`with\` here mocks \`${helper.calls}\`, which \`${name}()\` calls, so it now also reaches what were calls to \`${fn}\`.`,
+      );
+    }
   }
 
   const rewrites = edits

@@ -213,6 +213,19 @@ describe('opa_exec dataPaths', () => {
     expect(asBundle.ok, JSON.stringify(asBundle.error)).toBe(true);
   });
 
+  it('names the first error of a bundle with several', async () => {
+    const dir = p('two-v0-bundle');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'p.rego'),
+      'package authz\n\nallow {\n\tinput.user == "alice"\n}\n\ndeny[msg] {\n\tmsg := "x"\n}\n',
+    );
+    const env = await exec({ bundle: dir });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toMatch(/errors occurred: .*rego_parse_error/);
+    expect(env.error?.hint).toMatch(/v0Compatible/);
+  });
+
   it('reports data that conflicts with a rule as INVALID_REGO, naming the conflict', async () => {
     const dir = p('rule-data-conflict');
     await mkdir(dir, { recursive: true });

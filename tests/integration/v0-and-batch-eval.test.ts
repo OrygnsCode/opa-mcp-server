@@ -198,6 +198,58 @@ describe('the other tools on a v0 policy read without v0Compatible', () => {
     expect(env.data?.errors[0]?.code).toBe('rego_parse_error');
   });
 
+  it('rego_check_schema skips a data file, and refuses what opa cannot read', async () => {
+    const dir = join(workDir, 'schema-dir-cases');
+    await mkdir(join(dir, 'schemas'), { recursive: true });
+    await mkdir(join(dir, 'bundle'), { recursive: true });
+    await writeFile(join(dir, 'policy.rego'), 'package p\n\nallow if input.nosuch == "x"\n');
+    await writeFile(join(dir, 'data.json'), '{"a": 1}');
+    await writeFile(join(dir, 'schemas', 'input.json'), '{"type": "object"}');
+    await writeFile(
+      join(dir, 'bundle', 'policy.rego'),
+      'package p\n\nallow if input.nosuch == "x"\n',
+    );
+    await writeFile(join(dir, 'bundle', '.manifest'), '{"roots": ["other"]}');
+    const s = server();
+
+    const withData = await callTool(s, 'rego_check_schema', {
+      paths: [join(dir, 'policy.rego'), join(dir, 'data.json')],
+      schemaPath: join(dir, 'schemas'),
+    });
+    expect(withData.error?.code).toBe('INVALID_INPUT');
+    expect(withData.error?.message).toMatch(/carries none/);
+
+    const badManifest = await callTool(s, 'rego_check_schema', {
+      paths: [join(dir, 'bundle')],
+      schemaPath: join(dir, 'schemas'),
+    });
+    expect(badManifest.error?.code).toBe('INVALID_INPUT');
+    expect(badManifest.error?.message).toMatch(/could not read the annotations/);
+  });
+
+  it('rego_check_schema warns when the schema lets unknown fields through, as opa judges it', async () => {
+    const s = server();
+    const source = 'package p\n\nallow if input.anything == "x"\n';
+    for (const inlineSchema of [
+      { type: 'object' },
+      { oneOf: [{ type: 'object', properties: { kind: { type: 'string' } } }] },
+      { type: 'object', patternProperties: { '^x-': { type: 'string' } } },
+    ]) {
+      const env = await callTool<{ valid: boolean }>(s, 'rego_check_schema', {
+        source,
+        inlineSchema,
+      });
+      expect(env.data?.valid, JSON.stringify(inlineSchema)).toBe(true);
+      expect(env.warnings?.[0], JSON.stringify(inlineSchema)).toMatch(/does not name/);
+    }
+    const typed = await callTool<{ valid: boolean }>(s, 'rego_check_schema', {
+      source: 'package p\n\nallow if startswith(input, "a")\n',
+      inlineSchema: { type: 'string' },
+    });
+    expect(typed.data?.valid).toBe(true);
+    expect(typed.warnings).toBeUndefined();
+  });
+
   it("rego_policy_diff passes on opa's error for the side that failed", async () => {
     const s = makeServer();
     registerHelperTools(s, config);

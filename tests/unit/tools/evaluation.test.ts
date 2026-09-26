@@ -403,6 +403,17 @@ describe('rego_eval batch', () => {
     expect(env.error?.code).toBe('INVALID_INPUT');
     expect(env.error?.hint).toMatch(/unknowns/);
     expect(mockRun).not.toHaveBeenCalled();
+
+    // Naming the whole of `input` is the same thing spelled out.
+    const spelled = await callTool(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      partial: true,
+      unknowns: ['input'],
+      inputs: [{ role: 'viewer' }, { role: 'admin' }],
+    });
+    expect(spelled.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it('fails the whole call when the binary is missing', async () => {
@@ -1978,6 +1989,25 @@ describe('opa_exec', () => {
       expect(env.error?.hint).toMatch(/pass it as `bundle`/);
     });
 
+    it('reports dataPaths on two drives as an input error, not a data file that does not parse', async () => {
+      answerBuildThenExec(
+        spawnFailure(
+          1,
+          'load paths span more than one drive (c:\\, d:\\). opa reads an absolute path as prefix:path, so on Windows it can load documents from only one drive at a time. Use paths on a single drive.',
+        ),
+      );
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'data.rbac.allow',
+        dataPaths: [validRegoPath()],
+      });
+      expect(env.error?.code).toBe('INVALID_INPUT');
+      expect(env.error?.hint).toMatch(/one drive/);
+      expect(callsTo('exec')).toHaveLength(0);
+    });
+
     it('names a bundle archive inside a directory, which the built bundle leaves out', async () => {
       await writeFile(join(workDir, 'policy.rego'), 'package p\n');
       await mkdir(join(workDir, 'vendor'));
@@ -2121,6 +2151,54 @@ describe('opa_exec', () => {
       expect(env.error?.message).not.toContain('allow {');
       expect(env.error?.hint).toMatch(/v0Compatible/);
     }
+  });
+
+  it('names the first of several errors, not only their count', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        execLog(
+          'Bundle load failed: 3 errors occurred:\n/p.rego:3: rego_parse_error: `if` keyword is required before rule body\n\tallow {\n/p.rego:7: rego_parse_error: `contains` keyword is required for partial set rules',
+        ),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      bundle: fixturePath('policies', 'valid'),
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toBe(
+      'The policy did not load: Bundle load failed: 3 errors occurred: /p.rego:3: rego_parse_error: `if` keyword is required before rule body',
+    );
+    expect(env.error?.hint).toMatch(/v0Compatible/);
+  });
+
+  it('gives the cause opa logs under a generic message', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        JSON.stringify({
+          err: 'exec error: timed out before OPA was ready. This can happen when a remote bundle is malformed, or the timeout is set too low for normal OPA initialization',
+          level: 'error',
+          msg: 'Unexpected error.',
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'opa_exec', {
+      inputPaths: [validInputPath()],
+      decision: 'data.rbac.allow',
+      bundle: fixturePath('policies', 'valid'),
+      timeout: '1ns',
+    });
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.message).toMatch(
+      /^opa exec failed: exec error: timed out before OPA was ready/,
+    );
   });
 
   it('names the reason of a failure that is not the policy', async () => {

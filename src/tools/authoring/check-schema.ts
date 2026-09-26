@@ -98,12 +98,17 @@ export function declaresSchemas(source: string): boolean {
   return false;
 }
 
+/** A data file: it carries no annotations, and opa inspect cannot read one. */
+const DATA_FILE = /\.(json|ya?ml)$/i;
+
 /**
  * Whether any policy under `paths` carries a `schemas:` annotation, as OPA
  * itself reads it. Asking opa keeps this tool from reading policy files on
- * its own. A path opa cannot load leaves the answer open (`undefined`), for
- * opa check to report why: counting it as carrying none turned a policy that
- * does not parse, such as a pre-1.0 one read as v1, into that complaint.
+ * its own. A policy that does not parse leaves the answer open (`undefined`),
+ * for opa check to report as a diagnostic: counting it as carrying none turned
+ * a pre-1.0 policy read as v1 into that complaint. Any other failure to read
+ * the annotations is an error, since opa check would pass without them and
+ * without reading the schema directory.
  */
 async function anyPathDeclaresSchemas(
   opa: OpaCli,
@@ -111,14 +116,26 @@ async function anyPathDeclaresSchemas(
   v0Compatible: boolean | undefined,
   signal: AbortSignal | undefined,
 ): Promise<boolean | undefined | ToolEnvelope<never>> {
-  let unloaded = false;
+  let unparsed = false;
   for (const target of paths) {
+    if (DATA_FILE.test(target) && !(await stat(target)).isDirectory()) continue;
     const result = await opa.inspect({ target, v0Compatible }, signal);
     const failure = mapSubprocessFailure(result, 'opa');
     if (failure) return failure;
     if (result.exitCode !== 0) {
-      unloaded = true;
-      continue;
+      const output = `${result.stderr}\n${result.stdout}`.trim();
+      if (/rego_[a-z_]+_error/.test(output)) {
+        unparsed = true;
+        continue;
+      }
+      return err(
+        'INVALID_INPUT',
+        `opa could not read the annotations under ${target}, so it is not known whether the schema directory would be read: ${output.split(/\r?\n/)[0]}`,
+        {
+          hint: 'Pass the schema file directly, or supply it as inlineSchema.',
+          details: { output },
+        },
+      );
     }
     const parsed = tryParseJson<{
       annotations?: Array<{ annotations?: { schemas?: unknown } }>;
@@ -128,25 +145,25 @@ async function anyPathDeclaresSchemas(
     );
     if (declared) return true;
   }
-  return unloaded ? undefined : false;
+  return unparsed ? undefined : false;
 }
 
+/** A policy whose one reference names a field no schema would. */
+const PROBE = 'package q__probe\n\nimport rego.v1\n\np if input.q__no_such_field == 1\n';
+
 /**
- * Whether a schema says nothing opa can check a reference against: no
- * properties and nothing that brings any in. opa then accepts every `input`
- * reference, even with `additionalProperties: false`. An inferred schema comes
- * out like this when no policy file could be read.
+ * Whether opa, checking against this schema, lets through a reference to an
+ * `input` field the schema does not name. It does for a schema with no
+ * `properties`, and for keywords its checker ignores, such as `oneOf` and
+ * `patternProperties`; asking opa beats keeping a list of those.
  */
-export function constrainsNothing(schema: unknown): boolean {
-  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) return false;
-  const s = schema as Record<string, unknown>;
-  const properties = s['properties'];
-  const hasProperties =
-    typeof properties === 'object' && properties !== null && Object.keys(properties).length > 0;
-  const composed = ['$ref', 'allOf', 'anyOf', 'oneOf', 'items', 'patternProperties'].some(
-    (k) => k in s,
-  );
-  return !hasProperties && !composed;
+async function acceptsUnknownFields(
+  opa: OpaCli,
+  schemaFile: string,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  const probe = await opa.check({ source: PROBE, schemaDir: schemaFile }, signal);
+  return mapSubprocessFailure(probe, 'opa') === undefined && probe.exitCode === 0;
 }
 
 export function registerRegoCheckSchema(server: McpServer, config: Config): void {
@@ -258,11 +275,14 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
           if (subprocessFailure) return subprocessFailure;
 
           if (result.exitCode === 0) {
+            // A directory is read through annotations, each naming its own file.
+            const schemaIsFile =
+              resolvedSchemaFile !== undefined && !(await stat(resolvedSchemaFile)).isDirectory();
             return ok<RegoCheckSchemaOutput>(
               { valid: true, errors: [] },
-              inlineSchema !== undefined && constrainsNothing(inlineSchema)
+              schemaIsFile && (await acceptsUnknownFields(opa, resolvedSchemaFile!, signal))
                 ? [
-                    'The schema names no properties, so opa accepts every `input` reference against it and nothing was checked. A schema from rego_infer_input_schema comes out like this when it could not read the policy; see the warnings it gave.',
+                    'The schema lets through `input` fields it does not name, so a reference to one that does not exist, such as a misspelling, passes. A schema from rego_infer_input_schema is like this when it could not read the policy.',
                   ]
                 : undefined,
             );

@@ -465,6 +465,85 @@ describe('rego_migrate_v1 edge cases', () => {
     expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
   });
 
+  it('leaves a local that reuses the name of an import of the package alone', async () => {
+    const source = lines(
+      'package policy.ingress',
+      '',
+      'import data.policy.ingress',
+      '',
+      'contains[x] {',
+      '\tx := input.xs[_]',
+      '}',
+      '',
+      'allow {',
+      '\tingress := input.ingress',
+      '\tingress.contains == "yes"',
+      '}',
+      '',
+      'f(ingress) = ingress.contains',
+      '',
+      'g = r {',
+      '\tr := [v | ingress := input.list[_]; v := ingress.contains]',
+      '}',
+      '',
+      'total = count(ingress.contains)',
+    );
+    const env = await migrate({
+      source,
+      inputs: [{ xs: ['a'], ingress: { contains: 'yes' }, list: [{ contains: 1 }] }],
+      queries: ['data.policy.ingress.f({"contains": 7})'],
+    });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('ingress.contains == "yes"');
+    expect(env.data?.migrated).toContain('count(ingress.contains_)');
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('gives re_match a helper when the module names something `regex`', async () => {
+    const source = lines(
+      'package names',
+      '',
+      'name_ok(name, regex) {',
+      '\tre_match(regex, name)',
+      '}',
+      '',
+      'allow {',
+      '\tname_ok(input.name, "^[a-z]+$")',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ name: 'abc' }, { name: 'A1' }] });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('re_match_(regex, name)');
+    expect(env.data?.notes.join(' ')).toMatch(/binds the name `regex` itself/);
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('builds the helper on another built-in when the module mocks regex.find_n too', async () => {
+    const source = lines(
+      'package mocks2',
+      '',
+      'm(a, b) = true',
+      '',
+      'mn(a, b, c) = ["x"]',
+      '',
+      'a {',
+      '\tre_match("^x", input.s)',
+      '}',
+      '',
+      'b {',
+      '\tregex.match("^x", input.s)',
+      '}',
+      '',
+      't {',
+      '\ta with regex.match as m with regex.find_n as mn',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ s: 'abc' }, { s: 'xyz' }] });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('regex.find_all_string_submatch_n(pattern, value, 1)');
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
   it('renames an import alias v1 reserves, and its uses', async () => {
     const source = lines(
       'package aliases',

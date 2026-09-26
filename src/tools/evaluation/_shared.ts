@@ -303,11 +303,11 @@ export async function runEvalBatch(
       `\`inputs\` must hold between 1 and ${MAX_BATCH_INPUTS} documents; it holds ${inputs.length}.`,
     );
   }
-  if (args.partial && !args.unknowns?.length) {
+  if (args.partial && (!args.unknowns?.length || args.unknowns.some((u) => u.trim() === 'input'))) {
     return err(
       'INVALID_INPUT',
-      'With `partial` and no `unknowns`, opa treats the whole input as unknown and ignores each document, so every entry would get the same residual.',
-      { hint: 'Name what stays unknown, for example `unknowns: ["input.region"]`.' },
+      'With `partial` and the whole of `input` unknown, which is also what no `unknowns` means, opa ignores each input document, so every entry would get the same residual.',
+      { hint: 'Name the part that stays unknown, for example `unknowns: ["input.region"]`.' },
     );
   }
   const prepared = prepareEval(config, args, {});

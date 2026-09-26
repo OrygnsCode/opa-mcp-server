@@ -39,7 +39,7 @@ not part of the public surface and may change in minor releases.
   after an input times out the inputs not yet started are reported with the
   code `NOT_EVALUATED` rather than run. `partial` with `inputs` needs
   `unknowns`: without them opa treats all of `input` as unknown and every
-  entry would get the same residual.
+  entry would get the same residual, and so does `unknowns: ["input"]`.
 
 ### Changed
 
@@ -52,9 +52,10 @@ not part of the public surface and may change in minor releases.
   return what each built-in did for every argument. `all()` in particular
   skips the undefined elements of a comprehension, which the usual `every`
   rewrite does not. A `with` that mocks `re_match` or `net.cidr_overlap`
-  follows the rename, unless the module also calls the v1 name and mocks
-  either one, which after a rename would reach both; the old name then gets
-  a helper of its own. An import whose name v1 reserves or gives to a
+  follows the rename. Where a rename would change behaviour, the old name
+  gets a helper of its own instead: when the module calls both names and
+  mocks either, which would then reach both, and when it binds `regex` or
+  `net` itself, which would hide the built-in. An import whose name v1 reserves or gives to a
   removed built-in, by its path or its alias, is renamed along with its
   uses. The output lists each rewrite by line. Given `inputs`, it evaluates
   the original as v0 and the result as v1 on each and reports any rule whose
@@ -81,8 +82,8 @@ not part of the public surface and may change in minor releases.
 - `opa_exec` loads `dataPaths` the way `opa eval --data` loads them. Each
   entry used to reach `opa exec` as a bundle of its own, so a `.rego` file
   failed with "gzip: invalid header", two directories failed as bundles with
-  overlapping roots, and a data file not named `data.json` or `data.yaml`
-  was skipped. Plain files and directories are now built into one bundle
+  overlapping roots, and a data file not named `data.json`, `data.yaml` or
+  `data.yml` was skipped. Plain files and directories are now built into one bundle
   first, which adds one `opa build` to the call. A directory therefore
   contributes every JSON and YAML file in it, so one that loaded before now
   fails if it holds conflicting files, such as test fixtures, or files that
@@ -93,9 +94,11 @@ not part of the public surface and may change in minor releases.
   `.manifest` are still loaded as bundles.
 - `rego_check_schema` with a schema directory said a policy it could not
   parse, such as a pre-1.0 one checked without `v0Compatible`, carried no
-  `schemas:` annotations. The parse error is reported instead. It also warns
-  when an inline schema names no properties, since opa then accepts every
-  `input` reference and checks nothing.
+  `schemas:` annotations. The parse error is reported instead, and a path
+  whose annotations opa cannot read for another reason is an error rather
+  than a pass. A check that passes also warns when the schema lets through
+  `input` fields it does not name, as a schema with no `properties` does, so
+  a misspelled field would not have been caught.
 - `rego_policy_diff` reports opa's error when a side fails to evaluate; it
   used to return only an empty stderr.
 - `rego_deps` points at `rego_migrate_v1` when a policy fails to parse
