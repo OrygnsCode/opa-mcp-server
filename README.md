@@ -22,9 +22,14 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
-> **Status:** v0.6.0. Tool surface, error codes, and
+> **Status:** v0.7.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.7.0:** Node.js 22 or later is required. The bundled OPA
+> is 1.21, which reads YAML against the 1.2 schema: bare `yes`, `no`, `on`
+> and `off` in data files are strings now, not booleans. If you supply your
+> own binary via `OPA_BINARY` or `PATH`, only the Node requirement applies.
 
 > **Upgrading to 0.6.0:** `rego_bench` reports `iterations`, `nsPerOp`,
 > `allocsPerOp` and `bytesPerOp`. The fields opa prints (`N`, `T`, `Bytes`,

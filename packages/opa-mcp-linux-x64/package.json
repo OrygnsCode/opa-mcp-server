@@ -1,6 +1,6 @@
 {
   "name": "@orygn/opa-mcp-linux-x64",
-  "version": "0.3.0",
+  "version": "0.7.0",
   "description": "OPA binary (linux x64) bundled for @orygn/opa-mcp. Installed automatically as an optional dependency; do not depend on it directly.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/OrygnsCode/opa-mcp-server",
@@ -28,5 +28,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "opaVersion": "1.19.0"
+  "opaVersion": "1.21.0"
 }
