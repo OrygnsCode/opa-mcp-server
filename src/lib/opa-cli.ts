@@ -31,6 +31,8 @@ export interface FmtInput {
   source: string;
   /** Format for compatibility with both Rego v1 and the current OPA version (`opa fmt --rego-v1`). */
   regoV1?: boolean;
+  /** Read and write the source as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for `opa fmt --list` / `opa fmt --write` (file-based formatting). */
@@ -78,12 +80,16 @@ export interface ParseInput {
    * to identify which body expression is blocking each rule.
    */
   includeLocations?: boolean;
+  /** Read the policy as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for `opa inspect`. */
 export interface InspectInput {
   /** Path to a bundle archive, directory, or single Rego file. */
   target: string;
+  /** Read the policy as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for `opa capabilities`. */
@@ -144,6 +150,8 @@ export interface EvalInput {
   capabilities?: string;
   /** Schema directory for input/data validation. */
   schemaDir?: string;
+  /** Read the policy as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for `opa test`. */
@@ -203,6 +211,8 @@ export interface TestInput {
   explain?: 'fails' | 'full' | 'notes' | 'debug';
   /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
   v1Compatible?: boolean;
+  /** Read the policy as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for `opa bench`. */
@@ -217,6 +227,8 @@ export interface BenchInput {
   inputPath?: string;
   /** Number of benchmark iterations. */
   count?: number;
+  /** Read the policy as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for `opa build`. */
@@ -249,6 +261,8 @@ export interface BuildInput {
   ignore?: string[];
   /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
   v1Compatible?: boolean;
+  /** Read the policy as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
   /** PEM public key / HMAC secret path to re-verify a signed bundle during build (`--verification-key`). */
   verificationKey?: string;
   /** Key ID for verification (`--verification-key-id`, OPA default `default`). */
@@ -307,6 +321,8 @@ export interface ExecInput {
   timeout?: string;
   /** Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`). */
   v1Compatible?: boolean;
+  /** Read the policy as Rego v0 (`--v0-compatible`). */
+  v0Compatible?: boolean;
 }
 
 /** Input for bundle signature verification via `opa build --verification-key`. */
@@ -370,6 +386,7 @@ export class OpaCli {
   async fmt(input: FmtInput, signal?: AbortSignal): Promise<SpawnResult> {
     const args = ['fmt'];
     if (input.regoV1) args.push('--rego-v1');
+    if (input.v0Compatible) args.push('--v0-compatible');
     return this.withTempSource(input.source, (path) =>
       this.run([...args, path], undefined, signal),
     );
@@ -453,6 +470,7 @@ export class OpaCli {
     return this.withTempSource(input.source, (path) => {
       const args = ['parse', '--format=json'];
       if (input.includeLocations) args.push('--json-include', 'locations,-comments');
+      if (input.v0Compatible) args.push('--v0-compatible');
       args.push(path);
       return this.run(args, undefined, signal);
     });
@@ -463,12 +481,10 @@ export class OpaCli {
    * packages, namespaces, manifest, and annotations as JSON on stdout.
    */
   async inspect(input: InspectInput, signal?: AbortSignal): Promise<SpawnResult> {
-    return this.run(
-      ['inspect', '--format=json', '--annotations', input.target],
-      undefined,
-      signal,
-      [input.target],
-    );
+    const args = ['inspect', '--format=json', '--annotations'];
+    if (input.v0Compatible) args.push('--v0-compatible');
+    args.push(input.target);
+    return this.run(args, undefined, signal, [input.target]);
   }
 
   /**
@@ -538,6 +554,7 @@ export class OpaCli {
     for (const imp of input.imports ?? []) args.push('--import', imp);
     if (input.capabilities) args.push('--capabilities', input.capabilities);
     if (input.schemaDir) args.push('--schema', input.schemaDir);
+    if (input.v0Compatible) args.push('--v0-compatible');
 
     let stdin: string | undefined;
     if (input.input !== undefined) {
@@ -571,6 +588,7 @@ export class OpaCli {
     if (input.timeout) args.push('--timeout', input.timeout);
     if (input.explain) args.push('--explain', input.explain);
     if (input.v1Compatible) args.push('--v1-compatible');
+    if (input.v0Compatible) args.push('--v0-compatible');
     args.push(...input.paths);
     return this.run(args, undefined, signal, input.paths);
   }
@@ -583,6 +601,7 @@ export class OpaCli {
     for (const path of input.paths ?? []) args.push('--data', path);
     if (input.inputPath) args.push('--input', input.inputPath);
     if (input.count !== undefined) args.push('--count', String(input.count));
+    if (input.v0Compatible) args.push('--v0-compatible');
 
     let stdin: string | undefined;
     if (input.input !== undefined) {
@@ -615,6 +634,7 @@ export class OpaCli {
     if (input.bundle) args.push('--bundle');
     if (input.pruneUnused) args.push('--prune-unused');
     if (input.v1Compatible) args.push('--v1-compatible');
+    if (input.v0Compatible) args.push('--v0-compatible');
     for (const pat of input.ignore ?? []) args.push('--ignore', pat);
     if (input.verificationKey) args.push('--verification-key', input.verificationKey);
     if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
@@ -683,6 +703,7 @@ export class OpaCli {
     if (input.failNonEmpty) args.push('--fail-non-empty');
     if (input.timeout) args.push('--timeout', input.timeout);
     if (input.v1Compatible) args.push('--v1-compatible');
+    if (input.v0Compatible) args.push('--v0-compatible');
     // The --bundle roots are mounted. The positional input files are read as
     // the input document for each evaluation, not mounted, so they are left
     // exactly as given.

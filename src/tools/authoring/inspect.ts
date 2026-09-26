@@ -16,12 +16,14 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoInspectInput = {
   target: z
     .string()
     .min(1)
     .describe('Path to a bundle archive (`*.tar.gz`), directory, or single Rego file.'),
+  v0Compatible: v0CompatibleField,
 };
 
 export interface RegoInspectOutput {
@@ -48,13 +50,13 @@ export function registerRegoInspect(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ target }, { signal }) => {
+    async ({ target, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoInspectOutput>(config, async () => {
         const validation = validatePaths([target], config, { mustExist: true });
         if (!validation.ok) return validation.error;
         const [resolved] = validation.resolved;
 
-        const result = await opa.inspect({ target: resolved! }, signal);
+        const result = await opa.inspect({ target: resolved!, v0Compatible }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

@@ -33,6 +33,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoCheckSchemaInput = {
   source: z
@@ -65,6 +66,7 @@ const RegoCheckSchemaInput = {
     .describe(
       'Enable strict mode -- also fail on unused variables, deprecated builtins, and other non-fatal issues in addition to schema violations.',
     ),
+  v0Compatible: v0CompatibleField,
 };
 
 interface CheckErrorRecord {
@@ -104,10 +106,11 @@ export function declaresSchemas(source: string): boolean {
 async function anyPathDeclaresSchemas(
   opa: OpaCli,
   paths: readonly string[],
+  v0Compatible: boolean | undefined,
   signal: AbortSignal | undefined,
 ): Promise<boolean | ToolEnvelope<never>> {
   for (const target of paths) {
-    const result = await opa.inspect({ target }, signal);
+    const result = await opa.inspect({ target, v0Compatible }, signal);
     const failure = mapSubprocessFailure(result, 'opa');
     if (failure) return failure;
     if (result.exitCode !== 0) continue;
@@ -139,7 +142,7 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
         openWorldHint: false,
       },
     },
-    async ({ source, paths, inlineSchema, schemaPath, strict }, { signal }) => {
+    async ({ source, paths, inlineSchema, schemaPath, strict, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoCheckSchemaOutput>(config, async () => {
         // ── Policy input validation ─────────────────────────────────────
         if (!source && !paths?.length) {
@@ -190,7 +193,7 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
             const annotated =
               source !== undefined
                 ? declaresSchemas(source)
-                : await anyPathDeclaresSchemas(opa, resolvedPaths ?? [], signal);
+                : await anyPathDeclaresSchemas(opa, resolvedPaths ?? [], v0Compatible, signal);
             if (typeof annotated !== 'boolean') return annotated;
             if (!annotated) {
               return err(
@@ -222,6 +225,7 @@ export function registerRegoCheckSchema(server: McpServer, config: Config): void
               paths: resolvedPaths,
               strict,
               schemaDir: resolvedSchemaFile,
+              v0Compatible,
             },
             signal,
           );

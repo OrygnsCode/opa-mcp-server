@@ -20,6 +20,12 @@ import {
 
 const RegoFormatInput = {
   source: z.string().min(1).describe('Rego source code to format.'),
+  v0Compatible: z
+    .boolean()
+    .optional()
+    .describe(
+      'Format a policy written in pre-1.0 Rego as pre-1.0 Rego (`--v0-compatible`), leaving its syntax as it is. OPA 1.x otherwise refuses it. To convert it to Rego v1 instead, use `rego_migrate_v1`.',
+    ),
 };
 
 export interface RegoFormatOutput {
@@ -82,7 +88,7 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source }, { signal }) => {
+    async ({ source, v0Compatible }, { signal }) => {
       return withToolEnvelope(config, async () => {
         const warnings: string[] = [];
 
@@ -111,7 +117,7 @@ export function registerRegoFormat(server: McpServer, config: Config): void {
           }
         }
 
-        const result = await opa.fmt({ source }, signal);
+        const result = await opa.fmt({ source, v0Compatible }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

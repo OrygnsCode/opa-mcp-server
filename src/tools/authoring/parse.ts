@@ -18,9 +18,11 @@ import {
   tryParseJson,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoParseAstInput = {
   source: z.string().min(1).describe('Rego source code to parse.'),
+  v0Compatible: v0CompatibleField,
 };
 
 export interface RegoParseAstOutput {
@@ -44,9 +46,9 @@ export function registerRegoParseAst(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source }, { signal }) => {
+    async ({ source, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoParseAstOutput>(config, async () => {
-        const result = await opa.parse({ source }, signal);
+        const result = await opa.parse({ source, v0Compatible }, signal);
 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;

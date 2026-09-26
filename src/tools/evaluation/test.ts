@@ -21,6 +21,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoTestInput = {
   paths: z
@@ -90,6 +91,7 @@ const RegoTestInput = {
     .boolean()
     .optional()
     .describe('Opt in to OPA v1.0-compatible behaviors (`--v1-compatible`).'),
+  v0Compatible: v0CompatibleField,
 };
 
 export interface TestRecord {
@@ -223,10 +225,17 @@ export function registerRegoTest(server: McpServer, config: Config): void {
         timeout,
         explain,
         v1Compatible,
+        v0Compatible,
       },
       { signal },
     ) => {
       return withToolEnvelope<RegoTestOutput>(config, async () => {
+        if (v0Compatible && v1Compatible) {
+          return err(
+            'INVALID_INPUT',
+            '`v0Compatible` and `v1Compatible` ask for opposite Rego versions; set one.',
+          );
+        }
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
 
@@ -252,6 +261,7 @@ export function registerRegoTest(server: McpServer, config: Config): void {
             timeout,
             explain,
             v1Compatible,
+            v0Compatible,
           },
           signal,
         );

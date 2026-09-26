@@ -19,6 +19,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoCheckInput = {
   source: z.string().optional().describe('Inline Rego source. Mutually exclusive with `paths`.'),
@@ -51,6 +52,7 @@ const RegoCheckInput = {
     .describe(
       'Load `paths` as bundle files or root directories (`--bundle`). Only valid with `paths`, not inline `source`.',
     ),
+  v0Compatible: v0CompatibleField,
 };
 
 interface CheckErrorRecord {
@@ -81,7 +83,10 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source, paths, strict, capabilities, schemaDir, maxErrors, bundle }, { signal }) => {
+    async (
+      { source, paths, strict, capabilities, schemaDir, maxErrors, bundle, v0Compatible },
+      { signal },
+    ) => {
       return withToolEnvelope<RegoCheckOutput>(config, async () => {
         if (!source && !paths?.length) {
           return err(
@@ -129,6 +134,7 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
             schemaDir: resolvedSchemaDir,
             maxErrors,
             bundle,
+            v0Compatible,
           },
           signal,
         );

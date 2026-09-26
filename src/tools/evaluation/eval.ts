@@ -4,12 +4,33 @@
  * Each variant is a thin adapter -- same input shape, different OPA
  * flags -- built on the shared `runEval` helper.
  */
+import { z } from 'zod';
+
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
-import { runEval, SharedEvalInput, type RegoEvalOutput } from './_shared.js';
+import {
+  MAX_BATCH_INPUTS,
+  runEval,
+  runEvalBatch,
+  SharedEvalInput,
+  type RegoEvalBatchOutput,
+  type RegoEvalOutput,
+} from './_shared.js';
+
+const RegoEvalInput = {
+  ...SharedEvalInput,
+  inputs: z
+    .array(z.unknown())
+    .min(1)
+    .max(MAX_BATCH_INPUTS)
+    .optional()
+    .describe(
+      `Several input documents to evaluate the same query against, up to ${MAX_BATCH_INPUTS}, in place of \`input\`/\`inputPath\`. The result is \`batch\`: one entry per input, in order, each holding that input's \`result\` (empty when the query was undefined for it) or an \`error\`. An input that fails at runtime does not stop the others. A policy that does not compile fails the call, and after an input times out the inputs not yet started come back as \`NOT_EVALUATED\`.`,
+    ),
+};
 
 export function registerRegoEval(server: McpServer, config: Config): void {
   const opa = new OpaCli(config);
@@ -19,15 +40,20 @@ export function registerRegoEval(server: McpServer, config: Config): void {
     {
       title: 'Evaluate Rego query',
       description:
-        'Evaluate a Rego query against a policy and an input document using `opa eval`. Returns the standard `{result: [...]}` shape. The bread-and-butter authoring tool.',
-      inputSchema: SharedEvalInput,
+        'Evaluate a Rego query against a policy and an input document using `opa eval`. Returns the standard `{result: [...]}` shape. The bread-and-butter authoring tool. The policy is optional, so a query alone tries out a built-in or an expression. Pass `inputs` to evaluate one query against many input documents in one call, and `v0Compatible` for a policy still written in pre-1.0 Rego.',
+      inputSchema: RegoEvalInput,
       annotations: {
         readOnlyHint: false,
         // Runs Rego supplied by the caller; a policy can reach the network through http.send.
         openWorldHint: true,
       },
     },
-    async (args, { signal }) => {
+    async ({ inputs, ...args }, { signal }) => {
+      if (inputs !== undefined) {
+        return withToolEnvelope<RegoEvalBatchOutput>(config, () =>
+          runEvalBatch(opa, config, args, inputs, signal),
+        );
+      }
       return withToolEnvelope<RegoEvalOutput>(config, () => runEval(opa, config, args, {}, signal));
     },
   );

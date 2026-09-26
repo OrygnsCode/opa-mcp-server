@@ -31,6 +31,8 @@ interface TraceEvent {
 export interface RegoExplainDecisionOutput {
   result: unknown;
   errors?: unknown[];
+  /** See `RegoEvalOutput.hint`: set when nothing was loaded for a `data` query. */
+  hint?: string;
   rulesFired: string[];
   rulesEvaluated: string[];
   trace: TraceEvent[];
@@ -118,6 +120,7 @@ export function registerRegoExplainDecision(server: McpServer, config: Config): 
                   ?.expressions?.[0]?.value
               : undefined,
           errors: data.errors,
+          ...(data.hint !== undefined ? { hint: data.hint } : {}),
           rulesFired: [...summary.rulesFired],
           rulesEvaluated: [...summary.rulesEvaluated],
           trace,

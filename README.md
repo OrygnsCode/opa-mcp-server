@@ -45,8 +45,9 @@ environment.
 
 > **Upgrading to 0.3.0:** the bundled OPA is now 1.19, so Rego v0 policies
 > no longer parse (`if` is required before a rule body, `contains` before a
-> partial set). Run `rego_migrate_v1` to convert them. If you supply your own
-> binary via `OPA_BINARY` or `PATH`, nothing changes.
+> partial set). Run `rego_migrate_v1` to convert them, or pass
+> `v0Compatible: true` to load one as it is. If you supply your own binary via
+> `OPA_BINARY` or `PATH`, nothing changes.
 
 ---
 
@@ -367,11 +368,18 @@ Operate on Rego source code without needing a running OPA server. Wrap
 ### Category B: Evaluation & testing
 
 Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
-`opa bench`.
+`opa bench`. Each of these tools takes `v0Compatible` to load a policy
+written before OPA 1.0 without migrating it, and so do the other tools that
+hand a policy straight to `opa`: `rego_check`, `rego_check_schema`,
+`rego_format`, `rego_format_write`, `rego_parse_ast`, `rego_inspect`,
+`rego_coverage_gaps`, `rego_explain_decision`, `opa_bundle_build` and
+`opa_bundle_verify`. Tools that do more than pass a policy to one `opa`
+command, such as `rego_explain_undefined`, `rego_policy_diff` and
+`rego_verify`, read Rego v1 only; run `rego_migrate_v1` first.
 
 | Tool                      | What it does                                                                                                                                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool.                                                                                                                                                                      |
+| `rego_eval`               | Evaluate a query against a policy and input. The bread-and-butter tool. `inputs` evaluates the query against up to 50 input documents in one call and reports each; with no policy, a query alone tries out a built-in or an expression.     |
 | `rego_eval_with_explain`  | Evaluate with `--explain=full` and return a structured trace.                                                                                                                                                                                |
 | `rego_eval_with_profile`  | Evaluate with `--profile` and return per-rule timing and evaluation counts.                                                                                                                                                                  |
 | `rego_eval_with_coverage` | Evaluate with `--coverage` and return per-line coverage.                                                                                                                                                                                     |
