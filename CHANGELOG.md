@@ -17,6 +17,11 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The release workflow waits for npm to serve a newly published version
+  before registering it with the MCP Registry, which checks that it exists.
+
 ## [0.7.0] - 2026-09-26
 
 ### Added
