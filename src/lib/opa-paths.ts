@@ -27,6 +27,11 @@
  * workspace and its temp directory on different drives it is not. So every
  * load path, module or not, takes part in choosing the working directory;
  * only the non-module ones are respelled.
+ *
+ * OPA 1.20 stopped splitting a drive-rooted or UNC path on its colon, so a
+ * current binary loads the absolute spelling correctly. The rewrite stays for
+ * an older binary reached through `OPA_BINARY` or `PATH`, and is harmless on
+ * a newer one: the relative spelling loads the same document either way.
  */
 import { existsSync } from 'node:fs';
 import { dirname, extname, isAbsolute, parse, relative, sep } from 'node:path';

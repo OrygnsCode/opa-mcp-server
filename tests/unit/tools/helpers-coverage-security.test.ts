@@ -576,8 +576,8 @@ describe('rego_security_audit', () => {
     expect(catArgs).toContain('bugs');
   });
 
-  // Regal 0.42 refuses a category no rule defines. The sweep then runs once
-  // more with bugs alone, so a project without custom security rules still
+  // Regal 0.31 and later refuse a category no rule defines. The sweep then
+  // runs once more with bugs alone, so a project without custom security rules still
   // gets its report.
   it('runs again with only the bugs category when regal rejects security', async () => {
     mockRun

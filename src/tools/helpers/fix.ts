@@ -18,8 +18,8 @@
  * field in the output tells you where a file was moved. Run with
  * `dryRun: true` first to see what would change.
  *
- * Regal before 0.42 refuses files with uncommitted git changes unless
- * `force: true` is set; that is regal's own check, and 0.42 removed it.
+ * Regal before 0.41 refuses files with uncommitted git changes unless
+ * `force: true` is set; that is regal's own check, and 0.41 removed it.
  */
 import { join, normalize } from 'node:path';
 import { z } from 'zod';
@@ -48,7 +48,7 @@ const RegoFixInput = {
     .boolean()
     .optional()
     .describe(
-      'Allow fixing files that have uncommitted git changes, or when the project is not a git repository. Without this flag regal refuses to touch uncommitted files.',
+      'On Regal before 0.41, allow fixing files that have uncommitted git changes; those releases refuse them otherwise. Regal 0.41 removed that check, and the flag is not sent to it.',
     ),
   configFile: z.string().optional().describe('Path to a Regal config file (.regal/config.yaml).'),
   disable: z
@@ -193,7 +193,7 @@ export function registerRegoFix(server: McpServer, config: Config): void {
     {
       title: 'Auto-fix Rego violations',
       description:
-        'Run regal fix to automatically apply mechanical fixes. Regal 0.42 fixes opa-fmt, use-rego-v1, use-assignment-operator, no-whitespace-comment, directory-package-mismatch, non-raw-regex-pattern, prefer-equals-comparison, redundant-existence-check and constant-condition; older releases fix a subset. Use dryRun: true to preview changes before modifying files. NOTE: directory-package-mismatch moves files to match their package path -- use disable: ["directory-package-mismatch"] to skip it. Regal before 0.42 refuses files with uncommitted git changes unless force: true. Requires regal.',
+        'Run regal fix to automatically apply mechanical fixes. Regal 0.42 fixes opa-fmt, use-rego-v1, use-assignment-operator, no-whitespace-comment, directory-package-mismatch, non-raw-regex-pattern, prefer-equals-comparison, redundant-existence-check and constant-condition; older releases fix a subset. Use dryRun: true to preview changes before modifying files. NOTE: directory-package-mismatch moves files to match their package path -- use disable: ["directory-package-mismatch"] to skip it. Regal before 0.41 refuses files with uncommitted git changes unless force: true. Requires regal.',
       inputSchema: RegoFixInput,
       annotations: {
         readOnlyHint: false,

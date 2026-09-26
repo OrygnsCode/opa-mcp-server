@@ -178,20 +178,27 @@ describe('RegalCli', () => {
     });
 
     it('adds --force when force is true and regal still has its git check', async () => {
-      mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: 'Version: 0.41.1\n' });
+      mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: 'Version: 0.40.0\n' });
       await regal.fix({ paths: ['/abs/policy.rego'], force: true });
       expect(mockRun.mock.calls[0]![1].args).toEqual(['version']);
       expect(mockRun.mock.calls[1]![1].args).toContain('--force');
     });
 
-    it('drops --force on regal 0.42 and later, which removed the git check', async () => {
-      mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: 'Version:       0.42.0\n' });
+    it('drops --force on regal 0.41 and later, which removed the git check', async () => {
+      mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: 'Version:       0.41.0\n' });
       await regal.fix({ paths: ['/abs/policy.rego'], force: true });
       expect(mockRun.mock.calls[1]![1].args).not.toContain('--force');
     });
 
     it('sends --force when the regal version cannot be read', async () => {
       mockRun.mockResolvedValueOnce({ ...okSpawn, exitCode: 1, stdout: '' });
+      await regal.fix({ paths: ['/abs/policy.rego'], force: true });
+      expect(mockRun.mock.calls[1]![1].args).toContain('--force');
+    });
+
+    it('sends --force when the regal version is not a number', async () => {
+      // A build without version information prints a placeholder there.
+      mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: 'Version: unknown\n' });
       await regal.fix({ paths: ['/abs/policy.rego'], force: true });
       expect(mockRun.mock.calls[1]![1].args).toContain('--force');
     });

@@ -8,7 +8,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 # `npm install` rather than `npm ci` so the build is robust to
-# cross-platform lockfile drift — npm's platform-specific optional
+# cross-platform lockfile drift - npm's platform-specific optional
 # dependencies (e.g. @emnapi on Linux) are written into the lockfile
 # only on the platform where `npm install` was last run, which makes
 # `npm ci` brittle when the Dockerfile is built locally on Windows /
@@ -98,5 +98,5 @@ COPY --from=binaries /usr/local/bin/regal /usr/local/bin/regal
 
 USER app
 
-# stdio transport — no port to expose.
+# stdio transport - no port to expose.
 ENTRYPOINT ["node", "/app/dist/server.js"]

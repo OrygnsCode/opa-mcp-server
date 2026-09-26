@@ -68,8 +68,8 @@ describe('RegalCli integration', () => {
 
   it('bugs category surfaces real violations on a policy with known bugs', async () => {
     // constant-condition and duplicate-rule are confirmed bugs-category violations
-    // in regal 0.30.0 and 0.42.0. Only bugs is enabled here: regal 0.42 refuses a
-    // category no rule defines, and the tool-level fallback for that lives in
+    // in regal 0.30.0 and 0.42.0. Only bugs is enabled here: regal 0.31 and later
+    // refuse a category no rule defines, and the tool-level fallback for that lives in
     // rego_security_audit, not in RegalCli.
     const source = [
       'package bug_test',

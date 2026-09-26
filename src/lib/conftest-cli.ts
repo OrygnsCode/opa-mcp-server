@@ -165,7 +165,7 @@ export interface ConftestPushInput {
 // ─── Parser names ─────────────────────────────────────────────────────────────
 
 /**
- * The parsers conftest 0.69 accepts for `--parser`, and the only values a
+ * The parsers conftest 0.70 accepts for `--parser`, and the only values a
  * caller may pass. The name also chooses the temp file name for inline
  * config, so it must never be free text: a value carrying path separators
  * used to be joined straight into the temp path, and `../` sequences in it
@@ -173,15 +173,18 @@ export interface ConftestPushInput {
  */
 export const CONFTEST_PARSERS = [
   'cue',
+  'cyclonedx',
   'dockerfile',
   'dotenv',
   'edn',
+  'groovy',
   'hcl1',
   'hcl2',
   'hocon',
   'ignore',
   'ini',
   'json',
+  'jsonc',
   'jsonnet',
   'nginx',
   'properties',
@@ -206,15 +209,18 @@ export function isConftestParser(value: string): value is ConftestParser {
  */
 const INLINE_CONFIG_FILENAME: Record<ConftestParser, string> = {
   cue: 'config.cue',
+  cyclonedx: 'bom.json',
   dockerfile: 'Dockerfile',
   dotenv: 'config.env',
   edn: 'config.edn',
+  groovy: 'Jenkinsfile',
   hcl1: 'config.hcl',
   hcl2: 'config.hcl',
   hocon: 'config.conf',
   ignore: '.gitignore',
   ini: 'config.ini',
   json: 'config.json',
+  jsonc: 'config.jsonc',
   jsonnet: 'config.jsonnet',
   nginx: 'nginx.conf',
   properties: 'config.properties',

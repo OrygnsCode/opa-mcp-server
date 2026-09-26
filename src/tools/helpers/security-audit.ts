@@ -6,7 +6,7 @@
  * This is a focused slice of `rego_lint`. regal ships no security category
  * of its own: its `bugs` rules are the correctness defects most likely to
  * open a policy up, and a `security` category is enabled as the place a
- * project's custom rules can go. Regal 0.42 and later refuse a category no
+ * project's custom rules can go. Regal 0.31 and later refuse a category no
  * rule defines, so when that happens the sweep runs again with `bugs`
  * alone. The result groups findings by severity
  * with remediation guidance so the agent can prioritize fixes without
@@ -158,9 +158,9 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
           );
 
         let result = await sweep(['security', 'bugs']);
-        // Regal 0.42 validates category names against the rules it loaded and
-        // refuses one that nothing defines, which is the case for `security`
-        // in a project without custom rules. Earlier releases ignored it.
+        // Regal 0.31 and later validate category names against the rules they
+        // loaded and refuse one that nothing defines, which is the case for
+        // `security` in a project without custom rules. 0.30 ignored it.
         if (
           result.exitCode !== null &&
           result.exitCode !== 0 &&

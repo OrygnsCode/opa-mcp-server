@@ -78,6 +78,11 @@ describe('buildChildEnv — secrets', () => {
 });
 
 describe('buildChildEnv — what the child still needs', () => {
+  it("switches off regal's own update check in the child", () => {
+    const env = buildChildEnv(undefined, source);
+    expect(env['REGAL_DISABLE_VERSION_CHECK']).toBe('1');
+  });
+
   it('keeps PATH, HOME and locale', () => {
     const env = buildChildEnv(undefined, source);
     expect(env['PATH']).toBe('/usr/bin:/bin');

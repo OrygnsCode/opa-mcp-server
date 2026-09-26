@@ -92,7 +92,7 @@ jobs:
       # The coverage run includes integration tests (via
       # vitest.coverage.config.ts) so the report reflects every test
       # that actually exercises src/. That requires opa and regal on
-      # PATH — install pinned versions before running coverage.
+      # PATH - install pinned versions before running coverage.
       - name: Install OPA
         run: |
           curl -fsSL -o /tmp/opa \
