@@ -38,19 +38,20 @@ export interface MigrationPlan {
   renamedRules: Record<string, string>;
 }
 
-/** Words v1 reserves that a v0 rule may be named. */
-const RESERVED_RULE_NAMES = new Set(['contains', 'every', 'if', 'in']);
-
 /**
- * Words v1 reserves that a v0 local variable may be named. `contains` is a
- * keyword only in a rule head, so a variable of that name still parses.
+ * Words v1 reserves that a v0 rule or local variable may be named. `contains`
+ * still parses as a variable in some places (`contains := x`) but not in
+ * others (`some contains`), so it is renamed wherever it names one.
  */
-const RESERVED_VAR_NAMES = new Set(['every', 'if', 'in']);
+const RESERVED = new Set(['contains', 'every', 'if', 'in']);
 
 interface Helper {
   /** Preferred function name. */
   name: string;
-  /** Module text defining the function, in v0 syntax, with NAME for its name. */
+  /**
+   * Module text defining the function, with NAME for its name and @IF@ where
+   * a module that imports rego.v1 needs `if`; without that import it is v0.
+   */
   body: string;
 }
 
@@ -60,7 +61,7 @@ const castHelper = (builtin: string, name: string, check: string, what: string):
   name,
   body: `# ${builtin}() was removed in Rego v1. NAME(x) returns what ${builtin}(x) did:
 # x when it is ${what}, undefined otherwise.
-NAME(x) = x {
+NAME(x) = x@IF@ {
 	${check}(x)
 }
 `,
@@ -80,7 +81,7 @@ const REMOVED_BUILTINS: Record<string, Replacement> = {
       body: `# all() was removed in Rego v1. NAME(xs) returns what all(xs) did: true when
 # every element of the array or set is true, so also when it is empty, false
 # otherwise, and undefined for anything but an array or a set.
-NAME(xs) = r {
+NAME(xs) = r@IF@ {
 	{"array", "set"}[type_name(xs)]
 	r := count([x | x := xs[_]; x != true]) == 0
 }
@@ -93,7 +94,7 @@ NAME(xs) = r {
       body: `# any() was removed in Rego v1. NAME(xs) returns what any(xs) did: true when
 # some element of the array or set is true, false otherwise (so also when it is
 # empty), and undefined for anything but an array or a set.
-NAME(xs) = r {
+NAME(xs) = r@IF@ {
 	{"array", "set"}[type_name(xs)]
 	r := count([x | x := xs[_]; x == true]) > 0
 }
@@ -106,7 +107,7 @@ NAME(xs) = r {
       body: `# set_diff() was removed in Rego v1. NAME(a, b) returns what set_diff(a, b)
 # did: the elements of set a that are not in set b, undefined unless both are
 # sets.
-NAME(a, b) = r {
+NAME(a, b) = r@IF@ {
 	is_set(a)
 	is_set(b)
 	r := a - b
@@ -120,11 +121,11 @@ NAME(a, b) = r {
       body: `# cast_array() was removed in Rego v1. NAME(x) returns what cast_array(x)
 # did: an array unchanged, a set as an array of its elements, undefined
 # otherwise.
-NAME(x) = x {
+NAME(x) = x@IF@ {
 	is_array(x)
 }
 
-NAME(x) = r {
+NAME(x) = r@IF@ {
 	is_set(x)
 	r := [e | e := x[_]]
 }
@@ -136,11 +137,11 @@ NAME(x) = r {
       name: 'as_set',
       body: `# cast_set() was removed in Rego v1. NAME(x) returns what cast_set(x) did:
 # a set unchanged, an array as the set of its elements, undefined otherwise.
-NAME(x) = x {
+NAME(x) = x@IF@ {
 	is_set(x)
 }
 
-NAME(x) = r {
+NAME(x) = r@IF@ {
 	is_array(x)
 	r := {e | e := x[_]}
 }
@@ -243,24 +244,66 @@ function ruleNames(ast: unknown): Set<string> {
   return names;
 }
 
+/** The dotted path of each import, e.g. `rego.v1`, `data.lib.re_match`. */
+function importPaths(ast: unknown): Array<{ path: string[]; alias?: string }> {
+  const imports = isObject(ast) && Array.isArray(ast['imports']) ? ast['imports'] : [];
+  const out: Array<{ path: string[]; alias?: string }> = [];
+  for (const imp of imports as unknown[]) {
+    if (!isObject(imp)) continue;
+    const segs = isTerm(imp['path']) && Array.isArray(imp['path'].value) ? imp['path'].value : [];
+    const path = (segs as unknown[]).map((seg) =>
+      isTerm(seg) && typeof seg.value === 'string' ? seg.value : '',
+    );
+    out.push({ path, ...(typeof imp['alias'] === 'string' ? { alias: imp['alias'] } : {}) });
+  }
+  return out;
+}
+
+/**
+ * The names imports bind: an alias, or else the last segment of the path. A
+ * name imported this way shadowed the built-in of the same name in v0.
+ */
+function importBindings(ast: unknown): Set<string> {
+  const names = new Set<string>();
+  for (const { path, alias } of importPaths(ast)) {
+    if (path[0] !== 'data' && path[0] !== 'input') continue;
+    const name = alias ?? path.at(-1);
+    if (name) names.add(name);
+  }
+  return names;
+}
+
 /** Every identifier the module uses, so a new name cannot capture one. */
 function usedNames(ast: unknown): Set<string> {
-  const names = ruleNames(ast);
+  const names = new Set([...ruleNames(ast), ...importBindings(ast)]);
   for (const node of walk(ast)) {
     if (isTerm(node) && node.type === 'var' && typeof node.value === 'string') {
       names.add(node.value);
     }
   }
-  // An import binds its alias, or else the last segment of its path.
-  const imports = isObject(ast) && Array.isArray(ast['imports']) ? ast['imports'] : [];
-  for (const imp of imports as unknown[]) {
-    if (!isObject(imp)) continue;
-    if (typeof imp['alias'] === 'string') names.add(imp['alias']);
-    const path = isTerm(imp['path']) && Array.isArray(imp['path'].value) ? imp['path'].value : [];
-    const last = (path as unknown[]).at(-1);
-    if (isTerm(last) && typeof last.value === 'string') names.add(last.value);
-  }
   return names;
+}
+
+/**
+ * The rules this module defines that are documents rather than functions, so
+ * each has a value under the package to compare.
+ */
+export function documentRules(ast: unknown): string[] {
+  const names = new Set<string>();
+  const rules = isObject(ast) && Array.isArray(ast['rules']) ? (ast['rules'] as unknown[]) : [];
+  for (const rule of rules) {
+    const head = isObject(rule) && isObject(rule['head']) ? rule['head'] : undefined;
+    if (!head || (Array.isArray(head['args']) && head['args'].length > 0)) continue;
+    const ref = Array.isArray(head['ref']) ? (head['ref'] as unknown[]) : [];
+    const name =
+      isTerm(ref[0]) && typeof ref[0].value === 'string'
+        ? ref[0].value
+        : typeof head['name'] === 'string'
+          ? head['name']
+          : undefined;
+    if (name) names.add(name);
+  }
+  return [...names].sort();
 }
 
 /** The first of `base`, then `base_2`, `base_3`, ... that is not in use. */
@@ -291,6 +334,10 @@ export function packageQuery(ast: unknown): string | undefined {
   if (path === undefined) return undefined;
   return 'data' + path.map((seg) => `[${JSON.stringify(seg)}]`).join('');
 }
+
+/** A ref's text in dotted form, so `net["cidr_overlap"]` reads as `net.cidr_overlap`. */
+const dotted = (text: string): string =>
+  text.replace(/\[\s*"([^"]*)"\s*\]/g, '.$1').replace(/\s+/g, '');
 
 /**
  * Apply edits at OPA's row/column locations.
@@ -337,6 +384,9 @@ function applyEdits(source: string, edits: Edit[]): string | undefined {
  */
 export function planV0Migration(source: string, ast: unknown): MigrationPlan | undefined {
   const rules = ruleNames(ast);
+  // A rule or an imported name shadowed the built-in of the same name in v0.
+  const shadowing = new Set([...rules, ...importBindings(ast)]);
+  const importsRegoV1 = importPaths(ast).some((i) => i.path.join('.') === 'rego.v1');
   const taken = usedNames(ast);
   const operators = operatorRefs(ast);
   // Vars at the head of a call to the built-in `contains`, which keep their name.
@@ -347,18 +397,49 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
   const renamedRules = new Map<string, string>();
   const renamedVars = new Map<string, string>();
 
-  for (const name of [...rules].filter((n) => RESERVED_RULE_NAMES.has(n)).sort()) {
+  for (const name of [...rules].filter((n) => RESERVED.has(n)).sort()) {
     renamedRules.set(name, freeName(`${name}_`, taken));
   }
 
+  // An import binds the last segment of its path unless it has an alias, and
+  // v1 cannot parse a path ending in a keyword: `import input.in` gains
+  // `as in_`, and every use of `in` in the module follows it.
+  const renamedImports = new Map<string, string>();
+  const importsToAlias: Array<{ path: Term; name: string }> = [];
+  const imports = isObject(ast) && Array.isArray(ast['imports']) ? ast['imports'] : [];
+  for (const imp of imports as unknown[]) {
+    if (!isObject(imp) || typeof imp['alias'] === 'string') continue;
+    const path = imp['path'];
+    if (!isTerm(path) || !Array.isArray(path.value)) continue;
+    const last = (path.value as unknown[]).at(-1);
+    if (!isTerm(last) || typeof last.value !== 'string' || !RESERVED.has(last.value)) continue;
+    const name = last.value;
+    renamedImports.set(name, renamedImports.get(name) ?? freeName(`${name}_`, taken));
+    importsToAlias.push({ path, name });
+  }
+  /** The new name of a rule or an import this module renamed. */
+  const renamedBinding = (name: string): string | undefined =>
+    renamedRules.get(name) ?? renamedImports.get(name);
+
   // OPA repeats some terms at one location (the key of a partial set is both
   // `head.key` and part of `head.ref`; an `else` repeats its function's
-  // head), so an edit already made there is not made twice.
+  // head), so an edit already made there is not made twice. It also gives a
+  // copy it made up a location that holds other text: the second body of a
+  // chained `f(x) { ... } { ... }` carries the head's arguments at the text of
+  // that whole body. The occurrence the copy was made from is edited where it
+  // stands, so a copy whose text is not the name is left alone.
   const seen = new Set<string>();
-  const addEdit = (term: Term, replacement: string, from: string, to: string): boolean => {
+  const addEdit = (
+    term: Term,
+    replacement: string,
+    from: string,
+    to: string,
+    textIsThis: (text: string) => boolean,
+  ): boolean => {
     const { row, col } = term.location ?? {};
     const expected = decode(term.location?.text);
     if (typeof row !== 'number' || typeof col !== 'number' || expected === undefined) return false;
+    if (!textIsThis(expected)) return true;
     const key = `${row}:${col}:${expected}`;
     if (seen.has(key)) return true;
     seen.add(key);
@@ -366,7 +447,20 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
     return true;
   };
 
+  for (const { path, name } of importsToAlias) {
+    const to = renamedImports.get(name)!;
+    const text = decode(path.location?.text) ?? '';
+    if (!addEdit(path, `${text} as ${to}`, name, to, (t) => t.endsWith(name))) return undefined;
+  }
+
   const helpersUsed = new Map<string, string>();
+  /** The name a removed built-in becomes, adding its helper when it has one. */
+  const replacementFor = (fn: string, replacement: Replacement): string => {
+    if ('rename' in replacement) return replacement.rename;
+    const to = helpersUsed.get(fn) ?? freeName(replacement.helper.name, taken);
+    helpersUsed.set(fn, to);
+    return to;
+  };
 
   for (const node of walk(ast)) {
     if (!isTerm(node)) continue;
@@ -380,7 +474,7 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
         isTerm(head) &&
         head.type === 'var' &&
         typeof head.value === 'string' &&
-        !renamedRules.has(head.value) &&
+        renamedBinding(head.value) === undefined &&
         operators.has(node)
       ) {
         builtinHeads.add(head);
@@ -405,26 +499,27 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
           typeof target.value === 'string' &&
           renamedRules.has(target.value)
         ) {
-          const to = renamedRules.get(target.value)!;
+          const name = target.value;
+          const to = renamedRules.get(name)!;
           const text = decode(target.location?.text) ?? '';
-          const replacement = text.startsWith('"') ? JSON.stringify(to) : to;
-          if (!addEdit(target, replacement, target.value, to)) return undefined;
+          const replacement = text.startsWith('"')
+            ? JSON.stringify(to)
+            : text.startsWith('`')
+              ? `\`${to}\``
+              : to;
+          const isName = (t: string) =>
+            t === name || t === JSON.stringify(name) || t === `\`${name}\``;
+          if (!addEdit(target, replacement, name, to, isName)) return undefined;
         }
       }
 
-      // A call to (or `with` on) a built-in v1 removed, unless this module
-      // defines a rule of that name, which shadowed the built-in in v0.
+      // A call to (or `with` on) a built-in v1 removed, unless a rule of this
+      // module or an import binds that name, which shadowed the built-in in v0.
       const fn = refName(node);
       const replacement = fn !== undefined ? removedBuiltin(fn) : undefined;
-      if (fn !== undefined && replacement !== undefined && !rules.has(fn.split('.')[0]!)) {
-        let to: string;
-        if ('rename' in replacement) {
-          to = replacement.rename;
-        } else {
-          to = helpersUsed.get(fn) ?? freeName(replacement.helper.name, taken);
-          helpersUsed.set(fn, to);
-        }
-        if (!addEdit(node, to, fn, to)) return undefined;
+      if (fn !== undefined && replacement !== undefined && !shadowing.has(fn.split('.')[0]!)) {
+        const to = replacementFor(fn, replacement);
+        if (!addEdit(node, to, fn, to, (t) => dotted(t) === fn)) return undefined;
       }
       continue;
     }
@@ -432,12 +527,26 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
     if (node.type === 'var' && typeof node.value === 'string') {
       const name = node.value;
       if (builtinHeads.has(node)) continue;
-      let to = renamedRules.get(name);
-      if (to === undefined && RESERVED_VAR_NAMES.has(name)) {
+      const isName = (t: string) => t === name;
+
+      // `with re_match as mock`: OPA gives a one-word `with` target as a var.
+      if (operators.has(node)) {
+        const builtin = removedBuiltin(name);
+        const to =
+          renamedBinding(name) ??
+          (builtin !== undefined && !shadowing.has(name)
+            ? replacementFor(name, builtin)
+            : undefined);
+        if (to !== undefined && !addEdit(node, to, name, to, isName)) return undefined;
+        continue;
+      }
+
+      let to = renamedBinding(name);
+      if (to === undefined && RESERVED.has(name)) {
         to = renamedVars.get(name) ?? freeName(`${name}_`, taken);
         renamedVars.set(name, to);
       }
-      if (to !== undefined && !addEdit(node, to, name, to)) return undefined;
+      if (to !== undefined && !addEdit(node, to, name, to, isName)) return undefined;
     }
   }
 
@@ -446,7 +555,15 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
 
   for (const [from, to] of renamedRules) {
     notes.push(
-      `Renamed the rule \`${from}\` to \`${to}\`: \`${from}\` is a keyword in Rego v1 and cannot name a rule. Update any other module that refers to it.`,
+      `Renamed the rule \`${from}\` to \`${to}\`: \`${from}\` is a keyword in Rego v1 and cannot name a rule. Update any other module that refers to it` +
+        (from === 'contains'
+          ? '; in another module of this package, a call to `contains` left unchanged would reach the built-in string function instead.'
+          : '.'),
+    );
+  }
+  for (const [from, to] of renamedImports) {
+    notes.push(
+      `Imported \`${from}\` as \`${to}\`: an import path cannot end in \`${from}\`, a keyword in Rego v1, without an alias.`,
     );
   }
   for (const [from, to] of renamedVars) {
@@ -467,7 +584,11 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
     const name = helpersUsed.get(fn);
     if (name === undefined) continue;
     if (!rewritten.endsWith('\n')) rewritten += '\n';
-    rewritten += '\n' + replacement.helper.body.replaceAll('NAME', name);
+    rewritten +=
+      '\n' +
+      replacement.helper.body
+        .replaceAll('NAME', name)
+        .replaceAll('@IF@', importsRegoV1 ? ' if' : '');
     notes.push(
       `Replaced \`${fn}()\`, which Rego v1 removed, with \`${name}()\`, added at the end of the module, which returns what \`${fn}()\` did for every argument.`,
     );

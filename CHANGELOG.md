@@ -44,12 +44,15 @@ not part of the public surface and may change in minor releases.
   `cast_*` built-ins are replaced by helper functions, appended to the
   module, that return what each built-in did for every argument. `all()`
   in particular skips the undefined elements of a comprehension, which the
-  usual `every` rewrite does not. The output lists each rewrite by line.
-  Given `inputs`, it evaluates the original as v0 and the result as v1 on
-  each and reports any rule whose value or type differs. When the formatter
-  still refuses, the error names its first message and line instead of
-  calling a type error a syntax error, and a source that is already v1 is
-  returned unchanged rather than rejected.
+  usual `every` rewrite does not. A `with` that mocks one of them follows
+  the rename, a call through an import of the same name is left alone, and
+  an import path ending in a keyword gets an alias. The output lists each
+  rewrite by line. Given `inputs`, it evaluates the original as v0 and the
+  result as v1 on each and reports any rule whose value or type differs; an
+  input on which the whole package fails is compared rule by rule. When the
+  formatter still refuses, the error names its first message and says which
+  line it means, instead of calling a type error a syntax error, and a source
+  that is already v1 is returned unchanged rather than rejected.
 - `rego_eval` and its variants, `rego_compile_query` and
   `rego_explain_decision` no longer require `source` or `paths`. A query on
   its own evaluates, which is how a built-in gets tried out. When such a

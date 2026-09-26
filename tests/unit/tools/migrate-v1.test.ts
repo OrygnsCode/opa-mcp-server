@@ -191,6 +191,43 @@ describe('rego_migrate_v1', () => {
     expect(callsTo('check')).toHaveLength(0);
   });
 
+  it('quotes the line when the error is in the formatter output, which the original lacks', async () => {
+    opaAnswers({
+      parse: spawnSuccess(plainAst),
+      fmt: (args) =>
+        args.includes('--check-result=false')
+          ? spawnSuccess('package example\n\nimport rego.v1\n\nimport input.in\n')
+          : spawnFailure(
+              2,
+              'x.rego was successfully formatted, but the result is invalid: 1 error occurred: formatted:5: rego_parse_error: unexpected import path',
+            ),
+    });
+    const env = await run({ source: v0Source });
+
+    expect(env.error?.message).toBe(
+      'opa fmt --rego-v1 could not convert line 5 of the formatted output (`import input.in`): unexpected import path.',
+    );
+    const details = env.error?.details as { errors: Array<{ in: string; text?: string }> };
+    expect(details.errors[0]).toMatchObject({ in: 'formatted output', text: 'import input.in' });
+  });
+
+  it('says when an error falls in a helper appended to the module', async () => {
+    const source = readFileSync(fixturePath('migrate', 'legacy.rego'), 'utf8');
+    const ast = readFileSync(fixturePath('migrate', 'legacy.ast.json'), 'utf8');
+    const helperLine = source.split('\n').length + 3;
+    opaAnswers({
+      parse: spawnSuccess(ast),
+      fmt: spawnFailure(
+        2,
+        `failed to format Rego source file: 1 error occurred: <inline>:${helperLine}: rego_parse_error: something`,
+      ),
+    });
+    const env = await run({ source });
+    const details = env.error?.details as { errors: Array<{ in: string; line: number }> };
+    expect(details.errors[0]).toMatchObject({ in: 'added helper', line: helperLine });
+    expect(env.error?.message).toContain(`line ${helperLine} of the added helper`);
+  });
+
   it('returns the migration with valid=false and the errors check found', async () => {
     const checkErrors = [
       { code: 'rego_compile_error', message: 'var x is unsafe', location: { row: 5, col: 3 } },

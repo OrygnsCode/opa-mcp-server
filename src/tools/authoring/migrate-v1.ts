@@ -21,7 +21,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { packageQuery, planV0Migration, type MigrationRewrite } from '../../lib/rego-migrate.js';
+import {
+  documentRules,
+  packageQuery,
+  planV0Migration,
+  type MigrationRewrite,
+} from '../../lib/rego-migrate.js';
 import {
   mapSubprocessFailure,
   sanitizeInlinePath,
@@ -37,6 +42,12 @@ const MAX_INPUTS = 20;
 
 /** How many rule-level differences are reported. */
 const MAX_DIFFERENCES = 20;
+
+/**
+ * Most single-rule evaluations spent pinning down inputs whose whole package
+ * failed to evaluate, two per rule per input.
+ */
+const MAX_RULE_EVALS = 200;
 
 const RegoMigrateV1Input = {
   source: z
@@ -97,22 +108,35 @@ export interface RegoMigrateV1Output {
   rewrites: MigrationRewrite[];
   /** What was renamed or added, and anything else to check, one sentence each. */
   notes: string[];
-  /** Present when `inputs` was given and the migrated source is valid. */
+  /** Present when `inputs` was given, the source was migrated, and the result is valid. */
   equivalence?: MigrationEquivalence;
 }
 
 interface FmtError {
   line: number;
+  /**
+   * What `line` counts: the original source, a helper function appended to
+   * it, or the formatter's own output, which has `import rego.v1` added and so
+   * no line-for-line match with the original.
+   */
+  in: 'original' | 'added helper' | 'formatted output';
   code: string;
   message: string;
+  /** The text of that line. */
+  text?: string;
 }
 
-/** `opa fmt` prints plain text, one `<file>:<line>: <code>: <message>` per error. */
-function parseFmtErrors(stderr: string): FmtError[] {
-  return [...stderr.matchAll(/:(\d+): (rego_[a-z_]+): ([^\r\n]*)/g)].map((m) => ({
-    line: Number(m[1]),
-    code: m[2]!,
-    message: m[3]!.trim(),
+/**
+ * `opa fmt` prints plain text, one `<file>:<line>: <code>: <message>` per
+ * error. When it formatted the source but the result does not parse, the file
+ * is named `formatted` and the line is one of its output.
+ */
+function parseFmtErrors(stderr: string): Array<Omit<FmtError, 'in'> & { output: boolean }> {
+  return [...stderr.matchAll(/(formatted)?:(\d+): (rego_[a-z_]+): ([^\r\n]*)/g)].map((m) => ({
+    output: m[1] !== undefined,
+    line: Number(m[2]),
+    code: m[3]!,
+    message: m[4]!.trim(),
   }));
 }
 
@@ -121,7 +145,15 @@ interface SideResult {
   doc?: Record<string, unknown>;
   types?: Record<string, string>;
   error?: string;
+  /**
+   * When the whole document failed on either side, each rule evaluated on
+   * its own, keyed by its name in the original.
+   */
+  rules?: Map<string, Outcome>;
 }
+
+/** Both sides failing is the same outcome, whatever the wording of each error. */
+const bothErrors = (a: Outcome, b: Outcome): boolean => 'error' in a && 'error' in b;
 
 const PER_INPUT_CONCURRENCY = 4;
 
@@ -212,6 +244,96 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     return fatal ?? results;
   };
 
+  /** One rule's value and type for one input, or its error. */
+  const evaluateRule = async (
+    source: string,
+    query: string,
+    rule: string,
+    input: unknown,
+    v0Compatible: boolean,
+    signal: AbortSignal | undefined,
+  ): Promise<{ outcome: Outcome } | { fatal: ToolEnvelope<never> }> => {
+    const one = await opa.eval(
+      {
+        source,
+        query: `d := ${query}[${JSON.stringify(rule)}]; t := type_name(d)`,
+        input,
+        v0Compatible,
+      },
+      signal,
+    );
+    const failure = mapSubprocessFailure(one, 'opa');
+    if (failure) return { fatal: failure };
+    if (one.exitCode !== 0) return { outcome: { error: evalError(one.stdout, one.stderr) } };
+    const bindings = tryParseJson<{
+      result?: Array<{ bindings?: { d?: unknown; t?: string } }>;
+    }>(one.stdout)?.result?.[0]?.bindings;
+    return {
+      outcome:
+        bindings?.t !== undefined ? { value: bindings.d, type: bindings.t } : { undefined: true },
+    };
+  };
+
+  /**
+   * For each input whose whole package failed on either side, evaluate every
+   * document rule on its own on both sides, so one rule's conflict does not
+   * hide a difference in another. Returns how many such inputs were left
+   * whole for want of budget, or a failure that ends the call.
+   */
+  const pinDownFailures = async (
+    original: string,
+    migrated: string,
+    query: string,
+    rules: string[],
+    renamed: Map<string, string>,
+    inputs: unknown[],
+    before: SideResult[],
+    after: SideResult[],
+    signal: AbortSignal | undefined,
+  ): Promise<number | ToolEnvelope<never>> => {
+    const failing = inputs
+      .map((_, i) => i)
+      .filter((i) => before[i]!.error !== undefined || after[i]!.error !== undefined);
+    const perInput = Math.max(1, rules.length * 2);
+    const affordable = rules.length === 0 ? 0 : Math.floor(MAX_RULE_EVALS / perInput);
+    const chosen = failing.slice(0, affordable);
+
+    const jobs = chosen.flatMap((i) =>
+      rules.flatMap((rule) => [
+        { i, rule, side: before, source: original, name: rule, v0: true },
+        { i, rule, side: after, source: migrated, name: renamed.get(rule) ?? rule, v0: false },
+      ]),
+    );
+    for (const i of chosen) {
+      before[i]!.rules = new Map();
+      after[i]!.rules = new Map();
+    }
+    let next = 0;
+    let fatal: ToolEnvelope<never> | undefined;
+    const worker = async (): Promise<void> => {
+      while (fatal === undefined && next < jobs.length) {
+        const job = jobs[next++]!;
+        const result = await evaluateRule(
+          job.source,
+          query,
+          job.name,
+          inputs[job.i],
+          job.v0,
+          signal,
+        );
+        if ('fatal' in result) {
+          fatal = result.fatal;
+          return;
+        }
+        job.side[job.i]!.rules!.set(job.rule, result.outcome);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(PER_INPUT_CONCURRENCY, jobs.length) }, () => worker()),
+    );
+    return fatal ?? (rules.length === 0 ? 0 : failing.length - chosen.length);
+  };
+
   const outcome = (side: SideResult, rule: string): Outcome => {
     if (side.error !== undefined) return { error: side.error };
     if (!side.doc || !Object.hasOwn(side.doc, rule)) return { undefined: true };
@@ -239,6 +361,17 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     const back = new Map(Object.entries(renamed).map(([from, to]) => [to, from]));
     for (const [input, a] of original.entries()) {
       const b = migrated[input]!;
+      if (a.rules && b.rules) {
+        for (const [rule, left] of a.rules) {
+          const right = b.rules.get(rule) ?? { undefined: true };
+          if (bothErrors(left, right) || canonical(left) === canonical(right)) continue;
+          total++;
+          if (differences.length < MAX_DIFFERENCES) {
+            differences.push({ input, rule, original: left, migrated: right });
+          }
+        }
+        continue;
+      }
       if (a.error !== undefined || b.error !== undefined) {
         // Both failing is the same outcome: a conflict the original raised
         // is one a faithful migration raises too.
@@ -348,7 +481,11 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
               source,
               source,
               [],
-              ['The source is already Rego v1, so nothing was changed.'],
+              [
+                inputs === undefined
+                  ? 'The source is already Rego v1, so nothing was changed.'
+                  : 'The source is already Rego v1, so nothing was changed and there was nothing to compare `inputs` against.',
+              ],
               signal,
             );
           }
@@ -387,17 +524,48 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
 
         if (fmtResult.exitCode !== 0) {
           const stderr = sanitizeInlineText(fmtResult.stderr.trim());
-          const errors = parseFmtErrors(stderr);
+          const parsed = parseFmtErrors(stderr);
+          // A line of the formatter's output has no match in the original, so
+          // the output is fetched to quote it.
+          let output: string[] = [];
+          if (parsed.some((e) => e.output)) {
+            const unchecked = await opa.fmt(
+              { source: rewritten, regoV1: true, checkResult: false },
+              signal,
+            );
+            if (unchecked.exitCode === 0) output = unchecked.stdout.split('\n');
+          }
+          const originalLines = source.split('\n').length;
+          const rewrittenLines = rewritten.split('\n');
+          const errors: FmtError[] = parsed.map(({ output: inOutput, ...e }) => {
+            const where: FmtError['in'] = inOutput
+              ? 'formatted output'
+              : e.line > originalLines
+                ? 'added helper'
+                : 'original';
+            const text = (inOutput ? output[e.line - 1] : rewrittenLines[e.line - 1])?.trim();
+            return { ...e, in: where, ...(text ? { text } : {}) };
+          });
           const first = errors[0];
+          const place = first
+            ? first.in === 'original'
+              ? `line ${first.line}`
+              : `line ${first.line} of the ${first.in}${first.text ? ` (\`${first.text}\`)` : ''}`
+            : '';
           const more = errors.length > 1 ? ` (and ${errors.length - 1} more)` : '';
           return err(
             'INVALID_REGO',
             first
-              ? `opa fmt --rego-v1 could not convert line ${first.line}: ${first.message}${more}.`
+              ? `opa fmt --rego-v1 could not convert ${place}: ${first.message}${more}.`
               : 'opa fmt --rego-v1 could not convert the source.',
             {
-              hint: 'These lines need changing by hand before the source converts. Line numbers are those of the original.',
-              details: { errors, rewrites, ...(errors.length === 0 ? { stderr } : {}) },
+              hint: 'Change what is named by hand, then migrate again. Each error says whether its line is one of the original, of a helper added to it, or of the formatted output.',
+              details: {
+                errors,
+                rewrites,
+                notes,
+                ...(errors.length === 0 ? { stderr } : {}),
+              },
             },
           );
         }
@@ -418,6 +586,24 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         if (!Array.isArray(before)) return before;
         const after = await evaluateSide(migrated, query, inputs, false, signal);
         if (!Array.isArray(after)) return after;
+        const renamed = new Map(Object.entries(plan?.renamedRules ?? {}));
+        const left = await pinDownFailures(
+          source,
+          migrated,
+          query,
+          documentRules(ast),
+          renamed,
+          inputs,
+          before,
+          after,
+          signal,
+        );
+        if (typeof left !== 'number') return left;
+        if (left > 0) {
+          report.data!.notes.push(
+            `${left} input(s) raised an error on at least one side and were compared as a whole package, not rule by rule, so an error on both sides there counts as agreement.`,
+          );
+        }
         report.data!.equivalence = compare(before, after, plan?.renamedRules ?? {});
         return report;
       });

@@ -145,3 +145,151 @@ describe('rego_migrate_v1', () => {
     );
   });
 });
+
+// Cases an independent review found, each reproduced on OPA 1.21 before the fix.
+describe('rego_migrate_v1 edge cases', () => {
+  const lines = (...l: string[]) => [...l, ''].join('\n');
+
+  it('rewrites a `with` that mocks a removed built-in, so the mock still applies', async () => {
+    const source = lines(
+      'package mocks',
+      '',
+      'r {',
+      '\tre_match("^z", input.s)',
+      '}',
+      '',
+      'r2 {',
+      '\tr with re_match as mock',
+      '}',
+      '',
+      'mock(a, b) = true',
+    );
+    const env = await migrate({ source, inputs: [{ s: 'abc' }, { s: 'zed' }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.migrated).toContain('with regex.match as mock');
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('leaves a call alone when an import binds the name, since it never reached the built-in', async () => {
+    const source = lines(
+      'package imports',
+      '',
+      'import data.lib.re_match',
+      '',
+      'r {',
+      '\tre_match("a", input.s)',
+      '}',
+    );
+    const env = await migrate({ source });
+    expect(env.data?.rewrites ?? []).not.toContainEqual(
+      expect.objectContaining({ from: 're_match' }),
+    );
+  });
+
+  it('compares rules one by one when a conflict fails the whole package on both sides', async () => {
+    const source = lines(
+      'package conflicted',
+      '',
+      'v = input.a {',
+      '\tinput.a',
+      '}',
+      '',
+      'v = input.b {',
+      '\tinput.b',
+      '}',
+      '',
+      'w {',
+      '\tall([input.flag])',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ a: 1, b: 2, flag: true }, { a: 1 }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.equivalence).toEqual({ compared: 2, identical: true, differences: [] });
+    expect(env.data?.notes.join(' ')).not.toMatch(/compared as a whole package/);
+  });
+
+  it('writes the helpers with `if` in a module that already imports rego.v1', async () => {
+    // Half-migrated: the rego.v1 import forbids all(), so the original does not
+    // compile anywhere, and the comparison says so rather than claiming a match.
+    const source = lines('package half', '', 'import rego.v1', '', 'ok if all(input.xs)');
+    const env = await migrate({ source, inputs: [{ xs: [true] }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toMatch(/^all_true\(xs\) := r if \{/m);
+    const diff = env.data?.equivalence?.differences[0];
+    expect(env.data?.equivalence?.identical).toBe(false);
+    expect(diff?.rule).toBe('ok');
+    expect(diff?.original).toEqual({
+      error: expect.stringMatching(/deprecated built-in/) as unknown,
+    });
+    expect(diff?.migrated).toEqual({ value: true, type: 'boolean' });
+  });
+
+  it('keeps going past the copies OPA makes for a chained body', async () => {
+    const source = lines(
+      'package chained',
+      '',
+      'f(in) = 1 {',
+      '\tin > 1',
+      '} {',
+      '\tin < -1',
+      '}',
+      '',
+      'r {',
+      '\tf(input.n) == 1',
+      '\tre_match("^a", input.s)',
+      '}',
+    );
+    const env = await migrate({
+      source,
+      inputs: [
+        { n: 5, s: 'abc' },
+        { n: -5, s: 'abc' },
+        { n: 0, s: 'abc' },
+        { n: 5, s: 'x' },
+      ],
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.migrated).toContain('regex.match');
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('keeps a backtick-quoted key a string when the rule it names is renamed', async () => {
+    const source = lines('package r', '', 'in = 1', '', 'p = data.r[`in`]');
+    const env = await migrate({ source, inputs: [{}] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('renames a local declared with `some contains`', async () => {
+    const source = lines(
+      'package some_contains',
+      '',
+      'r {',
+      '\tsome contains',
+      '\tinput.xs[contains] == "a"',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ xs: ['b', 'a'] }, { xs: ['b'] }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('aliases an import whose path ends in a keyword, and follows it through the body', async () => {
+    const source = lines('package imp', '', 'import input.in', '', 'r {', '\tin.x', '}');
+    const env = await migrate({ source, inputs: [{ in: { x: 1 } }, { in: {} }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.migrated).toContain('import input.in as in_');
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('says it had nothing to compare for a source already in v1', async () => {
+    const env = await migrate({ source: 'package ok\n\nallow if input.x\n', inputs: [{}] });
+    expect(env.data?.notes[0]).toMatch(/nothing to compare `inputs` against/);
+  });
+});
