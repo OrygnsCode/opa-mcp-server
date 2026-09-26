@@ -192,9 +192,12 @@ async function executeEval(
   // A query run with nothing loaded is how a built-in or an expression gets
   // tried out. The same call naming a rule is almost always a forgotten
   // `source`, and its undefined result would otherwise read as the policy
-  // denying. A partial evaluation never has `result`, so it is left out.
+  // denying. A partial evaluation is undefined when no residual query is left.
   const nothingLoaded = evalInput.source === undefined && !evalInput.paths?.length;
-  if (nothingLoaded && !evalInput.partial && !parsed.result?.length && readsData(evalInput.query)) {
+  const cameBackUndefined = evalInput.partial
+    ? !(parsed.partial as { queries?: unknown[] } | undefined)?.queries?.length
+    : !parsed.result?.length;
+  if (nothingLoaded && cameBackUndefined && readsData(evalInput.query)) {
     parsed.hint =
       'No policy or data was loaded (neither `source` nor `paths` was given), so every `data` reference in the query is undefined.';
   }
@@ -230,29 +233,30 @@ export interface RegoEvalBatchEntry {
   result?: unknown[];
   /** For a partial evaluation, the residual for this input, in place of `result`. */
   partial?: unknown;
-  /** Set instead of `result` when OPA could not evaluate this input. */
+  /**
+   * Set instead of `result` when OPA could not evaluate this input. The code
+   * is `NOT_EVALUATED` for an input the batch stopped before reaching.
+   */
   error?: { code: string; message: string; hint?: string; details?: unknown };
 }
 
 export interface RegoEvalBatchOutput {
   /** One entry per element of `inputs`, in the same order. */
   batch: RegoEvalBatchEntry[];
-  /** Inputs whose evaluation failed, each carrying `error`. */
+  /** Inputs with an `error`, those not evaluated included. */
   errorCount: number;
   /** See `RegoEvalOutput.hint`. */
   hint?: string;
 }
 
 /**
- * Whether a failure is the same whatever the input, so the batch should stop
- * at it rather than report it once per input: cancellation, a missing binary,
- * a timeout or an outside kill, and a policy or query that does not compile
- * (OPA's `rego_*` codes, as against the `eval_*` codes of a runtime error).
+ * Whether a failure is the same whatever the input, so the call fails once
+ * instead of once per input: cancellation, a missing binary, and a policy or
+ * query that does not compile (OPA's `rego_*` codes, as against the `eval_*`
+ * codes of a runtime error).
  */
-function endsBatch(error: { code: string; details?: unknown }): boolean {
-  if (['CANCELLED', 'OPA_BINARY_NOT_FOUND', 'TIMEOUT', 'SUBPROCESS_KILLED'].includes(error.code)) {
-    return true;
-  }
+function failsBatch(error: { code: string; details?: unknown }): boolean {
+  if (error.code === 'CANCELLED' || error.code === 'OPA_BINARY_NOT_FOUND') return true;
   const errors = (error.details as { errors?: Array<{ code?: unknown }> } | undefined)?.errors;
   return (
     error.code === 'EVAL_ERROR' &&
@@ -262,14 +266,21 @@ function endsBatch(error: { code: string; details?: unknown }): boolean {
 }
 
 /**
+ * A timeout or an outside kill may belong to one large input, so it is
+ * reported against that input; but the next inputs would likely wait out the
+ * same limit, one round at a time, so none are started after it.
+ */
+const stopsBatch = (code: string): boolean => code === 'TIMEOUT' || code === 'SUBPROCESS_KILLED';
+
+/**
  * Evaluate the same query once per input document.
  *
  * One `opa eval` per input. Wrapping the caller's query in a comprehension
  * under `with input as` would evaluate them all in one process, but only for
  * a single-expression query, and a runtime error raised by one input (a rule
  * conflict) would then fail every input. Here an input that fails at runtime
- * is reported in its own entry and the rest still run. A failure no input
- * could avoid ends the call instead; see `endsBatch`.
+ * is reported in its own entry and the rest still run; see `failsBatch` and
+ * `stopsBatch` for the failures that end it.
  */
 export async function runEvalBatch(
   opa: OpaCli,
@@ -293,11 +304,12 @@ export async function runEvalBatch(
 
   const entries = new Array<RegoEvalBatchEntry>(inputs.length);
   let fatal: ToolEnvelope<never> | undefined;
+  let stoppedAt: { index: number; code: string } | undefined;
   let hint: string | undefined;
   let next = 0;
 
   const worker = async (): Promise<void> => {
-    while (fatal === undefined && next < inputs.length) {
+    while (fatal === undefined && stoppedAt === undefined && next < inputs.length) {
       const index = next++;
       let envelope: ToolEnvelope<RegoEvalOutput>;
       try {
@@ -317,7 +329,7 @@ export async function runEvalBatch(
         continue;
       }
       const e = envelope.error!;
-      if (endsBatch(e)) {
+      if (failsBatch(e)) {
         fatal ??= err(e.code, e.message, { hint: e.hint, details: e.details });
         return;
       }
@@ -330,6 +342,7 @@ export async function runEvalBatch(
           ...(e.details !== undefined ? { details: e.details } : {}),
         },
       };
+      if (stopsBatch(e.code)) stoppedAt ??= { index, code: e.code };
     }
   };
 
@@ -337,6 +350,19 @@ export async function runEvalBatch(
     Array.from({ length: Math.min(BATCH_CONCURRENCY, inputs.length) }, () => worker()),
   );
   if (fatal !== undefined) return fatal;
+
+  if (stoppedAt !== undefined) {
+    const cause = stoppedAt.code === 'TIMEOUT' ? 'timed out' : 'was killed';
+    for (let index = 0; index < inputs.length; index++) {
+      entries[index] ??= {
+        index,
+        error: {
+          code: 'NOT_EVALUATED',
+          message: `Not evaluated: the batch stopped when input ${stoppedAt.index} ${cause}.`,
+        },
+      };
+    }
+  }
 
   return ok<RegoEvalBatchOutput>({
     batch: entries,

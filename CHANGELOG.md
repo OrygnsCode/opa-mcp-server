@@ -26,14 +26,14 @@ not part of the public surface and may change in minor releases.
   `rego_check_schema`, `rego_format`, `rego_parse_ast`, `rego_inspect` and
   `opa_bundle_build`. OPA 1.x refuses pre-1.0 Rego without it, so a policy
   that had not been migrated could not be evaluated or tested, including the
-  original a migrated copy has to be compared against. The analysis tools
-  that work from the parsed policy, such as `rego_explain_undefined`,
+  original a migrated copy has to be compared against. Tools that do more
+  than pass a policy to one `opa` command, such as `rego_explain_undefined`,
   `rego_policy_diff` and `rego_verify`, still read Rego v1 only.
 - `rego_eval` takes `inputs`, up to 50 input documents, and returns a result
   or an error for each. One process runs per document, so an input that
-  raises a runtime error does not take the others with it. A failure no
-  input could avoid, such as a policy that does not compile or a timeout,
-  ends the call.
+  raises a runtime error does not take the others with it. A policy that
+  does not compile fails the call, and after an input times out the inputs
+  not yet started are reported as not evaluated rather than run.
 
 ### Changed
 

@@ -373,9 +373,9 @@ written before OPA 1.0 without migrating it, and so do the other tools that
 hand a policy straight to `opa`: `rego_check`, `rego_check_schema`,
 `rego_format`, `rego_format_write`, `rego_parse_ast`, `rego_inspect`,
 `rego_coverage_gaps`, `rego_explain_decision`, `opa_bundle_build` and
-`opa_bundle_verify`. The analysis tools that work from the parsed policy,
-such as `rego_explain_undefined`, `rego_policy_diff` and `rego_verify`, read
-Rego v1 only; run `rego_migrate_v1` first.
+`opa_bundle_verify`. Tools that do more than pass a policy to one `opa`
+command, such as `rego_explain_undefined`, `rego_policy_diff` and
+`rego_verify`, read Rego v1 only; run `rego_migrate_v1` first.
 
 | Tool                      | What it does                                                                                                                                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

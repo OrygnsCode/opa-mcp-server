@@ -451,17 +451,34 @@ describe('rego_eval batch', () => {
     expect(mockRun.mock.calls.length).toBeLessThan(12);
   });
 
-  it('stops at a timeout rather than waiting one out per input', async () => {
-    mockRun.mockResolvedValue(spawnTimedOut());
+  it('starts no more inputs after a timeout, and keeps the results it has', async () => {
+    mockRun.mockImplementation((_bin, opts) => {
+      const input = JSON.parse(opts.stdin!) as { i: number };
+      return Promise.resolve(input.i === 1 ? spawnTimedOut() : spawnSuccess(resultFor(true)));
+    });
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool(server, 'rego_eval', {
+    const env = await callTool<{
+      batch: Array<{ result?: unknown[]; error?: { code: string; message: string } }>;
+      errorCount: number;
+    }>(server, 'rego_eval', {
       query: 'data.rbac.allow',
       paths: [validRegoPath()],
       inputs: Array.from({ length: 12 }, (_, i) => ({ i })),
     });
-    expect(env.error?.code).toBe('TIMEOUT');
-    expect(mockRun.mock.calls.length).toBeLessThan(12);
+
+    expect(env.ok).toBe(true);
+    const batch = env.data!.batch;
+    expect(batch).toHaveLength(12);
+    expect(batch[0]?.result).toBeDefined();
+    expect(batch[1]?.error?.code).toBe('TIMEOUT');
+    const notRun = batch.filter((e) => e.error?.code === 'NOT_EVALUATED');
+    expect(notRun.length).toBeGreaterThan(0);
+    expect(notRun[0]?.error?.message).toBe(
+      'Not evaluated: the batch stopped when input 1 timed out.',
+    );
+    expect(mockRun.mock.calls.length).toBe(12 - notRun.length);
+    expect(env.data!.errorCount).toBe(1 + notRun.length);
   });
 
   it("keeps a failing input's hint in its entry", async () => {
@@ -517,9 +534,13 @@ describe('the nothing-loaded hint', () => {
     expect(await hintFor({ query: 'x := `data`', input: {} })).toBeUndefined();
   });
 
-  it('is not given for a partial evaluation, which never has a result', async () => {
+  it('reads a partial evaluation as undefined only when no residual is left', async () => {
     mockRun.mockResolvedValue(spawnSuccess(JSON.stringify({ partial: { queries: [[]] } })));
     expect(await hintFor({ query: 'data.x.allow' }, 'rego_compile_query')).toBeUndefined();
+    mockRun.mockResolvedValue(spawnSuccess(JSON.stringify({ partial: {} })));
+    expect(await hintFor({ query: 'data.x.allow' }, 'rego_compile_query')).toMatch(
+      /No policy or data was loaded/,
+    );
   });
 
   it('reaches rego_explain_decision too', async () => {

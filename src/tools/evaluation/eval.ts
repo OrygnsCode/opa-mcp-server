@@ -28,7 +28,7 @@ const RegoEvalInput = {
     .max(MAX_BATCH_INPUTS)
     .optional()
     .describe(
-      `Several input documents to evaluate the same query against, up to ${MAX_BATCH_INPUTS}, in place of \`input\`/\`inputPath\`. The result is \`batch\`: one entry per input, in order, each holding that input's \`result\` (empty when the query was undefined for it) or an \`error\`. One failing input does not stop the others.`,
+      `Several input documents to evaluate the same query against, up to ${MAX_BATCH_INPUTS}, in place of \`input\`/\`inputPath\`. The result is \`batch\`: one entry per input, in order, each holding that input's \`result\` (empty when the query was undefined for it) or an \`error\`. An input that fails at runtime does not stop the others. A policy that does not compile fails the call, and after an input times out the inputs not yet started come back as \`NOT_EVALUATED\`.`,
     ),
 };
 
