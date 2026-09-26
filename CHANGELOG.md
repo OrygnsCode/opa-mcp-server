@@ -19,21 +19,27 @@ not part of the public surface and may change in minor releases.
 
 ### Added
 
-- `v0Compatible` on every tool that has `opa` load a policy: the `rego_eval`
-  family, `rego_compile_query`, `rego_explain_decision`, `rego_test`,
-  `rego_test_multiroot`, `rego_coverage_gaps`, `rego_bench`, `opa_exec`,
-  `rego_check`, `rego_format`, `rego_parse_ast`, `rego_inspect` and
+- `v0Compatible` on the tools that hand a policy straight to an `opa`
+  command: the `rego_eval` family, `rego_compile_query`,
+  `rego_explain_decision`, `rego_test`, `rego_test_multiroot`,
+  `rego_coverage_gaps`, `rego_bench`, `opa_exec`, `rego_check`,
+  `rego_check_schema`, `rego_format`, `rego_parse_ast`, `rego_inspect` and
   `opa_bundle_build`. OPA 1.x refuses pre-1.0 Rego without it, so a policy
   that had not been migrated could not be evaluated or tested, including the
-  original a migrated copy has to be compared against.
+  original a migrated copy has to be compared against. The analysis tools
+  that work from the parsed policy, such as `rego_explain_undefined`,
+  `rego_policy_diff` and `rego_verify`, still read Rego v1 only.
 - `rego_eval` takes `inputs`, up to 50 input documents, and returns a result
   or an error for each. One process runs per document, so an input that
-  raises a runtime error does not take the others with it.
+  raises a runtime error does not take the others with it. A failure no
+  input could avoid, such as a policy that does not compile or a timeout,
+  ends the call.
 
 ### Changed
 
-- `rego_eval` and its variants no longer require `source` or `paths`. A query
-  on its own evaluates, which is how a built-in gets tried out. When such a
+- `rego_eval` and its variants, `rego_compile_query` and
+  `rego_explain_decision` no longer require `source` or `paths`. A query on
+  its own evaluates, which is how a built-in gets tried out. When such a
   query reads `data` and comes back undefined, the result says nothing was
   loaded.
 

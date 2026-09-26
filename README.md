@@ -369,10 +369,13 @@ Operate on Rego source code without needing a running OPA server. Wrap
 
 Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 `opa bench`. Each of these tools takes `v0Compatible` to load a policy
-written before OPA 1.0 without migrating it, and so does every other tool
-that has `opa` load a policy: `rego_check`, `rego_format`,
-`rego_format_write`, `rego_parse_ast`, `rego_inspect`, `rego_coverage_gaps`,
-`rego_explain_decision`, `opa_bundle_build` and `opa_bundle_verify`.
+written before OPA 1.0 without migrating it, and so do the other tools that
+hand a policy straight to `opa`: `rego_check`, `rego_check_schema`,
+`rego_format`, `rego_format_write`, `rego_parse_ast`, `rego_inspect`,
+`rego_coverage_gaps`, `rego_explain_decision`, `opa_bundle_build` and
+`opa_bundle_verify`. The analysis tools that work from the parsed policy,
+such as `rego_explain_undefined`, `rego_policy_diff` and `rego_verify`, read
+Rego v1 only; run `rego_migrate_v1` first.
 
 | Tool                      | What it does                                                                                                                                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

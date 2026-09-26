@@ -53,6 +53,8 @@ export const SharedEvalInput = {
 
 export interface RegoEvalOutput {
   result?: unknown[];
+  /** The residual of a partial evaluation, in place of `result`. */
+  partial?: unknown;
   errors?: unknown[];
   metrics?: Record<string, unknown>;
   explanation?: unknown[];
@@ -64,6 +66,13 @@ export interface RegoEvalOutput {
    * any policy.
    */
   hint?: string;
+}
+
+/** Whether a query refers to the data document, outside its string literals. */
+function readsData(query: string): boolean {
+  const code = query.replace(/"(?:[^"\\]|\\.)*"|`[^`]*`/g, '""');
+  // `input.data` is a field of the input, not the data document.
+  return /(?<![.\w])data\b/.test(code);
 }
 
 interface EvalArgs {
@@ -183,9 +192,9 @@ async function executeEval(
   // A query run with nothing loaded is how a built-in or an expression gets
   // tried out. The same call naming a rule is almost always a forgotten
   // `source`, and its undefined result would otherwise read as the policy
-  // denying. `input.data` is a field of the input, not the data document.
+  // denying. A partial evaluation never has `result`, so it is left out.
   const nothingLoaded = evalInput.source === undefined && !evalInput.paths?.length;
-  if (nothingLoaded && !parsed.result?.length && /(?<![.\w])data\b/.test(evalInput.query)) {
+  if (nothingLoaded && !evalInput.partial && !parsed.result?.length && readsData(evalInput.query)) {
     parsed.hint =
       'No policy or data was loaded (neither `source` nor `paths` was given), so every `data` reference in the query is undefined.';
   }
@@ -219,8 +228,10 @@ export interface RegoEvalBatchEntry {
   index: number;
   /** OPA's result for this input. Empty when the query was undefined for it. */
   result?: unknown[];
+  /** For a partial evaluation, the residual for this input, in place of `result`. */
+  partial?: unknown;
   /** Set instead of `result` when OPA could not evaluate this input. */
-  error?: { code: string; message: string; details?: unknown };
+  error?: { code: string; message: string; hint?: string; details?: unknown };
 }
 
 export interface RegoEvalBatchOutput {
@@ -233,14 +244,32 @@ export interface RegoEvalBatchOutput {
 }
 
 /**
+ * Whether a failure is the same whatever the input, so the batch should stop
+ * at it rather than report it once per input: cancellation, a missing binary,
+ * a timeout or an outside kill, and a policy or query that does not compile
+ * (OPA's `rego_*` codes, as against the `eval_*` codes of a runtime error).
+ */
+function endsBatch(error: { code: string; details?: unknown }): boolean {
+  if (['CANCELLED', 'OPA_BINARY_NOT_FOUND', 'TIMEOUT', 'SUBPROCESS_KILLED'].includes(error.code)) {
+    return true;
+  }
+  const errors = (error.details as { errors?: Array<{ code?: unknown }> } | undefined)?.errors;
+  return (
+    error.code === 'EVAL_ERROR' &&
+    Array.isArray(errors) &&
+    errors.some((e) => typeof e.code === 'string' && e.code.startsWith('rego_'))
+  );
+}
+
+/**
  * Evaluate the same query once per input document.
  *
  * One `opa eval` per input. Wrapping the caller's query in a comprehension
  * under `with input as` would evaluate them all in one process, but only for
  * a single-expression query, and a runtime error raised by one input (a rule
- * conflict) would then fail every input. Here an input that fails is reported
- * in its own entry and the rest still run. Cancellation and a missing binary
- * end the whole call, since no later input could fare better.
+ * conflict) would then fail every input. Here an input that fails at runtime
+ * is reported in its own entry and the rest still run. A failure no input
+ * could avoid ends the call instead; see `endsBatch`.
  */
 export async function runEvalBatch(
   opa: OpaCli,
@@ -270,15 +299,25 @@ export async function runEvalBatch(
   const worker = async (): Promise<void> => {
     while (fatal === undefined && next < inputs.length) {
       const index = next++;
-      const envelope = await executeEval(opa, { ...base, input: inputs[index] }, signal);
+      let envelope: ToolEnvelope<RegoEvalOutput>;
+      try {
+        envelope = await executeEval(opa, { ...base, input: inputs[index] }, signal);
+      } catch (e) {
+        // Stop the other workers too, rather than let them keep spawning.
+        fatal ??= err('UNKNOWN_ERROR', e instanceof Error ? e.message : String(e));
+        return;
+      }
       if (envelope.ok) {
         const data = envelope.data!;
-        entries[index] = { index, result: data.result ?? [] };
+        entries[index] =
+          data.partial !== undefined
+            ? { index, partial: data.partial }
+            : { index, result: data.result ?? [] };
         hint ??= data.hint;
         continue;
       }
       const e = envelope.error!;
-      if (e.code === 'CANCELLED' || e.code === 'OPA_BINARY_NOT_FOUND') {
+      if (endsBatch(e)) {
         fatal ??= err(e.code, e.message, { hint: e.hint, details: e.details });
         return;
       }
@@ -287,6 +326,7 @@ export async function runEvalBatch(
         error: {
           code: e.code,
           message: e.message,
+          ...(e.hint !== undefined ? { hint: e.hint } : {}),
           ...(e.details !== undefined ? { details: e.details } : {}),
         },
       };

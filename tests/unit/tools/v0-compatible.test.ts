@@ -36,6 +36,7 @@ const input = () => fixturePath('inputs', 'rbac.json');
 /** The smallest valid call of each tool, without the option under test. */
 const CALLS: Record<string, () => Record<string, unknown>> = {
   rego_check: () => ({ paths: [policy()] }),
+  rego_check_schema: () => ({ paths: [policy()], inlineSchema: { type: 'object' } }),
   rego_format: () => ({ source: 'package x\n' }),
   rego_parse_ast: () => ({ source: 'package x\n' }),
   rego_inspect: () => ({ target: policy() }),

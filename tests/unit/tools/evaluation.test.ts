@@ -19,6 +19,7 @@ vi.mock('../../../src/lib/subprocess.js', () => ({
 import { runBinary } from '../../../src/lib/subprocess.js';
 
 import { registerEvaluationTools } from '../../../src/tools/evaluation/index.js';
+import { registerHelperTools } from '../../../src/tools/helpers/index.js';
 
 const mockRun = vi.mocked(runBinary);
 
@@ -297,7 +298,12 @@ describe('rego_eval', () => {
 
 describe('rego_eval batch', () => {
   interface BatchOut {
-    batch: Array<{ index: number; result?: unknown[]; error?: { code: string } }>;
+    batch: Array<{
+      index: number;
+      result?: unknown[];
+      partial?: unknown;
+      error?: { code: string };
+    }>;
     errorCount: number;
     hint?: string;
   }
@@ -407,6 +413,120 @@ describe('rego_eval batch', () => {
       inputs: [{}, {}],
     });
     expect(env.data?.hint).toMatch(/No policy or data was loaded/);
+  });
+
+  it('keeps the residual of a partial evaluation for each input', async () => {
+    const residual = { queries: [[{ index: 0, terms: [] }]] };
+    mockRun.mockResolvedValue(spawnSuccess(JSON.stringify({ partial: residual })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<BatchOut>(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      partial: true,
+      unknowns: ['input.role'],
+      inputs: [{ user: 'a' }, { user: 'b' }],
+    });
+    expect(env.data?.batch.map((e) => e.partial)).toEqual([residual, residual]);
+    expect(env.data?.batch.every((e) => e.result === undefined)).toBe(true);
+  });
+
+  it('stops at a policy that does not compile, since no input can fix that', async () => {
+    mockRun.mockResolvedValue(
+      spawnFailure(
+        1,
+        '',
+        JSON.stringify({ errors: [{ code: 'rego_parse_error', message: 'unexpected eof' }] }),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      source: 'package p\nallow if {',
+      inputs: Array.from({ length: 12 }, (_, i) => ({ i })),
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(mockRun.mock.calls.length).toBeLessThan(12);
+  });
+
+  it('stops at a timeout rather than waiting one out per input', async () => {
+    mockRun.mockResolvedValue(spawnTimedOut());
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      inputs: Array.from({ length: 12 }, (_, i) => ({ i })),
+    });
+    expect(env.error?.code).toBe('TIMEOUT');
+    expect(mockRun.mock.calls.length).toBeLessThan(12);
+  });
+
+  it("keeps a failing input's hint in its entry", async () => {
+    mockRun.mockImplementation((_bin, opts) => {
+      const input = JSON.parse(opts.stdin!) as { big?: boolean };
+      return Promise.resolve(
+        input.big
+          ? { ...spawnSuccess(''), exitCode: null, outputTruncated: true }
+          : spawnSuccess(resultFor(true)),
+      );
+    });
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      batch: Array<{ error?: { code: string; hint?: string } }>;
+    }>(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      inputs: [{}, { big: true }],
+    });
+    expect(env.data?.batch[1]?.error?.code).toBe('OUTPUT_TOO_LARGE');
+    expect(env.data?.batch[1]?.error?.hint).toBeDefined();
+  });
+
+  it('ends the call when a worker throws, instead of leaving others running', async () => {
+    mockRun.mockRejectedValue(new Error('spawn exploded'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      inputs: Array.from({ length: 12 }, (_, i) => ({ i })),
+    });
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+    expect(env.error?.message).toBe('spawn exploded');
+    expect(mockRun.mock.calls.length).toBeLessThan(12);
+  });
+});
+
+describe('the nothing-loaded hint', () => {
+  const hintFor = async (args: Record<string, unknown>, tool = 'rego_eval') => {
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{ hint?: string }>(server, tool, args);
+    return env.data?.hint;
+  };
+
+  it('ignores the word data inside a string', async () => {
+    mockRun.mockResolvedValue(spawnSuccess('{}'));
+    expect(await hintFor({ query: 'input["data"]', input: {} })).toBeUndefined();
+    expect(await hintFor({ query: 'input.kind == "data"', input: {} })).toBeUndefined();
+    expect(await hintFor({ query: 'x := `data`', input: {} })).toBeUndefined();
+  });
+
+  it('is not given for a partial evaluation, which never has a result', async () => {
+    mockRun.mockResolvedValue(spawnSuccess(JSON.stringify({ partial: { queries: [[]] } })));
+    expect(await hintFor({ query: 'data.x.allow' }, 'rego_compile_query')).toBeUndefined();
+  });
+
+  it('reaches rego_explain_decision too', async () => {
+    mockRun.mockResolvedValue(spawnSuccess(JSON.stringify({ explanation: [] })));
+    expect(await hintFor({ query: 'data.x.allow' }, 'rego_explain_decision')).toMatch(
+      /No policy or data was loaded/,
+    );
   });
 });
 

@@ -201,4 +201,32 @@ v := input.b if input.b
     expect(env.data?.batch[0]?.result).toHaveLength(1);
     expect(env.data?.batch[2]?.result).toHaveLength(1);
   });
+
+  it('fails the call once for a policy that does not compile', async () => {
+    const env = await callTool(server(), 'rego_eval', {
+      query: 'data.p.allow',
+      source: 'package p\n\nallow if {\n',
+      inputs: [{ a: 1 }, { a: 2 }, { a: 3 }],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('EVAL_ERROR');
+  });
+
+  it('returns the residual of a partial evaluation for each input', async () => {
+    const env = await callTool<{ batch: Array<{ partial?: { queries?: unknown[] } }> }>(
+      server(),
+      'rego_eval',
+      {
+        query: 'data.p.allow',
+        source: 'package p\n\nallow if {\n\tinput.role == "admin"\n\tinput.region == "eu"\n}\n',
+        partial: true,
+        unknowns: ['input.region'],
+        inputs: [{ role: 'admin' }, { role: 'viewer' }],
+      },
+    );
+    expect(env.ok).toBe(true);
+    // The admin keeps a residual on region; the viewer's is empty.
+    expect(env.data?.batch[0]?.partial?.queries?.length).toBe(1);
+    expect(env.data?.batch[1]?.partial?.queries ?? []).toHaveLength(0);
+  });
 });
