@@ -28,6 +28,7 @@ import {
 } from '../../lib/conftest-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
+import { conftestFailure } from './_failure.js';
 
 const ConftestVerifyInput = {
   policy: z
@@ -44,6 +45,12 @@ const ConftestVerifyInput = {
     .optional()
     .describe(
       'Paths to data directories. Each must be inside an allowed root (OPA_MCP_ALLOWED_PATHS).',
+    ),
+  v0Compatible: z
+    .boolean()
+    .optional()
+    .describe(
+      'Read the policies as Rego v0 (`--rego-version v0`), the syntax before OPA 1.0: rules without `if`, `deny[msg] { ... }`. conftest reads v1 by default and refuses such a policy.',
     ),
 };
 
@@ -109,6 +116,7 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
             policy: input.policy,
             namespace: input.namespace,
             data: input.data,
+            regoV0: input.v0Compatible,
           },
           signal,
         );
@@ -139,11 +147,12 @@ export function registerConftestVerify(server: McpServer, config: Config): void 
           });
         }
 
-        const detail = result.stderr.trim() || result.stdout.trim();
-        return err(
-          'UNKNOWN_ERROR',
-          `conftest verify failed with exit code ${result.exitCode}: ${detail || 'no output'}`,
-          { details: { exitCode: result.exitCode, stderr: result.stderr.trim() } },
+        return conftestFailure(
+          'verify',
+          result.exitCode,
+          result.stdout,
+          result.stderr,
+          input.v0Compatible,
         );
       });
     },

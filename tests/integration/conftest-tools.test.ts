@@ -243,14 +243,15 @@ describe('conftest_test against the real conftest', () => {
     expect(existsSync(join(tmpdir(), '..', '..', 'escaped'))).toBe(false);
   });
 
-  it("returns UNKNOWN_ERROR with conftest's message for a policy that does not compile", async (ctx) => {
+  it("returns INVALID_REGO with conftest's message for a policy that does not compile", async (ctx) => {
     if (!available) ctx.skip('conftest not available');
     const env = await test({
       inlineConfig: 'kind: Good\n',
       inlinePolicy: 'package main\n\ndeny if {\n',
     });
     expect(env.ok).toBe(false);
-    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toMatch(/rego_parse_error/);
   });
 });
 

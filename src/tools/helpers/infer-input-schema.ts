@@ -14,7 +14,7 @@
  * integration tests or setting up `opa check --schema`.
  */
 import { readdir, stat } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -28,6 +28,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoInferInputSchemaInput = {
   source: z
@@ -40,6 +41,7 @@ const RegoInferInputSchemaInput = {
     .describe(
       'Policy files or directories to analyse. Each must be inside an allowed root (OPA_MCP_ALLOWED_PATHS). Directories are walked recursively for *.rego files.',
     ),
+  v0Compatible: v0CompatibleField,
 };
 
 interface OpaTerm {
@@ -175,7 +177,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
         openWorldHint: false,
       },
     },
-    async ({ source, paths }, { signal }) => {
+    async ({ source, paths, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoInferInputSchemaOutput>(config, async () => {
         if (source === undefined && (!paths || paths.length === 0)) {
           return err(
@@ -186,9 +188,10 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
 
         const allRefs: Array<Array<string | null>> = [];
         let filesAnalyzed = 0;
+        const unparsed: string[] = [];
 
         if (source !== undefined) {
-          const result = await opa.parse({ source }, signal);
+          const result = await opa.parse({ source, v0Compatible }, signal);
           const failure = mapSubprocessFailure(result, 'opa');
           if (failure) return failure;
           if (result.exitCode !== 0) {
@@ -214,17 +217,23 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
           }
 
           for (const filePath of filePaths) {
-            const result = await opa.run(['parse', '--format=json', filePath], undefined, signal);
+            const result = await opa.run(
+              ['parse', '--format=json', ...(v0Compatible ? ['--v0-compatible'] : []), filePath],
+              undefined,
+              signal,
+            );
             const failure = mapSubprocessFailure(result, 'opa');
             if (failure) return failure;
             // Skip files that fail to parse (e.g. test files with syntax issues)
-            // rather than aborting the entire analysis.
-            if (result.exitCode === 0) {
-              const ast = tryParseJson(result.stdout);
-              if (ast) {
-                collectInputRefs(ast, allRefs);
-                filesAnalyzed++;
-              }
+            // rather than aborting the entire analysis, but say so: a pre-1.0
+            // policy fails every file, and an empty schema would look like a
+            // policy that reads no input.
+            const ast = result.exitCode === 0 ? tryParseJson(result.stdout) : undefined;
+            if (ast) {
+              collectInputRefs(ast, allRefs);
+              filesAnalyzed++;
+            } else {
+              unparsed.push(filePath);
             }
           }
         }
@@ -243,6 +252,14 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
         inputPaths.sort();
 
         const warnings: string[] = [];
+        if (unparsed.length > 0) {
+          warnings.push(
+            `${unparsed.length} file(s) did not parse and were left out: ${unparsed.map((f) => basename(f)).join(', ')}.` +
+              (v0Compatible
+                ? ''
+                : ' If they are pre-1.0 Rego (rules without `if`), set `v0Compatible`.'),
+          );
+        }
         if (inputPaths.length === 0) {
           warnings.push(
             'No input.* references found. The policy may not read from input at all, or may use dynamic keys (e.g. input[key]) that cannot be statically resolved.',

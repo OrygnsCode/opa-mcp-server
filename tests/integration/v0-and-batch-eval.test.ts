@@ -261,6 +261,7 @@ describe('the other tools on a v0 policy read without v0Compatible', () => {
     });
     expect(env.error?.code).toBe('INVALID_REGO');
     expect(env.error?.message).toBe('Policy A failed to evaluate.');
+    expect(env.error?.hint).toMatch(/v0CompatibleA/);
     const details = env.error?.details as { errors?: Array<{ message?: string }> };
     expect(details.errors?.[0]?.message).toMatch(/`if` keyword is required/);
   });
