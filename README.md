@@ -386,7 +386,7 @@ command, such as `rego_explain_undefined`, `rego_policy_diff` and
 | `rego_test`               | Run Rego unit tests with `opa test`. Returns pass, fail, skip and error counts plus per-test records; `errored` counts tests OPA could not evaluate. With `coverage` or `threshold` OPA emits a coverage report instead of per-test records. |
 | `rego_bench`              | Run `opa bench` and return statistical timing data.                                                                                                                                                                                          |
 | `rego_compile_query`      | Partially evaluate a query against a policy.                                                                                                                                                                                                 |
-| `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`.                                                                                                                       |
+| `opa_exec`                | Batch-evaluate a decision against multiple input files. Returns per-file results with `successCount` and `errorCount`. `dataPaths` load as `opa eval --data` loads them; `bundle` takes a bundle.                                            |
 | `rego_test_multiroot`     | Run `opa test` once per root and aggregate. Use when `opa test .` hits package conflicts. Totals include `totalErrored`.                                                                                                                     |
 
 #### Featured: `rego_eval`

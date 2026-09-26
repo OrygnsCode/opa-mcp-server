@@ -45,6 +45,14 @@ not part of the public surface and may change in minor releases.
 
 ### Fixed
 
+- `opa_exec` loads `dataPaths` the way `opa eval --data` loads them. Each
+  entry used to reach `opa exec` as a bundle of its own, so a `.rego` file
+  failed with "gzip: invalid header", two directories failed as bundles with
+  overlapping roots, and a data file not named `data.json` was skipped. Plain
+  files and directories are now built into one bundle first, which adds one
+  `opa build` to the call; a directory therefore contributes every JSON and
+  YAML file in it, not only `data.json`. A `.tar.gz` or a directory holding a
+  `.manifest` is still loaded as a bundle.
 - The release workflow waits for npm to serve a newly published version
   before registering it with the MCP Registry, which checks that it exists.
 

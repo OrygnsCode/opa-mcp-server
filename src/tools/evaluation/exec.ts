@@ -8,6 +8,11 @@
  * each config file independently: pass the configs directory, get back
  * a per-file allow/deny without writing a shell loop.
  */
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -15,6 +20,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
+import type { SpawnResult } from '../../lib/subprocess.js';
+import type { ToolEnvelope } from '../../types.js';
 import {
   mapSubprocessFailure,
   tryParseJson,
@@ -46,7 +53,7 @@ const OpaExecInput = {
     .array(z.string())
     .optional()
     .describe(
-      'Policy and/or data file or directory paths, each loaded as an OPA bundle root (opa exec loads policy only via bundles). Mutually exclusive with `bundle`.',
+      'Policy and data files or directories, loaded the way `opa eval --data` loads them: a `.rego` file as a module, a JSON or YAML file merged into the data root, a directory recursively. A bundle among them (a `.tar.gz`, or a directory holding a `.manifest`) is loaded as a bundle instead; bundles and plain paths cannot be mixed. Mutually exclusive with `bundle`.',
     ),
   fail: z
     .boolean()
@@ -111,6 +118,79 @@ export interface OpaExecOutput {
   hint?: string;
 }
 
+/** A `.tar.gz` archive, or a directory holding a bundle `.manifest`. */
+async function isBundlePath(path: string): Promise<boolean> {
+  if (/\.(tar\.gz|tgz)$/i.test(path)) return true;
+  try {
+    return (await stat(path)).isDirectory() && existsSync(join(path, '.manifest'));
+  } catch {
+    return false;
+  }
+}
+
+/** Turn what `opa exec` printed into the tool's result. */
+function readExecResult(
+  result: SpawnResult,
+  gateFlagSet: boolean,
+  decisionPath: string,
+): ToolEnvelope<OpaExecOutput> {
+  const subprocessFailure = mapSubprocessFailure(result, 'opa');
+  if (subprocessFailure) return subprocessFailure;
+
+  // Without a gate flag, opa exec exits non-zero only on an operational
+  // failure (unloadable bundle, unreadable input). With a gate flag set,
+  // a non-zero exit is the gate firing on purpose: opa still prints the
+  // per-file JSON to stdout, so parse it and report `failed: true`.
+  if (result.exitCode !== 0 && !gateFlagSet) {
+    return err('EVAL_ERROR', 'opa exec exited with a non-zero status.', {
+      details: {
+        stderr: result.stderr.trim(),
+        stdout: result.stdout.trim(),
+      },
+    });
+  }
+
+  const parsed = tryParseJson<OpaExecJsonOutput>(result.stdout);
+  if (!parsed) {
+    // A gate flag that exits non-zero with no JSON is a real failure
+    // (e.g. the policy did not compile), not a decision outcome.
+    if (result.exitCode !== 0) {
+      return err('EVAL_ERROR', 'opa exec exited with a non-zero status.', {
+        details: {
+          stderr: result.stderr.trim(),
+          stdout: result.stdout.trim(),
+        },
+      });
+    }
+    return err('UNKNOWN_ERROR', 'opa exec produced no parseable JSON output.', {
+      details: { stdout: result.stdout.trim() },
+    });
+  }
+
+  const results: ExecResultEntry[] = parsed.result ?? [];
+  const successCount = results.filter((r) => r.error === undefined).length;
+  const errorCount = results.filter((r) => r.error !== undefined).length;
+
+  // A decision naming nothing is reported per file as an undefined
+  // decision, indistinguishable from every input legitimately matching no
+  // rule. Both read as a pass under a `deny`-style policy, so say so.
+  const allUndefined =
+    results.length > 0 && results.every((r) => r.error?.code === 'opa_undefined_error');
+
+  return ok<OpaExecOutput>({
+    results,
+    count: results.length,
+    successCount,
+    errorCount,
+    failed: result.exitCode !== 0,
+    ...(allUndefined
+      ? {
+          hint: `Every input left \`${decisionPath}\` undefined. That is the expected outcome when no rule matched any of them, and it is also what a decision naming nothing in the loaded policy looks like. Confirm the rule exists at that path before reading this as a pass.`,
+        }
+      : {}),
+  });
+}
+
 /**
  * Convert a decision reference to the path `opa exec --decision` expects.
  *
@@ -138,7 +218,7 @@ export function registerOpaExec(server: McpServer, config: Config): void {
     {
       title: 'Batch-evaluate OPA policy against input files',
       description:
-        'Evaluate a policy decision against one or more input files using `opa exec --format=json`. Unlike `rego_eval` (single input), `opa exec` processes every file independently and returns a per-file result -- ideal for CI pipelines that check many config files against a policy in one call. Supply `bundle` for bundle-based policies or `dataPaths` for raw policy files; these are mutually exclusive. Each file that fails evaluation appears in `results` with an `error` field rather than a `result` field. Set one of `fail`/`failDefined`/`failNonEmpty` to turn the call into a CI gate: the result then reports `failed: true` (instead of erroring) when the gate condition is met.',
+        'Evaluate a policy decision against one or more input files using `opa exec --format=json`. Unlike `rego_eval` (single input), `opa exec` processes every file independently and returns a per-file result -- ideal for CI pipelines that check many config files against a policy in one call. Supply `bundle` for a bundle, or `dataPaths` for plain `.rego`, JSON and YAML files and directories, which are loaded as `opa eval --data` loads them; the two are mutually exclusive. Each file that fails evaluation appears in `results` with an `error` field rather than a `result` field. Set one of `fail`/`failDefined`/`failNonEmpty` to turn the call into a CI gate: the result then reports `failed: true` (instead of erroring) when the gate condition is met.',
       inputSchema: OpaExecInput,
       annotations: {
         readOnlyHint: false,
@@ -211,79 +291,83 @@ export function registerOpaExec(server: McpServer, config: Config): void {
           resolvedDataPaths = v.resolved;
         }
 
-        const result = await opa.exec(
-          {
-            inputPaths: inputValidation.resolved,
-            decision: decisionPath,
-            bundle: resolvedBundle,
-            dataPaths: resolvedDataPaths,
-            fail,
-            failDefined,
-            failNonEmpty,
-            timeout,
-            v1Compatible,
-            v0Compatible,
-          },
-          signal,
-        );
-
-        const subprocessFailure = mapSubprocessFailure(result, 'opa');
-        if (subprocessFailure) return subprocessFailure;
+        // `opa exec` loads policy only through --bundle, which takes an archive
+        // or a bundle directory: a .rego file there fails as "gzip: invalid
+        // header", two plain directories fail as bundles with overlapping
+        // roots, and a data file not named data.json is skipped. Plain paths are
+        // therefore built into one bundle first by `opa build`, which loads
+        // them as `opa eval --data` does. Real bundles still go straight to
+        // --bundle.
+        const bundles = resolvedBundle ? [resolvedBundle] : [];
+        let plain: string[] = [];
+        if (resolvedDataPaths) {
+          const isBundle = await Promise.all(resolvedDataPaths.map(isBundlePath));
+          bundles.push(...resolvedDataPaths.filter((_, i) => isBundle[i]));
+          plain = resolvedDataPaths.filter((_, i) => !isBundle[i]);
+          if (plain.length > 0 && bundles.length > 0) {
+            return err(
+              'INVALID_INPUT',
+              '`dataPaths` mixes bundles with plain policy or data paths, which opa cannot load together: the plain ones form a bundle whose root overlaps every other bundle.',
+              {
+                hint: 'Pass the bundles on their own, or add the plain files to a bundle with opa_bundle_build.',
+                details: { bundles, plain },
+              },
+            );
+          }
+        }
 
         const gateFlagSet = fail === true || failDefined === true || failNonEmpty === true;
-
-        // Without a gate flag, opa exec exits non-zero only on an operational
-        // failure (unloadable bundle, unreadable input). With a gate flag set,
-        // a non-zero exit is the gate firing on purpose: opa still prints the
-        // per-file JSON to stdout, so parse it and report `failed: true`.
-        if (result.exitCode !== 0 && !gateFlagSet) {
-          return err('EVAL_ERROR', 'opa exec exited with a non-zero status.', {
-            details: {
-              stderr: result.stderr.trim(),
-              stdout: result.stdout.trim(),
-            },
-          });
-        }
-
-        const parsed = tryParseJson<OpaExecJsonOutput>(result.stdout);
-        if (!parsed) {
-          // A gate flag that exits non-zero with no JSON is a real failure
-          // (e.g. the policy did not compile), not a decision outcome.
-          if (result.exitCode !== 0) {
-            return err('EVAL_ERROR', 'opa exec exited with a non-zero status.', {
-              details: {
-                stderr: result.stderr.trim(),
-                stdout: result.stdout.trim(),
-              },
-            });
+        const workDir =
+          plain.length > 0 ? await mkdtemp(join(tmpdir(), 'orygn-opa-mcp-exec-')) : undefined;
+        try {
+          if (workDir !== undefined) {
+            const built = join(workDir, 'policy.tar.gz');
+            const build = await opa.build(
+              { paths: plain, output: built, v0Compatible, v1Compatible },
+              signal,
+            );
+            const buildFailure = mapSubprocessFailure(build, 'opa');
+            if (buildFailure) return buildFailure;
+            if (build.exitCode !== 0) {
+              // opa build prints its error on stdout; warnings may be on stderr.
+              const lines = `${build.stdout}\n${build.stderr}`
+                .split(/\r?\n/)
+                .map((l) => l.trim())
+                .filter(Boolean);
+              const reason = (lines.find((l) => l.startsWith('error:')) ?? lines[0] ?? '').replace(
+                /^error:\s*/,
+                '',
+              );
+              return err(
+                'INVALID_REGO',
+                `The policy and data in \`dataPaths\` did not load${reason ? `: ${reason}` : '.'}`,
+                {
+                  hint: 'Each JSON or YAML file is merged into the data root and each directory is read recursively, as with `opa eval --data`, so two files setting the same key conflict.',
+                  details: { stdout: build.stdout.trim(), stderr: build.stderr.trim() },
+                },
+              );
+            }
+            bundles.push(built);
           }
-          return err('UNKNOWN_ERROR', 'opa exec produced no parseable JSON output.', {
-            details: { stdout: result.stdout.trim() },
-          });
+
+          const result = await opa.exec(
+            {
+              inputPaths: inputValidation.resolved,
+              decision: decisionPath,
+              bundles,
+              fail,
+              failDefined,
+              failNonEmpty,
+              timeout,
+              v1Compatible,
+              v0Compatible,
+            },
+            signal,
+          );
+          return readExecResult(result, gateFlagSet, decisionPath);
+        } finally {
+          if (workDir !== undefined) await rm(workDir, { recursive: true, force: true });
         }
-
-        const results: ExecResultEntry[] = parsed.result ?? [];
-        const successCount = results.filter((r) => r.error === undefined).length;
-        const errorCount = results.filter((r) => r.error !== undefined).length;
-
-        // A decision naming nothing is reported per file as an undefined
-        // decision, indistinguishable from every input legitimately matching no
-        // rule. Both read as a pass under a `deny`-style policy, so say so.
-        const allUndefined =
-          results.length > 0 && results.every((r) => r.error?.code === 'opa_undefined_error');
-
-        return ok<OpaExecOutput>({
-          results,
-          count: results.length,
-          successCount,
-          errorCount,
-          failed: result.exitCode !== 0,
-          ...(allUndefined
-            ? {
-                hint: `Every input left \`${decisionPath}\` undefined. That is the expected outcome when no rule matched any of them, and it is also what a decision naming nothing in the loaded policy looks like. Confirm the rule exists at that path before reading this as a pass.`,
-              }
-            : {}),
-        });
       });
     },
   );

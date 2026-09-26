@@ -1,3 +1,7 @@
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -1725,24 +1729,136 @@ describe('opa_exec', () => {
     expect(call.args).not.toContain('--data');
   });
 
-  it('passes --bundle for each dataPaths entry (opa exec has no --data flag)', async () => {
-    mockRun.mockResolvedValueOnce(
-      spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
-    );
-    const server = makeServer();
-    registerEvaluationTools(server, baseConfig);
-    await callTool(server, 'opa_exec', {
-      inputPaths: [validInputPath()],
-      decision: 'data.rbac.allow',
-      dataPaths: [validRegoPath(), fixturePath('policies', 'valid')],
+  describe('dataPaths', () => {
+    // Answer `opa build` and `opa exec` separately; record what each was given.
+    const answerBuildThenExec = (build = spawnSuccess('')) => {
+      mockRun.mockImplementation((_bin, opts) =>
+        Promise.resolve(
+          opts.args[0] === 'build'
+            ? build
+            : spawnSuccess(execSuccessStdout([{ path: validInputPath(), result: true }])),
+        ),
+      );
+    };
+    const callsTo = (cmd: string) =>
+      mockRun.mock.calls.map((c) => c[1]).filter((o) => o.args[0] === cmd);
+    /** What each --bundle of a call names, as an absolute path. */
+    const bundlesOf = (call: { args: string[]; cwd?: string }) => {
+      const resolved = resolvedArgs(call);
+      return call.args.flatMap((a, i) => (a === '--bundle' ? [resolved[i + 1]!] : []));
+    };
+
+    let workDir: string;
+    beforeEach(async () => {
+      workDir = await mkdtemp(join(tmpdir(), 'orygn-exec-unit-'));
     });
-    const args = mockRun.mock.calls[0]![1].args;
-    const bundleIdxs = args.map((a, i) => (a === '--bundle' ? i : -1)).filter((i) => i !== -1);
-    expect(bundleIdxs).toHaveLength(2);
-    const resolvedExec = resolvedArgs(mockRun.mock.calls[0]![1]);
-    expect(resolvedExec[bundleIdxs[0]! + 1]).toBe(validRegoPath());
-    expect(resolvedExec[bundleIdxs[1]! + 1]).toBe(fixturePath('policies', 'valid'));
-    expect(args).not.toContain('--data');
+    afterEach(async () => {
+      await rm(workDir, { recursive: true, force: true });
+    });
+    const withWorkDir = () => ({
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+
+    it('builds plain files and directories into one bundle, as opa eval --data would load them', async () => {
+      answerBuildThenExec();
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'data.rbac.allow',
+        dataPaths: [validRegoPath(), fixturePath('policies', 'valid')],
+      });
+
+      expect(env.ok).toBe(true);
+      const [build] = callsTo('build');
+      expect(resolvedArgs(build!)).toEqual(
+        expect.arrayContaining([validRegoPath(), fixturePath('policies', 'valid')]),
+      );
+      const output = build!.args[build!.args.indexOf('-o') + 1]!;
+      expect(output).toMatch(/orygn-opa-mcp-exec-[^/\\]+[/\\]policy\.tar\.gz$/);
+
+      // One --bundle, the built archive; neither source path goes to exec.
+      const [exec] = callsTo('exec');
+      const bundleArgs = bundlesOf(exec!);
+      expect(bundleArgs).toHaveLength(1);
+      expect(bundleArgs[0]!.endsWith('policy.tar.gz')).toBe(true);
+      expect(exec!.args).not.toContain('--data');
+      // The built archive is removed afterwards.
+      expect(existsSync(dirname(output))).toBe(false);
+    });
+
+    it('passes bundles straight to --bundle without building them', async () => {
+      const archive = join(workDir, 'policy.tar.gz');
+      await writeFile(archive, 'not really gzip');
+      const manifestDir = join(workDir, 'bundle-dir');
+      await mkdir(manifestDir);
+      await writeFile(join(manifestDir, '.manifest'), '{"roots": ["x"]}');
+      answerBuildThenExec();
+      const server = makeServer();
+      registerEvaluationTools(server, withWorkDir());
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'x/allow',
+        dataPaths: [archive, manifestDir],
+      });
+      expect(env.ok).toBe(true);
+
+      expect(callsTo('build')).toHaveLength(0);
+      expect(bundlesOf(callsTo('exec')[0]!)).toEqual([archive, manifestDir]);
+    });
+
+    it('refuses bundles mixed with plain paths, whose built bundle would overlap them', async () => {
+      const archive = join(workDir, 'policy.tar.gz');
+      await writeFile(archive, 'x');
+      const server = makeServer();
+      registerEvaluationTools(server, withWorkDir());
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'x/allow',
+        dataPaths: [archive, validRegoPath()],
+      });
+      expect(env.error?.code).toBe('INVALID_INPUT');
+      expect(mockRun).not.toHaveBeenCalled();
+    });
+
+    it("reports opa build's reason when the paths do not load, and does not run exec", async () => {
+      answerBuildThenExec(
+        spawnFailure(
+          1,
+          '',
+          'error: load error: 1 error occurred during loading: b.json: merge error',
+        ),
+      );
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'data.rbac.allow',
+        dataPaths: [validRegoPath()],
+      });
+      expect(env.error?.code).toBe('INVALID_REGO');
+      expect(env.error?.message).toBe(
+        'The policy and data in `dataPaths` did not load: load error: 1 error occurred during loading: b.json: merge error',
+      );
+      expect(callsTo('exec')).toHaveLength(0);
+      const output = callsTo('build')[0]!.args;
+      expect(existsSync(dirname(output[output.indexOf('-o') + 1]!))).toBe(false);
+    });
+
+    it('builds and executes a v0 policy as v0', async () => {
+      answerBuildThenExec();
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      await callTool(server, 'opa_exec', {
+        inputPaths: [validInputPath()],
+        decision: 'data.rbac.allow',
+        dataPaths: [validRegoPath()],
+        v0Compatible: true,
+      });
+      expect(callsTo('build')[0]!.args).toContain('--v0-compatible');
+      expect(callsTo('exec')[0]!.args).toContain('--v0-compatible');
+    });
   });
 
   it('rejects providing both bundle and dataPaths', async () => {

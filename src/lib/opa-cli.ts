@@ -304,13 +304,12 @@ export interface ExecInput {
   inputPaths: string[];
   /** The policy decision (entrypoint) to evaluate for each input, e.g. `data.authz.allow`. */
   decision: string;
-  /** Load path as a bundle file or root directory. Mutually exclusive with `dataPaths`. */
-  bundle?: string;
   /**
-   * Policy/data file or directory paths, each loaded as a `--bundle` root
-   * (opa exec has no `--data` flag). Mutually exclusive with `bundle`.
+   * Bundles to load the policy from, each a `.tar.gz` archive or a bundle
+   * directory passed as its own `--bundle`. `opa exec` has no `--data` flag,
+   * so plain policy files reach it built into a bundle first.
    */
-  dataPaths?: string[];
+  bundles: string[];
   /** Exit non-zero when any decision is undefined or errors (`--fail`). */
   fail?: boolean;
   /** Exit non-zero when any decision is defined or errors (`--fail-defined`). */
@@ -693,11 +692,7 @@ export class OpaCli {
       throw new Error('opa exec requires at least one input path');
     }
     const args = ['exec', '--format=json', '--decision', input.decision];
-    if (input.bundle) args.push('--bundle', input.bundle);
-    // `opa exec` has no --data flag; policy/data is loaded only via --bundle
-    // (repeatable, accepts files or directories). Each dataPaths entry becomes
-    // a --bundle root.
-    for (const p of input.dataPaths ?? []) args.push('--bundle', p);
+    for (const b of input.bundles) args.push('--bundle', b);
     if (input.fail) args.push('--fail');
     if (input.failDefined) args.push('--fail-defined');
     if (input.failNonEmpty) args.push('--fail-non-empty');
@@ -707,9 +702,8 @@ export class OpaCli {
     // The --bundle roots are mounted. The positional input files are read as
     // the input document for each evaluation, not mounted, so they are left
     // exactly as given.
-    const execLoadPaths = [...(input.bundle ? [input.bundle] : []), ...(input.dataPaths ?? [])];
     args.push(...input.inputPaths);
-    return this.run(args, undefined, signal, execLoadPaths);
+    return this.run(args, undefined, signal, input.bundles);
   }
 
   // ─── Low-level escape hatch ──────────────────────────────────────────
