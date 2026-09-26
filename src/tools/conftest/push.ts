@@ -23,6 +23,8 @@ import type { Config } from '../../config.js';
 import { ConftestCli } from '../../lib/conftest-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
+import { conftestFailure } from './_failure.js';
 
 const ConftestPushInput = {
   repository: z
@@ -42,6 +44,7 @@ const ConftestPushInput = {
         'Must be inside an allowed root (OPA_MCP_ALLOWED_PATHS) and must exist. ' +
         'Omitted, it falls back to `policy` in the working directory of the server process, the conftest convention, which must itself sit inside an allowed root.',
     ),
+  v0Compatible: v0CompatibleField,
 };
 
 export interface ConftestPushOutput {
@@ -97,7 +100,11 @@ export function registerConftestPush(server: McpServer, config: Config): void {
 
         // ── Run conftest push ────────────────────────────────────────────
         const result = await conftest.push(
-          { repository: input.repository, policy: policyDir },
+          {
+            repository: input.repository,
+            policy: policyDir,
+            ...(input.v0Compatible ? { regoV0: true } : {}),
+          },
           signal,
         );
 
@@ -111,11 +118,14 @@ export function registerConftestPush(server: McpServer, config: Config): void {
           });
         }
 
-        const detail = result.stderr.trim() || result.stdout.trim();
-        return err(
-          'UNKNOWN_ERROR',
-          `conftest push failed with exit code ${result.exitCode}: ${detail}`,
-          { details: { exitCode: result.exitCode, stderr: result.stderr.trim() } },
+        // conftest loads the policies before pushing, so a policy that does
+        // not compile fails here as it does for test and verify.
+        return conftestFailure(
+          'push',
+          result.exitCode,
+          result.stdout,
+          result.stderr,
+          input.v0Compatible,
         );
       });
     },

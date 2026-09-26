@@ -1,3 +1,4 @@
+import { relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { baseConfig, callTool, fixturePath, makeServer, spawnUnreachable } from './_helpers.js';
@@ -189,6 +190,39 @@ describe('rego_infer_input_schema', () => {
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('INVALID_INPUT');
     expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('fails when no file parses, rather than returning an empty schema', async () => {
+    mockRun.mockResolvedValueOnce({
+      ...okSpawn,
+      exitCode: 1,
+      stderr: 'rbac.rego:3: rego_parse_error: `if` keyword is required before rule body',
+    });
+    const server = makeServer();
+    registerRegoInferInputSchema(server, baseConfig);
+    const env = await callTool(server, 'rego_infer_input_schema', {
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toMatch(/rbac\.rego/);
+    expect(env.error?.hint).toMatch(/v0Compatible/);
+  });
+
+  it('names a file it left out by its path under the directory given', async () => {
+    const ast = makeParseAst([[{ type: 'string', value: 'subject' }]]);
+    // Every file but the first parses.
+    mockRun
+      .mockResolvedValueOnce({ ...okSpawn, exitCode: 1, stderr: 'rego_parse_error' })
+      .mockResolvedValue({ ...okSpawn, stdout: ast });
+    const server = makeServer();
+    registerRegoInferInputSchema(server, baseConfig);
+    const dir = fixturePath('policies');
+    const env = await callTool<RegoInferInputSchemaOutput>(server, 'rego_infer_input_schema', {
+      paths: [dir],
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    const firstFile = mockRun.mock.calls[0]![1].args.at(-1)!;
+    expect(env.warnings?.[0]).toContain(relative(dir, firstFile));
   });
 
   it('accepts a file path and parses it directly', async () => {

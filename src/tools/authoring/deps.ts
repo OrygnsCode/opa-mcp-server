@@ -13,7 +13,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
-import { PRE_V1_SYNTAX } from '../_rego-version.js';
+import { PRE_V1_ERRORS } from '../_rego-version.js';
 import {
   mapSubprocessFailure,
   tryParseJson,
@@ -72,7 +72,7 @@ export function registerRegoDeps(server: McpServer, config: Config): void {
             'opa deps exited non-zero -- the policy did not compile or the ref is invalid.',
             {
               // opa deps has no --v0-compatible, unlike the other commands.
-              ...(PRE_V1_SYNTAX.test(stderr)
+              ...(PRE_V1_ERRORS.test(stderr)
                 ? {
                     hint: 'The policy looks like pre-1.0 Rego, and opa deps reads Rego v1 only. Migrate it with rego_migrate_v1 first.',
                   }

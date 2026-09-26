@@ -26,15 +26,14 @@ not part of the public surface and may change in minor releases.
   `rego_check`, `rego_check_schema`, `rego_format`, `rego_parse_ast`,
   `rego_inspect`, `rego_describe_policy`, `rego_generate_test_skeleton`,
   `rego_infer_input_schema`, `rego_verify`, `opa_bundle_build`,
-  `conftest_test` and `conftest_verify`; `rego_policy_diff` takes it per
+  `conftest_test`, `conftest_verify` and `conftest_push`; `rego_policy_diff` takes it per
   side, so a legacy policy can be diffed against its migrated copy. OPA 1.x
   refuses pre-1.0 Rego without it, so a policy that had not been migrated
   could not be evaluated or tested, including the original a migrated copy
   has to be compared against. OPA reads the query as v0 too, so the future
   keywords are imported for it and `in` and `every` work there as they do
   against a v1 policy. `rego_deps` has no such option, since `opa deps` has
-  none, and the Regal tools take the Rego version from Regal's own
-  configuration file.
+  none, and the Regal tools need none, since Regal reads either version.
 - `rego_eval` takes `inputs`, up to 50 input documents, and returns a result
   or an error for each. One process runs per document, so an input that
   raises a runtime error does not take the others with it. A policy that
@@ -84,10 +83,12 @@ not part of the public surface and may change in minor releases.
 
 - `rego_infer_input_schema` said nothing when a file did not parse and built
   the schema from the rest, so a pre-1.0 policy came back as one that reads
-  no input at all. It now names the files it left out.
-- `conftest_test` and `conftest_verify` report a policy that does not
-  compile as `INVALID_REGO`, rather than `UNKNOWN_ERROR`, and point at
-  `v0Compatible` when the policy is pre-1.0 Rego.
+  no input at all. It now names the files it left out, and fails with
+  `INVALID_REGO` when none parsed.
+- `conftest_test`, `conftest_verify` and `conftest_push` report a policy
+  that does not compile as `INVALID_REGO`, and one that fails while running
+  as `EVAL_ERROR`, rather than `UNKNOWN_ERROR`, and point at `v0Compatible`
+  when the policy is pre-1.0 Rego.
 - `opa_exec` loads `dataPaths` the way `opa eval --data` loads them. Each
   entry used to reach `opa exec` as a bundle of its own, so a `.rego` file
   failed with "gzip: invalid header", two directories failed as bundles with

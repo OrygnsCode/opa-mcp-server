@@ -5,10 +5,10 @@
  */
 import { err } from '../../lib/errors.js';
 import type { ToolEnvelope } from '../../types.js';
-import { PRE_V1_SYNTAX } from '../_rego-version.js';
+import { PRE_V1_ERRORS } from '../_rego-version.js';
 
 export function conftestFailure(
-  command: 'test' | 'verify',
+  command: 'test' | 'verify' | 'push',
   exitCode: number | null,
   stdout: string,
   stderr: string,
@@ -20,9 +20,16 @@ export function conftestFailure(
   if (/rego_[a-z_]+_error/.test(detail)) {
     return err('INVALID_REGO', message, {
       hint:
-        !v0Compatible && PRE_V1_SYNTAX.test(detail)
+        !v0Compatible && PRE_V1_ERRORS.test(detail)
           ? 'The policy looks like pre-1.0 Rego, which conftest reads as v1 by default. Set `v0Compatible`, or migrate it with rego_migrate_v1.'
           : 'Fix the policy at the file and line named; rego_check gives structured diagnostics.',
+      details,
+    });
+  }
+  // The policy compiled and failed while evaluating, as rego_eval reports it.
+  if (/eval_[a-z_]+_error/.test(detail)) {
+    return err('EVAL_ERROR', message, {
+      hint: 'The policy failed while it ran; the message names the rule and line.',
       details,
     });
   }

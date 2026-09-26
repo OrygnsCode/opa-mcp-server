@@ -378,7 +378,7 @@ the future keywords are imported for it and `in` and `every` still work
 there. `rego_policy_diff` takes it per side (`v0CompatibleA`,
 `v0CompatibleB`), to compare a legacy policy with its migrated copy. The
 exceptions are `rego_deps`, since `opa deps` has no such option, and the
-Regal tools, which take the Rego version from Regal's configuration file.
+Regal tools, which need none, since Regal reads either version.
 
 | Tool                      | What it does                                                                                                                                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -162,6 +162,8 @@ export interface ConftestPullInput {
 export interface ConftestPushInput {
   /** OCI repository URL to push policies to. */
   repository: string;
+  /** Read the policies as Rego v0 (`--rego-version v0`); push loads them first. */
+  regoV0?: boolean;
   /** Local directory containing policies to push. Defaults to `./policy`. */
   policy?: string;
 }
@@ -428,6 +430,7 @@ export class ConftestCli {
     const args = ['push', input.repository];
     const target = relativeToParent(input.policy);
     if (target) args.push('--policy', target.name);
+    if (input.regoV0) args.push('--rego-version', 'v0');
     return this.run(args, signal, target?.parent);
   }
 

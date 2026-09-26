@@ -59,12 +59,17 @@ const CALLS: Record<string, () => Record<string, unknown>> = {
   rego_infer_input_schema: () => ({ source: 'package x\n' }),
   conftest_test: () => ({ inlineConfig: 'kind: Pod\n', inlinePolicy: 'package main\n' }),
   conftest_verify: () => ({ policy: fixturePath('conftest', 'policy') }),
+  conftest_push: () => ({
+    repository: 'ghcr.io/example/policies:latest',
+    policy: fixturePath('conftest', 'policy'),
+  }),
 };
 
 /** The argv each tool is expected to carry; opa's flag unless named here. */
 const EXPECTED: Record<string, string[]> = {
   conftest_test: ['--rego-version', 'v0'],
   conftest_verify: ['--rego-version', 'v0'],
+  conftest_push: ['--rego-version', 'v0'],
 };
 
 /** True when `args` holds `flag` as consecutive entries. */

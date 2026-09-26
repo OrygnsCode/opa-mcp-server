@@ -26,7 +26,7 @@ import type { SpawnResult } from '../../lib/subprocess.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { sanitizeInlinePathsDeep } from '../../lib/inline-paths.js';
-import { PRE_V1_SYNTAX } from '../_rego-version.js';
+import { PRE_V1_ERRORS } from '../_rego-version.js';
 import {
   mapSubprocessFailure,
   tryParseJson,
@@ -205,7 +205,7 @@ function sideFailure(
     errors.every((e) => typeof e.code === 'string' && e.code.startsWith('eval_'));
   const preV1 =
     !v0Compatible &&
-    errors.some((e) => typeof e.message === 'string' && PRE_V1_SYNTAX.test(e.message));
+    errors.some((e) => typeof e.message === 'string' && PRE_V1_ERRORS.test(e.message));
   return err(runtime ? 'EVAL_ERROR' : 'INVALID_REGO', `Policy ${side} failed to evaluate.`, {
     ...(preV1
       ? {

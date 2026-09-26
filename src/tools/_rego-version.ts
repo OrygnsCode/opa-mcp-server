@@ -8,8 +8,12 @@
  */
 import { z } from 'zod';
 
-/** The parse errors a pre-1.0 policy raises when OPA reads it as v1. */
-export const PRE_V1_SYNTAX = /`(if|contains)` keyword is required/;
+/**
+ * What OPA says about a pre-1.0 policy read as v1: a rule body without `if`,
+ * a partial set without `contains`, or a call to a built-in v1 removed.
+ */
+export const PRE_V1_ERRORS =
+  /`(if|contains)` keyword is required|deprecated built-in function calls/;
 
 export const v0CompatibleField = z
   .boolean()

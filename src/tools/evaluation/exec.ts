@@ -28,7 +28,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { PRE_V1_SYNTAX, v0CompatibleField } from '../_rego-version.js';
+import { PRE_V1_ERRORS, v0CompatibleField } from '../_rego-version.js';
 
 const OpaExecInput = {
   inputPaths: z
@@ -196,9 +196,9 @@ function describeBuildFailure(
   let hint: string;
   if (/merge error/.test(all)) {
     hint = `Paths load as \`opa eval --data\` loads them: every JSON and YAML file is merged into the data root at its directory, so two files setting the same key conflict. Test fixtures kept beside a policy are the usual cause. ${BUNDLE_HINT}`;
-  } else if (!v0Compatible && PRE_V1_SYNTAX.test(all)) {
+  } else if (!v0Compatible && PRE_V1_ERRORS.test(all)) {
     hint =
-      'The policy looks like pre-1.0 Rego (rules without `if`). Set `v0Compatible`, or migrate it with rego_migrate_v1.';
+      'The policy looks like pre-1.0 Rego. Set `v0Compatible`, or migrate it with rego_migrate_v1.';
   } else if (/rego_[a-z_]+_error/.test(all)) {
     hint = 'Fix the policy at the file and line named.';
   } else if (/\.(json|ya?ml)\b/i.test(all)) {
@@ -235,8 +235,8 @@ function execFailure(result: SpawnResult, v0Compatible: boolean | undefined): To
   if (reason !== undefined && /rego_[a-z_]+_error/.test(reason)) {
     return err('INVALID_REGO', `The policy did not load: ${reason}`, {
       hint:
-        !v0Compatible && PRE_V1_SYNTAX.test(reason)
-          ? 'The policy looks like pre-1.0 Rego (rules without `if`). Set `v0Compatible`, or migrate it with rego_migrate_v1.'
+        !v0Compatible && PRE_V1_ERRORS.test(reason)
+          ? 'The policy looks like pre-1.0 Rego. Set `v0Compatible`, or migrate it with rego_migrate_v1.'
           : 'Fix the policy at the file and line named. A path in it is the one inside the bundle opa loaded.',
       details,
     });

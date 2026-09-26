@@ -14,7 +14,7 @@
  * integration tests or setting up `opa check --schema`.
  */
 import { readdir, stat } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, extname, join, relative } from 'node:path';
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -188,7 +188,9 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
 
         const allRefs: Array<Array<string | null>> = [];
         let filesAnalyzed = 0;
+        /** Files that did not parse, named relative to the path they were found under. */
         const unparsed: string[] = [];
+        let firstParseError = '';
 
         if (source !== undefined) {
           const result = await opa.parse({ source, v0Compatible }, signal);
@@ -206,17 +208,19 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
           const validation = validatePaths(paths!, config, { mustExist: true });
           if (!validation.ok) return validation.error;
 
-          const filePaths: string[] = [];
+          const filePaths: Array<{ filePath: string; label: string }> = [];
           for (const p of validation.resolved) {
             const s = await stat(p);
             if (s.isDirectory()) {
-              filePaths.push(...(await findRegoFiles(p)));
+              for (const f of await findRegoFiles(p)) {
+                filePaths.push({ filePath: f, label: relative(p, f) });
+              }
             } else {
-              filePaths.push(p);
+              filePaths.push({ filePath: p, label: basename(p) });
             }
           }
 
-          for (const filePath of filePaths) {
+          for (const { filePath, label } of filePaths) {
             const result = await opa.run(
               ['parse', '--format=json', ...(v0Compatible ? ['--v0-compatible'] : []), filePath],
               undefined,
@@ -233,9 +237,26 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
               collectInputRefs(ast, allRefs);
               filesAnalyzed++;
             } else {
-              unparsed.push(filePath);
+              unparsed.push(label);
+              firstParseError ||= result.stderr.trim();
             }
           }
+        }
+
+        const preV1Hint = v0Compatible
+          ? ''
+          : ' If they are pre-1.0 Rego (rules without `if`), set `v0Compatible`.';
+        // With nothing parsed there is no schema to infer, and an empty one
+        // would read as a policy that takes no input.
+        if (filesAnalyzed === 0 && unparsed.length > 0) {
+          return err(
+            'INVALID_REGO',
+            `No policy file parsed, so there is nothing to infer a schema from: ${unparsed.join(', ')}.`,
+            {
+              hint: `Fix the syntax at the line opa names.${preV1Hint}`,
+              details: { stderr: firstParseError },
+            },
+          );
         }
 
         const schema = buildSchema(allRefs);
@@ -254,15 +275,14 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
         const warnings: string[] = [];
         if (unparsed.length > 0) {
           warnings.push(
-            `${unparsed.length} file(s) did not parse and were left out: ${unparsed.map((f) => basename(f)).join(', ')}.` +
-              (v0Compatible
-                ? ''
-                : ' If they are pre-1.0 Rego (rules without `if`), set `v0Compatible`.'),
+            `${unparsed.length} file(s) did not parse and were left out: ${unparsed.join(', ')}.${preV1Hint}`,
           );
         }
         if (inputPaths.length === 0) {
           warnings.push(
-            'No input.* references found. The policy may not read from input at all, or may use dynamic keys (e.g. input[key]) that cannot be statically resolved.',
+            unparsed.length > 0
+              ? 'No input.* references found in the files that parsed.'
+              : 'No input.* references found. The policy may not read from input at all, or may use dynamic keys (e.g. input[key]) that cannot be statically resolved.',
           );
         }
 

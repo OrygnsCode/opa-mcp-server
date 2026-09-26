@@ -119,23 +119,33 @@ describe('rego_verify on v0', () => {
     expect(comparable(parse(['--v0-compatible'], V0))).toEqual(comparable(parse([], v1Twin)));
   });
 
-  it.each([
-    ['allow', 'always_true'],
-    ['allow', 'never_true'],
-    ['allow', 'satisfiable'],
-  ] as const)('gives %s %s the same verdict for the v0 policy and its twin', async (rule, kind) => {
-    const s = server();
-    const a = await callTool<{ verdict: string }>(s, 'rego_verify', {
-      source: V0,
-      rule,
-      kind,
-      v0Compatible: true,
-    });
-    const b = await callTool<{ verdict: string }>(s, 'rego_verify', { source: v1Twin, rule, kind });
-    expect(a.ok, JSON.stringify(a.error)).toBe(true);
-    expect(b.ok, JSON.stringify(b.error)).toBe(true);
-    expect(a.data?.verdict).toBe(b.data?.verdict);
-  });
+  // A rule the engine encodes, so the verdicts are real ones and not two
+  // matching `inconclusive`s.
+  const encodable = 'package verdicts\n\ndefault allow = false\n\nallow {\n\tinput.b == 2\n}\n';
+  const encodableTwin =
+    'package verdicts\n\nimport rego.v1\n\ndefault allow := false\n\nallow if {\n\tinput.b == 2\n}\n';
+
+  it.each(['always_true', 'never_true', 'satisfiable'] as const)(
+    'gives allow %s the same verdict for a v0 policy and its twin',
+    async (kind) => {
+      const s = server();
+      const a = await callTool<{ verdict: string }>(s, 'rego_verify', {
+        source: encodable,
+        rule: 'allow',
+        kind,
+        v0Compatible: true,
+      });
+      const b = await callTool<{ verdict: string }>(s, 'rego_verify', {
+        source: encodableTwin,
+        rule: 'allow',
+        kind,
+      });
+      expect(a.ok, JSON.stringify(a.error)).toBe(true);
+      expect(b.ok, JSON.stringify(b.error)).toBe(true);
+      expect(a.data?.verdict).not.toBe('inconclusive');
+      expect(a.data?.verdict).toBe(b.data?.verdict);
+    },
+  );
 });
 
 describe('the analysis tools on v0', () => {
@@ -179,9 +189,8 @@ describe('the analysis tools on v0', () => {
     const without = await callTool<{ inputPaths: string[] }>(s, 'rego_infer_input_schema', {
       paths: [join(work, 'gate.rego')],
     });
-    expect(without.ok).toBe(true);
-    expect(without.data?.inputPaths).toEqual([]);
-    expect(JSON.stringify(without)).toMatch(/set `v0Compatible`/);
+    expect(without.error?.code).toBe('INVALID_REGO');
+    expect(without.error?.hint).toMatch(/set `v0Compatible`/);
 
     const withFlag = await callTool<{ inputPaths: string[] }>(s, 'rego_infer_input_schema', {
       paths: [join(work, 'gate.rego')],
@@ -227,8 +236,13 @@ deny[msg] {
       'package main\n\ntest_denies {\n\tdeny["no pods"] with input as {"kind": "Pod"}\n}\n',
       'utf8',
     );
-    const verified = await callTool(s, 'conftest_verify', { policy: dir, v0Compatible: true });
+    const verified = await callTool<{ passed: boolean; summary: { failed: number } }>(
+      s,
+      'conftest_verify',
+      { policy: dir, v0Compatible: true },
+    );
     expect(verified.ok, JSON.stringify(verified.error)).toBe(true);
-    expect(JSON.stringify(verified.data)).not.toMatch(/"failures":\s*[1-9]/);
+    expect(verified.data?.passed).toBe(true);
+    expect(verified.data?.summary.failed).toBe(0);
   });
 });
