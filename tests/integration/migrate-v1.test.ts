@@ -227,13 +227,16 @@ describe('rego_migrate_v1 edge cases', () => {
     expect(env.data?.equivalence?.identical).toBe(true);
   });
 
-  it('aliases an import written with a bracketed keyword', async () => {
-    const source = lines('package br', '', 'import input["in"]', '', 'r {', '\tin.x', '}');
-    const env = await migrate({ source, inputs: [{ in: { x: 1 } }] });
-    expect(env.ok, JSON.stringify(env.error)).toBe(true);
-    expect(env.data?.migrated).toContain('as in_');
-    expect(env.data?.equivalence?.identical).toBe(true);
-  });
+  it.each(['import input["in"]', 'import input[`in`]'])(
+    'aliases an import written with a bracketed keyword: %s',
+    async (importLine) => {
+      const source = lines('package br', '', importLine, '', 'r {', '\tin.x', '}');
+      const env = await migrate({ source, inputs: [{ in: { x: 1 } }] });
+      expect(env.ok, JSON.stringify(env.error)).toBe(true);
+      expect(env.data?.migrated).toContain('as in_');
+      expect(env.data?.equivalence?.identical).toBe(true);
+    },
+  );
 
   it('compares rules one by one when a conflict fails the whole package on both sides', async () => {
     const source = lines(

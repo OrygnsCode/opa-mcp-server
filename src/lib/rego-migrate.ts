@@ -351,7 +351,10 @@ function stringValue(text: string): string | undefined {
 
 /** A ref's text in dotted form, so `net["cidr_overlap"]` reads as `net.cidr_overlap`. */
 const dotted = (text: string): string =>
-  text.replace(/\[\s*"([^"]*)"\s*\]/g, '.$1').replace(/\s+/g, '');
+  text
+    .replace(/\[\s*"([^"]*)"\s*\]/g, '.$1')
+    .replace(/\[\s*`([^`]*)`\s*\]/g, '.$1')
+    .replace(/\s+/g, '');
 
 /**
  * Apply edits at OPA's row/column locations.
