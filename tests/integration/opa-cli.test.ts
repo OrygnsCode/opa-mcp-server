@@ -709,7 +709,7 @@ describe('OpaCli integration', () => {
   });
 
   describe('exec()', () => {
-    it('loads policy from dataPaths via --bundle and evaluates each input', async () => {
+    it('loads policy from a bundle directory via --bundle and evaluates each input', async () => {
       const policyDir = join(tmpWorkDir, 'exec-policy');
       await mkdir(policyDir, { recursive: true });
       await writeFile(
@@ -723,10 +723,10 @@ describe('OpaCli integration', () => {
       const result = await opa.exec({
         inputPaths: [inputFile],
         decision: 'authz/allow',
-        dataPaths: [policyDir],
+        bundles: [policyDir],
       });
 
-      // Regression guard for the dataPaths fix: opa exec has no --data flag.
+      // Regression guard: opa exec has no --data flag.
       // The old code pushed --data and always failed with "unknown flag: --data".
       expect(result.stderr).not.toMatch(/unknown flag/i);
       expect(result.exitCode).toBe(0);
@@ -748,7 +748,7 @@ describe('OpaCli integration', () => {
       const result = await opa.exec({
         inputPaths: [inputFile],
         decision: 'authz/allow',
-        dataPaths: [policyDir],
+        bundles: [policyDir],
         failDefined: true,
       });
 
