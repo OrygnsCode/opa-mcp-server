@@ -203,7 +203,10 @@ describe('the analysis tools on v0', () => {
 });
 
 describe('conftest on v0', () => {
-  it('conftest_test and conftest_verify read a v0 policy with v0Compatible', async () => {
+  it('conftest_test and conftest_verify read a v0 policy with v0Compatible', async (ctx) => {
+    const conftest = process.env['CONFTEST_BINARY'] ?? 'conftest';
+    const version = spawnSync(conftest, ['--version'], { encoding: 'utf8', windowsHide: true });
+    if (version.status !== 0) ctx.skip('conftest not available');
     const policy = `package main
 
 deny[msg] {
