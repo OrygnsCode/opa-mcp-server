@@ -34,7 +34,7 @@
     "llm"
   ],
   "bin": {
-    "opa-mcp": "./dist/server.js"
+    "opa-mcp": "dist/server.js"
   },
   "main": "./dist/server.js",
   "files": [
