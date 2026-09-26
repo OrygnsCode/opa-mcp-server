@@ -4,7 +4,7 @@
  * Verifies the artifacts users actually consume:
  *   1. The npm tarball contents (no source, no tests, no .github)
  *   2. The compiled dist/ tree boots and serves the MCP protocol
- *      end-to-end via stdio — exercises src/server.ts which the
+ *      end-to-end via stdio - exercises src/server.ts which the
  *      regular suite cannot reach without spawning a real process
  *
  * The Docker build is heavy (~minutes for multi-arch) and gated
@@ -26,7 +26,7 @@ const DIST_SERVER = join(REPO_ROOT, 'dist', 'server.js');
 /**
  * Wrap a Windows-shell argument in double quotes when it contains
  * whitespace. Necessary because `shell: true` concatenates args as a
- * single string and the shell splits on whitespace — paths like
+ * single string and the shell splits on whitespace - paths like
  * `Github Repos\manifest.json` arrive as two arguments otherwise.
  */
 function quoteForWindowsShell(arg: string): string {
@@ -46,7 +46,7 @@ function runSync(
 ): { stdout: string; stderr: string; exitCode: number | null } {
   // On Windows, npm/docker/mcpb resolve to `.cmd` shims that require
   // shell=true to be invoked from Node's spawn. We pass argv as a
-  // separate array — there is no shell-meta interpretation happening
+  // separate array - there is no shell-meta interpretation happening
   // beyond whitespace splitting, which we mitigate by quoting args
   // that contain whitespace. Args we pass are static literals from
   // this file, so the Node deprecation warning is benign.
@@ -203,7 +203,7 @@ describe('dist/server.js boots and serves the MCP protocol', () => {
 
 // ─── 3. npm pack contents ─────────────────────────────────────────────────
 
-describe('npm pack — published tarball contents', () => {
+describe('npm pack - published tarball contents', () => {
   it('publishes only the runtime artifacts (dist/, README, LICENSE, CHANGELOG)', () => {
     const result = runSync('npm', ['pack', '--dry-run', '--json']);
     expect(result.exitCode).toBe(0);
@@ -285,7 +285,7 @@ describe.skipIf(runSync('mcpb', ['--version']).exitCode !== 0)('MCPB bundle pack
   });
 
   it('mcpb validate accepts our manifest.json', () => {
-    // `mcpb validate` checks a manifest.json against the MCPB schema —
+    // `mcpb validate` checks a manifest.json against the MCPB schema -
     // a separate concern from packing. Run it standalone so any
     // schema regression in our manifest fails fast.
     const r = runSync('mcpb', ['validate', join(REPO_ROOT, 'manifest.json')]);

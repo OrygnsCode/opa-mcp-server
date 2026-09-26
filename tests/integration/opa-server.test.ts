@@ -11,7 +11,7 @@
  * state by using unique policy IDs and data paths.
  *
  * Skipped automatically if `opa` is not on PATH or `OPA_BINARY` is
- * unset — CI installs OPA before running this suite.
+ * unset - CI installs OPA before running this suite.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -245,7 +245,7 @@ describe('policy lifecycle (list / get / put / delete)', () => {
     });
     expect(env.ok).toBe(true);
     expect(env.data?.policies.length).toBeGreaterThan(0);
-    // The seeded policy lives at <workDir>/seed.rego — OPA stores it under
+    // The seeded policy lives at <workDir>/seed.rego - OPA stores it under
     // its full path. Match by content rather than ID for portability.
     const seeded = env.data?.policies.find((p) => p.raw?.includes('package seed'));
     expect(seeded).toBeDefined();

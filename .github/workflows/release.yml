@@ -34,6 +34,24 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           pkg=$(jq -r '.version' package.json)
           [ "${pkg}" = "${tag}" ] || { echo "::error::package.json version (${pkg}) != tag (${tag})"; exit 1; }
+      # The platform packages carry the bundled OPA and the main package pins
+      # them by exact version. A manifest that moved without `npm run
+      # bundle:sync` would announce one OPA and install another.
+      - name: Platform packages match the manifest
+        run: |
+          node -e '
+            const fs = require("fs");
+            const manifest = JSON.parse(fs.readFileSync("scripts/opa-binaries.json", "utf8"));
+            const main = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            let bad = 0;
+            for (const [name, m] of Object.entries(manifest.packages)) {
+              const pkg = JSON.parse(fs.readFileSync(`${m.dir}/package.json`, "utf8"));
+              if (pkg.opaVersion !== manifest.opaVersion) { console.log(`::error::${name} carries OPA ${pkg.opaVersion}; the manifest says ${manifest.opaVersion}`); bad++; }
+              const pin = (main.optionalDependencies || {})[name];
+              if (pin !== pkg.version) { console.log(`::error::package.json pins ${name}@${pin}; the package is ${pkg.version}`); bad++; }
+            }
+            process.exit(bad ? 1 : 0);
+          '
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc

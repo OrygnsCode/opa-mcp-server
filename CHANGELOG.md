@@ -17,16 +17,27 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- `conftest_test` accepts the `cyclonedx`, `groovy` and `jsonc` parsers,
+  which conftest offers and the closed list here lacked.
+
 ### Changed
 
-- The bundled OPA is now 1.21.0, from 1.19.0. Two upstream changes reach
+- The bundled OPA is now 1.21.0, from 1.19.0. Three upstream changes reach
   users through it. OPA reads YAML against the 1.2 core schema, so the bare
   words `yes`, `no`, `on` and `off` in data files and `yaml.unmarshal` are
   strings now rather than booleans; quote them or use `true` and `false`.
-  Coverage reports from `rego_test`, `rego_eval_with_coverage` and
-  `rego_coverage_gaps` may tag a not-covered range with a `kind` of
-  `index_excluded` or `early_exit`, which says why evaluation skipped it.
-  Nothing changes when `OPA_BINARY` or `PATH` supplies the binary.
+  The type checker types an empty `{}`, `[]` or `set()` literal as empty and
+  checks `in` against the collection's type, so a policy that indexes,
+  iterates or tests membership in an empty literal now fails `rego_check`
+  with `rego_type_error` where it compiled before; OPA suggests
+  `count(x) == 0` for an emptiness test. Coverage reports from `rego_test`,
+  `rego_eval_with_coverage` and `rego_coverage_gaps` may tag a not-covered
+  range with a `kind` of `index_excluded` or `early_exit`, which says why
+  evaluation skipped it, at the cost of up to two extra evaluation passes
+  when coverage is requested. Nothing changes when `OPA_BINARY` or `PATH`
+  supplies the binary.
 - Node.js 22 or later is required. Node 20 reached end of life in April
   2026, and the CI matrix now covers 22, 24 and 26, the last being what the
   Docker image runs.
@@ -35,15 +46,20 @@ not part of the public surface and may change in minor releases.
 
 ### Fixed
 
-- `rego_security_audit` failed outright on Regal 0.42 and later, which refuse
+- `rego_security_audit` failed outright on Regal 0.31 and later, which refuse
   a category no rule defines; the tool always enabled `security` as the home
   for a project's custom rules. When Regal rejects it, the sweep runs again
   with `bugs` alone.
-- `rego_fix` with `force: true` sent Regal 0.42 a flag that release
-  deprecated, since it no longer refuses files with uncommitted changes. The
-  flag now goes only to a Regal that still has that check. The tool's
-  description names the nine rules Regal 0.42 can fix; it named the five of
-  0.30.
+- `rego_fix` with `force: true` sent Regal 0.41 and later a flag those
+  releases deprecated, since they no longer refuse files with uncommitted
+  changes. The flag now goes only to a Regal that still has that check. The
+  tool's description names the nine rules Regal 0.42 can fix; it named the
+  five of 0.30.
+- The hint on `REGAL_NOT_FOUND` pointed at a Regal documentation site that
+  no longer resolves; it points at the project's page on openpolicyagent.org.
+- Regal's own update check is switched off in the subprocesses the server
+  runs (`REGAL_DISABLE_VERSION_CHECK`), so `mcp_server_info` and `rego_fix`
+  no longer make a network request through it.
 
 ## [0.6.0] - 2026-09-07
 

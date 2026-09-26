@@ -171,6 +171,11 @@ export function buildChildEnv(
     if (value !== undefined) env[name] = value;
   }
 
+  // Regal's `version` command looks for a newer release over the network and
+  // caches the answer under the user's config directory unless this is set.
+  // A subprocess the server runs for its own bookkeeping should not reach out.
+  env['REGAL_DISABLE_VERSION_CHECK'] = '1';
+
   const result = extra ? { ...env, ...extra } : env;
 
   for (const name of blockedNames(source)) {

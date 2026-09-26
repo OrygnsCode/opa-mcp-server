@@ -66,7 +66,7 @@ on the network.
 - Vulnerabilities in OPA itself — please report those upstream at
   <https://github.com/open-policy-agent/opa/security>.
 - Vulnerabilities in Regal — report at
-  <https://github.com/StyraInc/regal/security>.
+  <https://github.com/open-policy-agent/regal/security>.
 - Vulnerabilities in the MCP SDK or transports — report at
   <https://github.com/modelcontextprotocol>.
 - Issues that require an attacker to already have full write access to the

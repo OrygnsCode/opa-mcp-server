@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/open-policy-agent/opa
     about: Issues with OPA itself (not this MCP wrapper) belong upstream.
   - name: Regal project
-    url: https://github.com/StyraInc/regal
+    url: https://github.com/open-policy-agent/regal
     about: Issues with the Regal linter (not the MCP wrapper) belong upstream.

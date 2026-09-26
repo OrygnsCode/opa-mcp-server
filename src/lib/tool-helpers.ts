@@ -91,7 +91,7 @@ export function mapSubprocessFailure(
       binary === 'opa'
         ? 'Install OPA (https://www.openpolicyagent.org/docs/latest/) or set OPA_BINARY to the absolute path of the binary.'
         : binary === 'regal'
-          ? 'Install Regal (https://docs.styra.com/regal) or set REGAL_BINARY to the absolute path of the binary.'
+          ? 'Install Regal (https://www.openpolicyagent.org/projects/regal) or set REGAL_BINARY to the absolute path of the binary.'
           : 'Install Conftest (https://www.conftest.dev/) or set CONFTEST_BINARY to the absolute path of the binary.';
     return err(code, `${binary} binary unreachable: ${result.stderr || 'spawn failed'}`, { hint });
   }

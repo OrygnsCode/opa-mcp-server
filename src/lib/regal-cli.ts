@@ -1,5 +1,5 @@
 /**
- * Wrapper around the optional `regal` binary (Rego linter, by Styra).
+ * Wrapper around the optional `regal` binary (Rego linter, an Open Policy Agent project).
  *
  * Regal is OPTIONAL -- only the `rego_lint` tool requires it. Other
  * tools work without Regal installed. If absent, `rego_lint` returns a
@@ -29,9 +29,9 @@ export interface FixInput {
   /** Preview changes without writing them. Use with the tool to check before committing. */
   dryRun?: boolean;
   /**
-   * Allow fixing files that have uncommitted git changes, or when the
-   * directory is not a git repository. Without this flag regal refuses
-   * to modify uncommitted files.
+   * Regal before 0.41 refuses to modify a file with uncommitted git changes
+   * unless this is set. Regal 0.41 removed that check, and the flag is not
+   * sent to it.
    */
   force?: boolean;
   /** Path to a Regal config file. */
@@ -169,8 +169,11 @@ export class RegalCli {
 
     if (input.source !== undefined) {
       // Inline source has no project, so regal runs in its private temp
-      // directory: config discovery walks up from there and finds nothing,
-      // rather than picking up whatever sits above the server's directory.
+      // directory: config discovery walks up from there and finds no project
+      // config, rather than picking up whatever sits above the server's
+      // directory. Regal 0.31 and later then fall back to the user-level
+      // config under ~/.config/regal, as they would for anyone running regal
+      // there.
       return this.withTempSource(input.source, (path) =>
         this.run([...args, path], signal, dirname(path)),
       );
@@ -191,17 +194,18 @@ export class RegalCli {
    * parseable.
    */
   /**
-   * Regal 0.42 removed the check that refused files with uncommitted git
+   * Regal 0.41 removed the check that refused files with uncommitted git
    * changes, and deprecated `--force` with it; sending the flag to a current
    * regal only earns a deprecation notice on stderr. It is sent to the
    * releases that still have the check. A regal whose version cannot be
-   * read is treated as one of those.
+   * read, or is not a number, is treated as one of those.
    */
   private async hasGitCheck(signal?: AbortSignal): Promise<boolean> {
     const version = await this.version(signal);
     if (version === null) return true;
     const [major = 0, minor = 0] = version.split('.').map((n) => parseInt(n, 10));
-    return major === 0 && minor < 42;
+    if (!Number.isFinite(major) || !Number.isFinite(minor)) return true;
+    return major === 0 && minor < 41;
   }
 
   async fix(input: FixInput, signal?: AbortSignal): Promise<SpawnResult> {
