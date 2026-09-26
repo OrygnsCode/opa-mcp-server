@@ -53,8 +53,8 @@ The container speaks MCP over stdio. Wire it into your client by pointing it at
 | Tag        | Meaning                           |
 | ---------- | --------------------------------- |
 | `latest`   | Latest stable release.            |
-| `0.6.0`    | An exact, immutable release.      |
-| `0.6`, `0` | Track the newest patch and minor. |
+| `0.7.0`    | An exact, immutable release.      |
+| `0.7`, `0` | Track the newest patch and minor. |
 
 Versioned tags follow Semantic Versioning. The public surface for SemVer purposes is the set of
 registered tools, prompts, and resources, their input/output schemas, and the recognized

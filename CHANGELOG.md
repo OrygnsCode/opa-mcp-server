@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-26
+
 ### Added
 
 - `conftest_test` accepts the `cyclonedx`, `groovy` and `jsonc` parsers,
@@ -1649,7 +1651,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.3.0...v0.4.0
