@@ -335,6 +335,20 @@ export function packageQuery(ast: unknown): string | undefined {
   return 'data' + path.map((seg) => `[${JSON.stringify(seg)}]`).join('');
 }
 
+/** The value a string term's text spells: a bare word, a JSON string or a raw string. */
+function stringValue(text: string): string | undefined {
+  if (text.startsWith('`') && text.endsWith('`')) return text.slice(1, -1);
+  if (text.startsWith('"')) {
+    try {
+      const value: unknown = JSON.parse(text);
+      return typeof value === 'string' ? value : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return text;
+}
+
 /** A ref's text in dotted form, so `net["cidr_overlap"]` reads as `net.cidr_overlap`. */
 const dotted = (text: string): string =>
   text.replace(/\[\s*"([^"]*)"\s*\]/g, '.$1').replace(/\s+/g, '');
@@ -401,9 +415,12 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
     renamedRules.set(name, freeName(`${name}_`, taken));
   }
 
-  // An import binds the last segment of its path unless it has an alias, and
-  // v1 cannot parse a path ending in a keyword: `import input.in` gains
-  // `as in_`, and every use of `in` in the module follows it.
+  // An import of `data` or `input` binds the last segment of its path unless
+  // it has an alias. v1 refuses two such names: a keyword (`import input.in`)
+  // and the name of a removed built-in (`import data.lib.re_match`, which in
+  // v0 shadowed the built-in). Either gains an alias, and every use in the
+  // module follows it. `future.keywords` and `rego.v1` imports bind nothing
+  // and cannot take an alias, so they are left as they are.
   const renamedImports = new Map<string, string>();
   const importsToAlias: Array<{ path: Term; name: string }> = [];
   const imports = isObject(ast) && Array.isArray(ast['imports']) ? ast['imports'] : [];
@@ -411,9 +428,13 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
     if (!isObject(imp) || typeof imp['alias'] === 'string') continue;
     const path = imp['path'];
     if (!isTerm(path) || !Array.isArray(path.value)) continue;
-    const last = (path.value as unknown[]).at(-1);
-    if (!isTerm(last) || typeof last.value !== 'string' || !RESERVED.has(last.value)) continue;
+    const segs = path.value as unknown[];
+    const root = segs[0];
+    if (!isTerm(root) || (root.value !== 'data' && root.value !== 'input')) continue;
+    const last = segs.at(-1);
+    if (segs.length < 2 || !isTerm(last) || typeof last.value !== 'string') continue;
     const name = last.value;
+    if (!RESERVED.has(name) && removedBuiltin(name) === undefined) continue;
     renamedImports.set(name, renamedImports.get(name) ?? freeName(`${name}_`, taken));
     importsToAlias.push({ path, name });
   }
@@ -450,7 +471,8 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
   for (const { path, name } of importsToAlias) {
     const to = renamedImports.get(name)!;
     const text = decode(path.location?.text) ?? '';
-    if (!addEdit(path, `${text} as ${to}`, name, to, (t) => t.endsWith(name))) return undefined;
+    const endsInName = (t: string) => dotted(t).endsWith(`.${name}`);
+    if (!addEdit(path, `${text} as ${to}`, name, to, endsInName)) return undefined;
   }
 
   const helpersUsed = new Map<string, string>();
@@ -507,8 +529,9 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
             : text.startsWith('`')
               ? `\`${to}\``
               : to;
-          const isName = (t: string) =>
-            t === name || t === JSON.stringify(name) || t === `\`${name}\``;
+          // Compared by value, so an escaped key such as "con\u0074ains" is
+          // recognised as the rule it names.
+          const isName = (t: string) => stringValue(t) === name;
           if (!addEdit(target, replacement, name, to, isName)) return undefined;
         }
       }
@@ -563,7 +586,9 @@ export function planV0Migration(source: string, ast: unknown): MigrationPlan | u
   }
   for (const [from, to] of renamedImports) {
     notes.push(
-      `Imported \`${from}\` as \`${to}\`: an import path cannot end in \`${from}\`, a keyword in Rego v1, without an alias.`,
+      RESERVED.has(from)
+        ? `Imported \`${from}\` as \`${to}\`: an import path cannot end in \`${from}\`, a keyword in Rego v1, without an alias.`
+        : `Imported \`${from}\` as \`${to}\`: in Rego v1 \`${from}\` names a removed built-in, so the import needs another name.`,
     );
   }
   for (const [from, to] of renamedVars) {

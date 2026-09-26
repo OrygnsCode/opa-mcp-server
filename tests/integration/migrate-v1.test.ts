@@ -171,7 +171,7 @@ describe('rego_migrate_v1 edge cases', () => {
     expect(env.data?.equivalence?.identical).toBe(true);
   });
 
-  it('leaves a call alone when an import binds the name, since it never reached the built-in', async () => {
+  it('keeps a call through an import of the same name off the built-in, and aliases the import', async () => {
     const source = lines(
       'package imports',
       '',
@@ -182,9 +182,57 @@ describe('rego_migrate_v1 edge cases', () => {
       '}',
     );
     const env = await migrate({ source });
-    expect(env.data?.rewrites ?? []).not.toContainEqual(
-      expect.objectContaining({ from: 're_match' }),
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.migrated).toContain('import data.lib.re_match as re_match_');
+    expect(env.data?.migrated).toContain('re_match_("a", input.s)');
+    expect(env.data?.migrated).not.toContain('regex.match');
+  });
+
+  it('leaves future.keywords imports alone, as a late v0 policy has them', async () => {
+    const source = lines(
+      'package fut',
+      '',
+      'import future.keywords.in',
+      'import future.keywords.if',
+      'import future.keywords.contains',
+      '',
+      'allow if {',
+      '\t"a" in input.xs',
+      '}',
+      '',
+      'deny contains msg if {',
+      '\tnot allow',
+      '\tmsg := "no a"',
+      '}',
     );
+    const env = await migrate({ source, inputs: [{ xs: ['a'] }, { xs: ['b'] }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('renames a rule named through an escaped key', async () => {
+    const source = lines(
+      'package esc',
+      '',
+      'contains[x] {',
+      '\tx := 1',
+      '}',
+      '',
+      'p = data.esc["con\\u0074ains"]',
+    );
+    const env = await migrate({ source, inputs: [{}] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('aliases an import written with a bracketed keyword', async () => {
+    const source = lines('package br', '', 'import input["in"]', '', 'r {', '\tin.x', '}');
+    const env = await migrate({ source, inputs: [{ in: { x: 1 } }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.migrated).toContain('as in_');
+    expect(env.data?.equivalence?.identical).toBe(true);
   });
 
   it('compares rules one by one when a conflict fails the whole package on both sides', async () => {
