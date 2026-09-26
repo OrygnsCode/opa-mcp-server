@@ -9,7 +9,7 @@
  * a per-file allow/deny without writing a shell loop.
  */
 import { existsSync } from 'node:fs';
-import { mkdtemp, open, rm, type FileHandle } from 'node:fs/promises';
+import { mkdtemp, open, readdir, rm, stat, type FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -28,7 +28,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { PRE_V1_SYNTAX, v0CompatibleField } from '../_rego-version.js';
 
 const OpaExecInput = {
   inputPaths: z
@@ -53,7 +53,7 @@ const OpaExecInput = {
     .array(z.string())
     .optional()
     .describe(
-      'Policy and data files or directories, loaded the way `opa eval --data` loads them: a `.rego` file as a module, a JSON or YAML file merged into the data root, a directory recursively, so every JSON and YAML file in it is data. A bundle among them (an archive, or a directory holding a `.manifest`) is loaded as a bundle instead; bundles and plain paths cannot be mixed. To load a directory as a bundle, reading only its data.json, pass it as `bundle`. Mutually exclusive with `bundle`.',
+      'Policy and data files or directories, loaded the way `opa eval --data` loads them: a `.rego` file as a module, a JSON or YAML file merged into the data root, a directory recursively, so every JSON and YAML file in it is data and must parse. One difference: a bundle archive (`.tar.gz`) inside a directory is not loaded, and `warnings` names it. A bundle given here directly (an archive, or a directory holding a `.manifest`) is loaded as a bundle; bundles and plain paths cannot be mixed. To load a directory as a bundle, reading only its `.rego` files and those named data.json, data.yaml or data.yml, pass it as `bundle`. Mutually exclusive with `bundle`.',
     ),
   fail: z
     .boolean()
@@ -144,9 +144,38 @@ async function isBundlePath(path: string): Promise<boolean> {
 }
 
 /**
+ * Bundle archives inside the plain `dataPaths` directories. `opa eval --data`
+ * loads a `.tar.gz` it finds in a directory; `opa build`, which loads the
+ * plain paths here, skips it, so each one found is named rather than dropped
+ * without a word.
+ */
+async function archivesWithin(paths: readonly string[]): Promise<string[]> {
+  const found: string[] = [];
+  for (const path of paths) {
+    let entries: string[];
+    try {
+      if (!(await stat(path)).isDirectory()) continue;
+      entries = await readdir(path, { recursive: true });
+    } catch {
+      // Unreadable here is unreadable to opa build too, which says so.
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.endsWith('.tar.gz')) found.push(join(path, entry));
+    }
+  }
+  return found;
+}
+
+/** The bundle a directory is loaded as reads these, and nothing else, as data. */
+const BUNDLE_HINT =
+  'To load a directory as a bundle instead, which reads only its `.rego` files and the files named data.json, data.yaml or data.yml, pass it as `bundle`.';
+
+/**
  * The first thing `opa build` names as wrong, and a hint that fits it. It
  * prints errors on stdout, as `error: <summary>` and, when there are several,
- * one line per error after an `N errors occurred:` summary.
+ * one line per error after a summary that ends in a colon, such as `3 errors
+ * occurred during loading:`.
  */
 function describeBuildFailure(
   build: SpawnResult,
@@ -156,25 +185,67 @@ function describeBuildFailure(
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const summary = (lines.find((l) => l.startsWith('error:')) ?? lines[0] ?? '').replace(
-    /^error:\s*/,
-    '',
+  const at = Math.max(
+    0,
+    lines.findIndex((l) => l.startsWith('error:')),
   );
-  const first = lines.find((l) => /: rego_[a-z_]+: /.test(l));
-  const reason = /errors? occurred:?$/.test(summary) && first ? first : summary;
+  const summary = (lines[at] ?? '').replace(/^error:\s*/, '');
+  const reason = summary.endsWith(':') && lines[at + 1] ? lines[at + 1]! : summary;
   const all = lines.join('\n');
 
   let hint: string;
   if (/merge error/.test(all)) {
+    hint = `Paths load as \`opa eval --data\` loads them: every JSON and YAML file is merged into the data root at its directory, so two files setting the same key conflict. Test fixtures kept beside a policy are the usual cause. ${BUNDLE_HINT}`;
+  } else if (!v0Compatible && PRE_V1_SYNTAX.test(all)) {
     hint =
-      'Paths load as `opa eval --data` loads them: every JSON and YAML file is merged into the data root at its directory, so two files setting the same key conflict. Test fixtures kept beside a policy are the usual cause. To load a directory as a bundle instead, reading only its data.json, pass it as `bundle`.';
-  } else if (!v0Compatible && /rego_parse_error/.test(all)) {
-    hint =
-      'If the policy predates OPA 1.0 (rules without `if`), set `v0Compatible`; otherwise fix the syntax at the line given.';
+      'The policy looks like pre-1.0 Rego (rules without `if`). Set `v0Compatible`, or migrate it with rego_migrate_v1.';
+  } else if (/rego_[a-z_]+_error/.test(all)) {
+    hint = 'Fix the policy at the file and line named.';
+  } else if (/\.(json|ya?ml)\b/i.test(all)) {
+    hint = `Paths load as \`opa eval --data\` loads them, so every JSON and YAML file under a directory must parse as data, editor settings and chart templates included. ${BUNDLE_HINT}`;
   } else {
-    hint = 'Fix the policy at the line given, or check that every path is one opa can load.';
+    hint = 'Check that every path is one opa can load.';
   }
   return { reason, hint };
+}
+
+/**
+ * Why `opa exec` failed before evaluating anything. It logs JSON lines on
+ * stderr, and the first at level `error` names the cause, such as a bundle
+ * that did not load or activate.
+ */
+function execFailure(result: SpawnResult, v0Compatible: boolean | undefined): ToolEnvelope<never> {
+  let reason: string | undefined;
+  for (const line of result.stderr.split(/\r?\n/)) {
+    const entry = tryParseJson<{ level?: unknown; msg?: unknown; err?: unknown }>(line);
+    if (entry?.level !== 'error') continue;
+    // A failure at run time logs a generic `msg` and its cause in `err`.
+    const text =
+      typeof entry.msg === 'string' && entry.msg !== 'Unexpected error.' ? entry.msg : entry.err;
+    if (typeof text !== 'string') continue;
+    const lines = text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    // `N errors occurred:` names only a count; the first error follows it.
+    reason = lines[0]!.endsWith(':') && lines[1] ? `${lines[0]} ${lines[1]}` : lines[0];
+    break;
+  }
+  const details = { stderr: result.stderr.trim(), stdout: result.stdout.trim() };
+  if (reason !== undefined && /rego_[a-z_]+_error/.test(reason)) {
+    return err('INVALID_REGO', `The policy did not load: ${reason}`, {
+      hint:
+        !v0Compatible && PRE_V1_SYNTAX.test(reason)
+          ? 'The policy looks like pre-1.0 Rego (rules without `if`). Set `v0Compatible`, or migrate it with rego_migrate_v1.'
+          : 'Fix the policy at the file and line named. A path in it is the one inside the bundle opa loaded.',
+      details,
+    });
+  }
+  return err(
+    'EVAL_ERROR',
+    reason !== undefined ? `opa exec failed: ${reason}` : 'opa exec exited with a non-zero status.',
+    { details },
+  );
 }
 
 /** Turn what `opa exec` printed into the tool's result. */
@@ -182,6 +253,8 @@ function readExecResult(
   result: SpawnResult,
   gateFlagSet: boolean,
   decisionPath: string,
+  v0Compatible: boolean | undefined,
+  warnings: string[],
 ): ToolEnvelope<OpaExecOutput> {
   const subprocessFailure = mapSubprocessFailure(result, 'opa');
   if (subprocessFailure) return subprocessFailure;
@@ -190,27 +263,13 @@ function readExecResult(
   // failure (unloadable bundle, unreadable input). With a gate flag set,
   // a non-zero exit is the gate firing on purpose: opa still prints the
   // per-file JSON to stdout, so parse it and report `failed: true`.
-  if (result.exitCode !== 0 && !gateFlagSet) {
-    return err('EVAL_ERROR', 'opa exec exited with a non-zero status.', {
-      details: {
-        stderr: result.stderr.trim(),
-        stdout: result.stdout.trim(),
-      },
-    });
-  }
+  if (result.exitCode !== 0 && !gateFlagSet) return execFailure(result, v0Compatible);
 
   const parsed = tryParseJson<OpaExecJsonOutput>(result.stdout);
   if (!parsed) {
     // A gate flag that exits non-zero with no JSON is a real failure
     // (e.g. the policy did not compile), not a decision outcome.
-    if (result.exitCode !== 0) {
-      return err('EVAL_ERROR', 'opa exec exited with a non-zero status.', {
-        details: {
-          stderr: result.stderr.trim(),
-          stdout: result.stdout.trim(),
-        },
-      });
-    }
+    if (result.exitCode !== 0) return execFailure(result, v0Compatible);
     return err('UNKNOWN_ERROR', 'opa exec produced no parseable JSON output.', {
       details: { stdout: result.stdout.trim() },
     });
@@ -226,18 +285,21 @@ function readExecResult(
   const allUndefined =
     results.length > 0 && results.every((r) => r.error?.code === 'opa_undefined_error');
 
-  return ok<OpaExecOutput>({
-    results,
-    count: results.length,
-    successCount,
-    errorCount,
-    failed: result.exitCode !== 0,
-    ...(allUndefined
-      ? {
-          hint: `Every input left \`${decisionPath}\` undefined. That is the expected outcome when no rule matched any of them, and it is also what a decision naming nothing in the loaded policy looks like. Confirm the rule exists at that path before reading this as a pass.`,
-        }
-      : {}),
-  });
+  return ok<OpaExecOutput>(
+    {
+      results,
+      count: results.length,
+      successCount,
+      errorCount,
+      failed: result.exitCode !== 0,
+      ...(allUndefined
+        ? {
+            hint: `Every input left \`${decisionPath}\` undefined. That is the expected outcome when no rule matched any of them, and it is also what a decision naming nothing in the loaded policy looks like. Confirm the rule exists at that path before reading this as a pass.`,
+          }
+        : {}),
+    },
+    warnings,
+  );
 }
 
 /**
@@ -343,10 +405,11 @@ export function registerOpaExec(server: McpServer, config: Config): void {
         // `opa exec` loads policy only through --bundle, which takes an archive
         // or a bundle directory: a .rego file there fails as "gzip: invalid
         // header", two plain directories fail as bundles with overlapping
-        // roots, and a data file not named data.json is skipped. Plain paths are
-        // therefore built into one bundle first by `opa build`, which loads
-        // them as `opa eval --data` does. Real bundles still go straight to
-        // --bundle.
+        // roots, and a data file not named data.json, data.yaml or data.yml is
+        // skipped.
+        // Plain paths are therefore built into one bundle first by `opa
+        // build`, which loads them as `opa eval --data` does. Real bundles
+        // still go straight to --bundle.
         const bundles = resolvedBundle ? [resolvedBundle] : [];
         let plain: string[] = [];
         if (resolvedDataPaths) {
@@ -365,6 +428,10 @@ export function registerOpaExec(server: McpServer, config: Config): void {
           }
         }
 
+        const warnings = (await archivesWithin(plain)).map(
+          (archive) =>
+            `${archive} was not loaded: it is a bundle archive inside a \`dataPaths\` directory, which \`opa eval --data\` would load and the bundle built from plain paths leaves out. Pass it as \`bundle\` on its own, or its unpacked files in \`dataPaths\`.`,
+        );
         const gateFlagSet = fail === true || failDefined === true || failNonEmpty === true;
         const workDir =
           plain.length > 0 ? await mkdtemp(join(tmpdir(), 'orygn-opa-mcp-exec-')) : undefined;
@@ -377,6 +444,11 @@ export function registerOpaExec(server: McpServer, config: Config): void {
             );
             const buildFailure = mapSubprocessFailure(build, 'opa');
             if (buildFailure) return buildFailure;
+            if (/load paths span more than one drive/.test(build.stderr)) {
+              return err('INVALID_INPUT', build.stderr.trim(), {
+                hint: 'Put every path in `dataPaths` on one drive.',
+              });
+            }
             if (build.exitCode !== 0) {
               const { reason, hint } = describeBuildFailure(build, v0Compatible);
               return err(
@@ -405,7 +477,7 @@ export function registerOpaExec(server: McpServer, config: Config): void {
             },
             signal,
           );
-          return readExecResult(result, gateFlagSet, decisionPath);
+          return readExecResult(result, gateFlagSet, decisionPath, v0Compatible, warnings);
         } finally {
           // A scanner still holding the new archive must not turn a finished
           // evaluation into an error; the directory is in the temp root.

@@ -66,6 +66,18 @@ describe('parseFmtListOutput()', () => {
 // ─── rego_format_write tool tests ────────────────────────────────────────────
 
 describe('rego_format_write tool', () => {
+  it('rejects v0Compatible together with v1Compatible before running opa', async () => {
+    const server = makeServer();
+    registerRegoFormatWrite(server, baseConfig);
+    const env = await callTool(server, 'rego_format_write', {
+      paths: [fixturePath('policies', 'valid')],
+      v0Compatible: true,
+      v1Compatible: true,
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
   it('returns empty formattedFiles and formattedCount 0 when no files need formatting', async () => {
     // fmtList returns empty stdout (all files already canonical)
     mockRun.mockResolvedValueOnce({ ...okSpawn, stdout: '' });

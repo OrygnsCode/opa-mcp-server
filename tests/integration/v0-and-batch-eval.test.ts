@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Config } from '../../src/config.js';
 import { registerAuthoringTools } from '../../src/tools/authoring/index.js';
 import { registerEvaluationTools } from '../../src/tools/evaluation/index.js';
+import { registerHelperTools } from '../../src/tools/helpers/index.js';
 import { callTool, makeServer } from '../unit/tools/_helpers.js';
 
 // Pre-1.0 Rego: no `if`, a partial set written `deny[msg] { ... }`.
@@ -133,6 +134,138 @@ describe('a v0 policy', () => {
   });
 });
 
+describe('a query against a v0 policy', () => {
+  // OPA reads the query as v0 too, where `in` and `every` are keywords only
+  // once imported.
+  it('can use the v1 keywords', async () => {
+    const s = server();
+    const membership = await callTool<EvalOut>(s, 'rego_eval', {
+      query: '"mallory is blocked" in data.legacy.deny',
+      source: V0_POLICY,
+      input: { user: 'mallory' },
+      v0Compatible: true,
+    });
+    expect(membership.ok, JSON.stringify(membership.error)).toBe(true);
+    expect(valueOf(membership.data)).toBe(true);
+
+    const every = await callTool<EvalOut>(s, 'rego_eval', {
+      query: 'every m in data.legacy.deny { startswith(m, "mallory") }',
+      source: V0_POLICY,
+      input: { user: 'mallory' },
+      v0Compatible: true,
+    });
+    expect(every.ok, JSON.stringify(every.error)).toBe(true);
+    expect(valueOf(every.data)).toBe(true);
+
+    const batch = await callTool<{ errorCount: number }>(s, 'rego_eval', {
+      query: '"mallory is blocked" in data.legacy.deny',
+      source: V0_POLICY,
+      inputs: [{ user: 'mallory' }, { user: 'alice' }],
+      v0Compatible: true,
+    });
+    expect(batch.ok, JSON.stringify(batch.error)).toBe(true);
+    expect(batch.data?.errorCount).toBe(0);
+
+    const compiled = await callTool(s, 'rego_compile_query', {
+      query: '"mallory is blocked" in data.legacy.deny',
+      source: V0_POLICY,
+      unknowns: ['input'],
+      v0Compatible: true,
+    });
+    expect(compiled.ok, JSON.stringify(compiled.error)).toBe(true);
+  });
+});
+
+describe('the other tools on a v0 policy read without v0Compatible', () => {
+  it('rego_check_schema reports the parse error, not a missing annotation', async () => {
+    const dir = join(workDir, 'schema-check');
+    await mkdir(join(dir, 'schemas'), { recursive: true });
+    await writeFile(
+      join(dir, 'annotated.rego'),
+      '# METADATA\n# schemas:\n#   - input: schema.req\npackage annotated\n\nallow {\n\tinput.role == "admin"\n}\n',
+    );
+    await writeFile(
+      join(dir, 'schemas', 'req.json'),
+      JSON.stringify({ type: 'object', properties: { role: { type: 'string' } } }),
+    );
+    const env = await callTool<{ valid: boolean; errors: Array<{ code?: string }> }>(
+      server(),
+      'rego_check_schema',
+      { paths: [join(dir, 'annotated.rego')], schemaPath: join(dir, 'schemas') },
+    );
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.errors[0]?.code).toBe('rego_parse_error');
+  });
+
+  it('rego_check_schema skips a data file, and refuses what opa cannot read', async () => {
+    const dir = join(workDir, 'schema-dir-cases');
+    await mkdir(join(dir, 'schemas'), { recursive: true });
+    await mkdir(join(dir, 'bundle'), { recursive: true });
+    await writeFile(join(dir, 'policy.rego'), 'package p\n\nallow if input.nosuch == "x"\n');
+    await writeFile(join(dir, 'data.json'), '{"a": 1}');
+    await writeFile(join(dir, 'schemas', 'input.json'), '{"type": "object"}');
+    await writeFile(
+      join(dir, 'bundle', 'policy.rego'),
+      'package p\n\nallow if input.nosuch == "x"\n',
+    );
+    await writeFile(join(dir, 'bundle', '.manifest'), '{"roots": ["other"]}');
+    const s = server();
+
+    const withData = await callTool(s, 'rego_check_schema', {
+      paths: [join(dir, 'policy.rego'), join(dir, 'data.json')],
+      schemaPath: join(dir, 'schemas'),
+    });
+    expect(withData.error?.code).toBe('INVALID_INPUT');
+    expect(withData.error?.message).toMatch(/carries none/);
+
+    const badManifest = await callTool(s, 'rego_check_schema', {
+      paths: [join(dir, 'bundle')],
+      schemaPath: join(dir, 'schemas'),
+    });
+    expect(badManifest.error?.code).toBe('INVALID_INPUT');
+    expect(badManifest.error?.message).toMatch(/could not read the annotations/);
+  });
+
+  it('rego_check_schema warns when the schema lets unknown fields through, as opa judges it', async () => {
+    const s = server();
+    const source = 'package p\n\nallow if input.anything == "x"\n';
+    for (const inlineSchema of [
+      { type: 'object' },
+      { oneOf: [{ type: 'object', properties: { kind: { type: 'string' } } }] },
+      { type: 'object', patternProperties: { '^x-': { type: 'string' } } },
+    ]) {
+      const env = await callTool<{ valid: boolean }>(s, 'rego_check_schema', {
+        source,
+        inlineSchema,
+      });
+      expect(env.data?.valid, JSON.stringify(inlineSchema)).toBe(true);
+      expect(env.warnings?.[0], JSON.stringify(inlineSchema)).toMatch(/does not name/);
+    }
+    const typed = await callTool<{ valid: boolean }>(s, 'rego_check_schema', {
+      source: 'package p\n\nallow if startswith(input, "a")\n',
+      inlineSchema: { type: 'string' },
+    });
+    expect(typed.data?.valid).toBe(true);
+    expect(typed.warnings).toBeUndefined();
+  });
+
+  it("rego_policy_diff passes on opa's error for the side that failed", async () => {
+    const s = makeServer();
+    registerHelperTools(s, config);
+    const env = await callTool(s, 'rego_policy_diff', {
+      query: 'data.legacy.deny',
+      sourceA: V0_POLICY,
+      sourceB: 'package legacy\n\ndeny contains "mallory is blocked" if input.user == "mallory"\n',
+      input: { user: 'mallory' },
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toBe('Policy A failed to evaluate.');
+    const details = env.error?.details as { errors?: Array<{ message?: string }> };
+    expect(details.errors?.[0]?.message).toMatch(/`if` keyword is required/);
+  });
+});
+
 describe('rego_eval without a policy', () => {
   it('evaluates a built-in on its own', async () => {
     const env = await callTool<EvalOut>(server(), 'rego_eval', {
@@ -140,6 +273,12 @@ describe('rego_eval without a policy', () => {
     });
     expect(env.ok).toBe(true);
     expect(valueOf(env.data)).toBe(true);
+  });
+
+  it('treats an empty source as no policy', async () => {
+    const env = await callTool<EvalOut>(server(), 'rego_eval', { query: '1 + 1', source: '' });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(valueOf(env.data)).toBe(2);
   });
 
   it('flags a data query that had nothing to read', async () => {
@@ -210,6 +349,29 @@ v := input.b if input.b
     });
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('EVAL_ERROR');
+  });
+
+  it('fails the call once for data that does not load', async () => {
+    const bad = join(workDir, 'bad.json');
+    await writeFile(bad, '{bad');
+    const env = await callTool(server(), 'rego_eval', {
+      query: 'data',
+      paths: [bad],
+      inputs: [{ a: 1 }, { a: 2 }, { a: 3 }],
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('EVAL_ERROR');
+  });
+
+  it('refuses a partial evaluation of each input with nothing named unknown', async () => {
+    const env = await callTool(server(), 'rego_eval', {
+      query: 'data.legacy.allow',
+      source: V0_POLICY,
+      v0Compatible: true,
+      partial: true,
+      inputs: [{ role: 'admin' }, { role: 'viewer' }],
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
   });
 
   it('returns the residual of a partial evaluation for each input', async () => {

@@ -135,7 +135,10 @@ export function rewriteLoadPaths(
     if (rel === '') return '.';
     // Defensive: a result that is still absolute, or climbs out of the
     // working directory, would not help, so the original is kept.
-    return isAbsolute(rel) || rel.startsWith('..') ? a : rel;
+    if (isAbsolute(rel) || rel.startsWith('..')) return a;
+    // An absolute path never looks like a flag; a relative one can, and opa
+    // would read `-data` given as a positional argument as `-d ata`.
+    return rel.startsWith('-') ? `.${sep}${rel}` : rel;
   });
 
   return { args: rewritten, cwd };

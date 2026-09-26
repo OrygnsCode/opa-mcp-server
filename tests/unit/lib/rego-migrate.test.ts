@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { packageQuery, planV0Migration } from '../../../src/lib/rego-migrate.js';
+import { packageQuery, planV0Migration, renameRuleRefs } from '../../../src/lib/rego-migrate.js';
 import { fixturePath } from '../tools/_helpers.js';
 
 const load = (name: string): { source: string; ast: unknown } => ({
@@ -99,6 +99,30 @@ describe('planV0Migration', () => {
     const p = planV0Migration(taken, takenAst);
     expect(p).toBeDefined();
     expect(p!.rewrites).toContainEqual({ line: 26, from: 'all', to: 'all_true_2' });
+  });
+});
+
+describe('renameRuleRefs', () => {
+  const ast = {
+    package: {
+      path: [
+        { type: 'var', value: 'data' },
+        { type: 'string', value: 'policy' },
+        { type: 'string', value: 'ingress' },
+      ],
+    },
+  };
+
+  it('gives a renamed rule its new name where an expression names it by full path', () => {
+    expect(
+      renameRuleRefs('count(data.policy.ingress.contains) > 0', ast, { contains: 'contains_' }),
+    ).toBe('count(data.policy.ingress.contains_) > 0');
+  });
+
+  it('leaves a longer name, another package and a built-in call alone', () => {
+    const expr =
+      'data.policy.ingress.contains_all; data.other.contains; contains("ab", "a"); data.policy.ingress.containsx';
+    expect(renameRuleRefs(expr, ast, { contains: 'contains_' })).toBe(expr);
   });
 });
 

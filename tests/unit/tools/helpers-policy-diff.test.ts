@@ -259,6 +259,35 @@ describe('rego_policy_diff tool', () => {
     });
     expect(env.ok).toBe(false);
     expect((env as { error: { code: string } }).error.code).toBe('INVALID_REGO');
+    // opa eval --format=json reports why on stdout; that is what the caller gets.
+    const details = env.error?.details as { errors?: Array<{ message?: string }> };
+    expect(details.errors?.[0]?.message).toBe('unexpected token');
+  });
+
+  it('returns EVAL_ERROR when a side fails at runtime', async () => {
+    // Both sides write a temp file before spawning, so either may reach opa
+    // first; both fail alike, and A is the one reported.
+    mockRun.mockResolvedValue({
+      ...okSpawn,
+      exitCode: 2,
+      stdout: JSON.stringify({
+        errors: [
+          {
+            message: 'complete rules must not produce multiple outputs',
+            code: 'eval_conflict_error',
+          },
+        ],
+      }),
+    });
+    const server = makeServer();
+    registerRegoPolicyDiff(server, baseConfig);
+    const env = await callTool(server, 'rego_policy_diff', {
+      sourceA: 'package x',
+      sourceB: 'package x',
+      query: 'data.x.allow',
+    });
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.message).toBe('Policy A failed to evaluate.');
   });
 
   it('returns INVALID_REGO when policy B fails to evaluate', async () => {

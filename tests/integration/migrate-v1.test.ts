@@ -89,6 +89,18 @@ describe('rego_migrate_v1', () => {
 
     expect(out.equivalence, JSON.stringify(out.equivalence?.differences)).toEqual({
       compared: INPUTS.length,
+      rules: [
+        'all_non_root',
+        'allow',
+        'any_privileged',
+        'approved_registries',
+        'busy',
+        'deny',
+        'extra_ports',
+        'internal',
+        'label',
+        'self_reference',
+      ],
       identical: true,
       differences: [],
     });
@@ -102,7 +114,7 @@ describe('rego_migrate_v1', () => {
 
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data?.valid).toBe(true);
-    expect(env.data?.equivalence).toEqual({ compared: 3, identical: true, differences: [] });
+    expect(env.data?.equivalence).toMatchObject({ compared: 3, identical: true, differences: [] });
   });
 
   it('handles rules named like Object properties', async () => {
@@ -124,7 +136,7 @@ describe('rego_migrate_v1', () => {
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data?.valid).toBe(true);
     expect(env.data?.migrated).toContain('regex.match("^a", x)');
-    expect(env.data?.equivalence).toEqual({ compared: 2, identical: true, differences: [] });
+    expect(env.data?.equivalence).toMatchObject({ compared: 2, identical: true, differences: [] });
   });
 
   it('returns Rego v1 unchanged', async () => {
@@ -186,6 +198,8 @@ describe('rego_migrate_v1 edge cases', () => {
     expect(env.data?.migrated).toContain('import data.lib.re_match as re_match_');
     expect(env.data?.migrated).toContain('re_match_("a", input.s)');
     expect(env.data?.migrated).not.toContain('regex.match');
+    // Nothing calls regex.match, so no note says a call was replaced by it.
+    expect(env.data?.notes.join(' ')).not.toMatch(/with `regex.match`/);
   });
 
   it('leaves future.keywords imports alone, as a late v0 policy has them', async () => {
@@ -256,7 +270,7 @@ describe('rego_migrate_v1 edge cases', () => {
     );
     const env = await migrate({ source, inputs: [{ a: 1, b: 2, flag: true }, { a: 1 }] });
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
-    expect(env.data?.equivalence).toEqual({ compared: 2, identical: true, differences: [] });
+    expect(env.data?.equivalence).toMatchObject({ compared: 2, identical: true, differences: [] });
     expect(env.data?.notes.join(' ')).not.toMatch(/compared as a whole package/);
   });
 
@@ -342,5 +356,347 @@ describe('rego_migrate_v1 edge cases', () => {
   it('says it had nothing to compare for a source already in v1', async () => {
     const env = await migrate({ source: 'package ok\n\nallow if input.x\n', inputs: [{}] });
     expect(env.data?.notes[0]).toMatch(/nothing to compare `inputs` against/);
+  });
+
+  it('keeps each mock on the calls it reached when a module calls both re_match and regex.match', async () => {
+    // In v0 a `with` on one name never reached calls made under the other. A
+    // plain rename would make the two mocks identical and drop a violation.
+    const source = lines(
+      'package images',
+      '',
+      'approved(img) {',
+      '\tre_match(`^registry[.]corp/`, img)',
+      '}',
+      '',
+      'tag_ok(img) {',
+      '\tregex.match(`:v[0-9]+$`, img)',
+      '}',
+      '',
+      'deny[msg] {',
+      '\timg := input.images[_]',
+      '\tnot approved(img)',
+      '\tmsg := sprintf("%s: not from registry.corp", [img])',
+      '}',
+      '',
+      'deny[msg] {',
+      '\timg := input.images[_]',
+      '\tnot tag_ok(img)',
+      '\tmsg := sprintf("%s: tag must be a version", [img])',
+      '}',
+      '',
+      'registry_only = d {',
+      '\td := deny with regex.match as true',
+      '}',
+      '',
+      'tags_only = d {',
+      '\td := deny with re_match as true',
+      '}',
+    );
+    const inputs = [
+      { images: ['docker.io/x:latest'] },
+      { images: ['registry.corp/a:v1'] },
+      { images: ['registry.corp/a:latest', 'ghcr.io/b:v2'] },
+    ];
+    const env = await migrate({ source, inputs });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('re_match_(`^registry[.]corp/`, img)');
+    expect(env.data?.migrated).toContain('with re_match_ as true');
+    expect(env.data?.migrated).toContain('with regex.match as true');
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+    const notes = env.data?.notes.join('\n') ?? '';
+    expect(notes).toMatch(/without calling `regex.match`/);
+    expect(notes).toMatch(/no longer reaches calls to `re_match` in other modules/);
+    expect(notes).not.toMatch(/Replaced `re_match` with `regex.match`/);
+  });
+
+  it('does the same for net.cidr_overlap and net.cidr_contains', async () => {
+    const source = lines(
+      'package nets',
+      '',
+      'dmz_ok {',
+      '\tnet.cidr_overlap("10.0.0.0/8", input.ip)',
+      '}',
+      '',
+      'corp_ok {',
+      '\tnet.cidr_contains("192.168.0.0/16", input.ip)',
+      '}',
+      '',
+      'dmz_mocked = x {',
+      '\tx := dmz_ok with net.cidr_contains as true',
+      '}',
+      '',
+      'corp_mocked = x {',
+      '\tx := corp_ok with net.cidr_overlap as true',
+      '}',
+    );
+    const inputs = [{ ip: '8.8.8.8' }, { ip: '10.1.2.3' }, { ip: '192.168.1.1' }, { ip: 'bogus' }];
+    const env = await migrate({ source, inputs });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('with cidr_overlap as true');
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('renames a renamed rule where the module reaches it through an import of its package', async () => {
+    const source = lines(
+      'package policy.ingress',
+      '',
+      'import data.policy.ingress',
+      'import data.policy as pol',
+      '',
+      'contains[h] {',
+      '\th := input.hosts[_]',
+      '\tendswith(h, ".corp")',
+      '}',
+      '',
+      'internal_count = count(ingress.contains)',
+      '',
+      'via_parent = count(pol.ingress.contains)',
+      '',
+      'deny[msg] {',
+      '\tcount(ingress.contains) == 0',
+      '\tmsg := "no internal host"',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ hosts: ['b.com'] }, { hosts: ['a.corp'] }] });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('count(ingress.contains_)');
+    expect(env.data?.migrated).toContain('count(pol.ingress.contains_)');
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('leaves a local that reuses the name of an import of the package alone', async () => {
+    const source = lines(
+      'package policy.ingress',
+      '',
+      'import data.policy.ingress',
+      '',
+      'contains[x] {',
+      '\tx := input.xs[_]',
+      '}',
+      '',
+      'allow {',
+      '\tingress := input.ingress',
+      '\tingress.contains == "yes"',
+      '}',
+      '',
+      'f(ingress) = ingress.contains',
+      '',
+      'g = r {',
+      '\tr := [v | ingress := input.list[_]; v := ingress.contains]',
+      '}',
+      '',
+      'total = count(ingress.contains)',
+    );
+    const env = await migrate({
+      source,
+      inputs: [{ xs: ['a'], ingress: { contains: 'yes' }, list: [{ contains: 1 }] }],
+      queries: ['data.policy.ingress.f({"contains": 7})'],
+    });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('ingress.contains == "yes"');
+    expect(env.data?.migrated).toContain('count(ingress.contains_)');
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('gives re_match a helper when the module names something `regex`', async () => {
+    const source = lines(
+      'package names',
+      '',
+      'name_ok(name, regex) {',
+      '\tre_match(regex, name)',
+      '}',
+      '',
+      'allow {',
+      '\tname_ok(input.name, "^[a-z]+$")',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ name: 'abc' }, { name: 'A1' }] });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('re_match_(regex, name)');
+    expect(env.data?.notes.join(' ')).toMatch(/binds the name `regex` itself/);
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('builds the helper on another built-in when the module mocks regex.find_n too', async () => {
+    const source = lines(
+      'package mocks2',
+      '',
+      'm(a, b) = true',
+      '',
+      'mn(a, b, c) = ["x"]',
+      '',
+      'a {',
+      '\tre_match("^x", input.s)',
+      '}',
+      '',
+      'b {',
+      '\tregex.match("^x", input.s)',
+      '}',
+      '',
+      't {',
+      '\ta with regex.match as m with regex.find_n as mn',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ s: 'abc' }, { s: 'xyz' }] });
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('regex.find_all_string_submatch_n(pattern, value, 1)');
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('renames an import alias v1 reserves, and its uses', async () => {
+    const source = lines(
+      'package aliases',
+      '',
+      'import input.user as in',
+      '',
+      'allow {',
+      '\tin.name == "alice"',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ user: { name: 'alice' } }, { user: {} }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid).toBe(true);
+    expect(env.data?.migrated).toContain('import input.user as in_');
+    expect(env.data?.migrated).toContain('in_.name == "alice"');
+    expect(env.data?.notes.join(' ')).toMatch(/Renamed the import alias `in` to `in_`/);
+    expect(env.data?.notes.join(' ')).not.toMatch(/local variable/);
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('renames an import alias that names a removed built-in, rather than calling it one', async () => {
+    const source = lines(
+      'package aliases2',
+      '',
+      'import data.aliases2.matcher as re_match',
+      '',
+      'matcher(p, s) {',
+      '\tstartswith(s, p)',
+      '}',
+      '',
+      'allow {',
+      '\tre_match("a", input.x)',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ x: 'abc' }, { x: 'xyz' }] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.valid, JSON.stringify(env.data?.errors)).toBe(true);
+    expect(env.data?.migrated).toContain('as re_match_');
+    expect(env.data?.migrated).toContain('re_match_("a", input.x)');
+    expect(env.data?.migrated).not.toContain('regex.match');
+    expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  const functionsOnly = lines(
+    'package lib.names',
+    '',
+    'name_ok(n) {',
+    '\tre_match("^[a-z]+$", n)',
+    '}',
+    '',
+    'label_ok(l) {',
+    '\tregex.match("^[a-z]+$", l)',
+    '}',
+    '',
+    'resource_ok(n, l) {',
+    '\tname_ok(n)',
+    '\tlabel_ok(l)',
+    '}',
+    '',
+    'label_only_ok(n, l) {',
+    '\tresource_ok(n, l) with re_match as allow_any',
+    '}',
+    '',
+    'allow_any(_, _) = true',
+  );
+  const namesInputs = [
+    { name: 'Web', label: 'BAD' },
+    { name: 'web', label: 'ok' },
+    { name: 'Web', label: 'ok' },
+  ];
+
+  it('says nothing was compared for a module of functions given no `queries`', async () => {
+    const env = await migrate({ source: functionsOnly, inputs: namesInputs });
+    expect(env.data?.equivalence?.rules).toEqual([]);
+    expect(env.data?.notes.join(' ')).toMatch(
+      /Nothing was compared: the functions `allow_any`, `label_ok`, `label_only_ok`, `name_ok`, `resource_ok`/,
+    );
+  });
+
+  it('compares functions through `queries`', async () => {
+    const queries = [
+      'data.lib.names.label_only_ok(input.name, input.label)',
+      'data.lib.names.resource_ok(input.name, input.label)',
+      // A v1 keyword works in the query on the v0 side as well.
+      '[x | some x in [input.name]; data.lib.names.name_ok(x)]',
+    ];
+    const env = await migrate({ source: functionsOnly, inputs: namesInputs, queries });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+    expect(env.data?.notes.join(' ')).not.toMatch(/Nothing was compared/);
+  });
+
+  const renamedSet = lines('package q', '', 'contains[x] {', '\tx := input.xs[_]', '}');
+
+  it('gives a renamed rule its new name in a query', async () => {
+    const env = await migrate({
+      source: renamedSet,
+      inputs: [{ xs: [1, 2] }],
+      queries: ['count(data.q.contains)', 'data.q.contains'],
+    });
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
+
+  it('reports a query that differs, naming it', async () => {
+    // Only the dot form is renamed, as documented, so the bracket form finds
+    // the rule on the v0 side and nothing on the v1 side.
+    const env = await migrate({
+      source: renamedSet,
+      inputs: [{ xs: [1, 2] }],
+      queries: ['data.q["contains"]'],
+    });
+    expect(env.data?.equivalence?.identical).toBe(false);
+    expect(env.data?.equivalence?.differences[0]).toMatchObject({
+      input: 0,
+      query: 'data.q["contains"]',
+      migrated: { undefined: true },
+    });
+  });
+
+  it('refuses a query that compiles on neither side', async () => {
+    const env = await migrate({ source: renamedSet, inputs: [{ xs: [1] }], queries: ['1 +'] });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.message).toMatch(/`queries\[0\]` does not compile/);
+  });
+
+  it('gives both sides the same clock, and warns about other built-ins that vary', async () => {
+    const source = lines(
+      'package audit',
+      '',
+      'decision = {"allow": allow, "at": time.now_ns()}',
+      '',
+      'allow {',
+      '\tinput.user == "admin"',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ user: 'admin' }, { user: 'bob' }] });
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+    expect(env.data?.notes.join(' ')).toMatch(/same time/);
+
+    const withUuid = await migrate({
+      source: lines('package audit2', '', 'request_id = uuid.rfc4122(input.path)'),
+      inputs: [{ path: '/a' }],
+    });
+    expect(withUuid.data?.notes.join(' ')).toMatch(/`uuid.rfc4122` can return something different/);
+  });
+
+  it('says why `inputs` were not compared when the result does not check', async () => {
+    const source = lines('package bad', '', 'x = y {', '\ty := 1 + "a"', '}');
+    const env = await migrate({ source, inputs: [{}] });
+    expect(env.data?.valid).toBe(false);
+    expect(env.data?.equivalence).toBeUndefined();
+    expect(env.data?.notes.join(' ')).toMatch(
+      /does not pass `opa check`, so `inputs` were not compared/,
+    );
   });
 });
