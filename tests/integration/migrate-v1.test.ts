@@ -508,68 +508,86 @@ describe('rego_migrate_v1 edge cases', () => {
     expect(env.data?.equivalence?.identical).toBe(true);
   });
 
-  it('compares functions only through `queries`, and says so when there are none', async () => {
-    const source = lines(
-      'package lib.names',
-      '',
-      'name_ok(n) {',
-      '\tre_match("^[a-z]+$", n)',
-      '}',
-      '',
-      'label_ok(l) {',
-      '\tregex.match("^[a-z]+$", l)',
-      '}',
-      '',
-      'resource_ok(n, l) {',
-      '\tname_ok(n)',
-      '\tlabel_ok(l)',
-      '}',
-      '',
-      'label_only_ok(n, l) {',
-      '\tresource_ok(n, l) with re_match as allow_any',
-      '}',
-      '',
-      'allow_any(_, _) = true',
-    );
-    const inputs = [
-      { name: 'Web', label: 'BAD' },
-      { name: 'web', label: 'ok' },
-      { name: 'Web', label: 'ok' },
-    ];
+  const functionsOnly = lines(
+    'package lib.names',
+    '',
+    'name_ok(n) {',
+    '\tre_match("^[a-z]+$", n)',
+    '}',
+    '',
+    'label_ok(l) {',
+    '\tregex.match("^[a-z]+$", l)',
+    '}',
+    '',
+    'resource_ok(n, l) {',
+    '\tname_ok(n)',
+    '\tlabel_ok(l)',
+    '}',
+    '',
+    'label_only_ok(n, l) {',
+    '\tresource_ok(n, l) with re_match as allow_any',
+    '}',
+    '',
+    'allow_any(_, _) = true',
+  );
+  const namesInputs = [
+    { name: 'Web', label: 'BAD' },
+    { name: 'web', label: 'ok' },
+    { name: 'Web', label: 'ok' },
+  ];
 
-    const bare = await migrate({ source, inputs });
-    expect(bare.data?.equivalence?.rules).toEqual([]);
-    expect(bare.data?.notes.join(' ')).toMatch(
+  it('says nothing was compared for a module of functions given no `queries`', async () => {
+    const env = await migrate({ source: functionsOnly, inputs: namesInputs });
+    expect(env.data?.equivalence?.rules).toEqual([]);
+    expect(env.data?.notes.join(' ')).toMatch(
       /Nothing was compared: the functions `allow_any`, `label_ok`, `label_only_ok`, `name_ok`, `resource_ok`/,
     );
+  });
 
+  it('compares functions through `queries`', async () => {
     const queries = [
       'data.lib.names.label_only_ok(input.name, input.label)',
       'data.lib.names.resource_ok(input.name, input.label)',
       // A v1 keyword works in the query on the v0 side as well.
       '[x | some x in [input.name]; data.lib.names.name_ok(x)]',
     ];
-    const env = await migrate({ source, inputs, queries });
+    const env = await migrate({ source: functionsOnly, inputs: namesInputs, queries });
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
     expect(env.data?.notes.join(' ')).not.toMatch(/Nothing was compared/);
   });
 
-  it('reports a difference a query finds, naming the query', async () => {
-    // The query reaches the renamed rule under its old name on the v0 side
-    // and its new one on the v1 side, so the two agree; the second query
-    // differs because it names a rule only the original has.
-    const source = lines('package q', '', 'contains[x] {', '\tx := input.xs[_]', '}');
+  const renamedSet = lines('package q', '', 'contains[x] {', '\tx := input.xs[_]', '}');
+
+  it('gives a renamed rule its new name in a query', async () => {
     const env = await migrate({
-      source,
+      source: renamedSet,
       inputs: [{ xs: [1, 2] }],
       queries: ['count(data.q.contains)', 'data.q.contains'],
     });
-    expect(env.data?.equivalence).toMatchObject({ identical: true });
+    expect(env.data?.equivalence).toMatchObject({ identical: true, differences: [] });
+  });
 
-    const broken = await migrate({ source, inputs: [{ xs: [1] }], queries: ['1 +'] });
-    expect(broken.error?.code).toBe('INVALID_INPUT');
-    expect(broken.error?.message).toMatch(/`queries\[0\]` does not compile/);
+  it('reports a query that differs, naming it', async () => {
+    // Only the dot form is renamed, as documented, so the bracket form finds
+    // the rule on the v0 side and nothing on the v1 side.
+    const env = await migrate({
+      source: renamedSet,
+      inputs: [{ xs: [1, 2] }],
+      queries: ['data.q["contains"]'],
+    });
+    expect(env.data?.equivalence?.identical).toBe(false);
+    expect(env.data?.equivalence?.differences[0]).toMatchObject({
+      input: 0,
+      query: 'data.q["contains"]',
+      migrated: { undefined: true },
+    });
+  });
+
+  it('refuses a query that compiles on neither side', async () => {
+    const env = await migrate({ source: renamedSet, inputs: [{ xs: [1] }], queries: ['1 +'] });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(env.error?.message).toMatch(/`queries\[0\]` does not compile/);
   });
 
   it('gives both sides the same clock, and warns about other built-ins that vary', async () => {
