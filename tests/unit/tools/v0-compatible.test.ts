@@ -53,10 +53,35 @@ const CALLS: Record<string, () => Record<string, unknown>> = {
   opa_exec: () => ({ inputPaths: [input()], decision: 'rbac/allow', dataPaths: [policyDir()] }),
   opa_bundle_build: () => ({ paths: [policyDir()], output: fixturePath('never-written.tar.gz') }),
   rego_format_write: () => ({ paths: [policyDir()], dryRun: true }),
+  rego_explain_undefined: () => ({ query: 'data.rbac.allow', paths: [policy()] }),
+  rego_describe_policy: () => ({ source: 'package x\n' }),
+  rego_generate_test_skeleton: () => ({ source: 'package x\n' }),
+  rego_infer_input_schema: () => ({ source: 'package x\n' }),
+  conftest_test: () => ({ inlineConfig: 'kind: Pod\n', inlinePolicy: 'package main\n' }),
+  conftest_verify: () => ({ policy: fixturePath('conftest', 'policy') }),
+  conftest_push: () => ({
+    repository: 'ghcr.io/example/policies:latest',
+    policy: fixturePath('conftest', 'policy'),
+  }),
 };
 
-/** Tools with the option whose forwarding is covered by their own tests. */
-const COVERED_ELSEWHERE = new Set(['opa_bundle_verify']);
+/** The argv each tool is expected to carry; opa's flag unless named here. */
+const EXPECTED: Record<string, string[]> = {
+  conftest_test: ['--rego-version', 'v0'],
+  conftest_verify: ['--rego-version', 'v0'],
+  conftest_push: ['--rego-version', 'v0'],
+};
+
+/** True when `args` holds `flag` as consecutive entries. */
+const carries = (args: string[], flag: string[]): boolean =>
+  args.some((_, i) => flag.every((f, j) => args[i + j] === f));
+
+/**
+ * Tools with the option whose forwarding is covered by their own tests:
+ * rego_verify's is tested against real OPA, since a mocked AST would bring
+ * up the Z3 engine inside a unit test.
+ */
+const COVERED_ELSEWHERE = new Set(['opa_bundle_verify', 'rego_verify']);
 
 interface RegisteredToolLike {
   inputSchema?: { shape?: Record<string, unknown> };
@@ -109,20 +134,39 @@ describe('v0Compatible', () => {
   }
 
   for (const [tool, args] of Object.entries(CALLS)) {
-    it(`${tool} passes --v0-compatible to opa when set, and not otherwise`, async () => {
+    const flag = EXPECTED[tool] ?? ['--v0-compatible'];
+    it(`${tool} passes ${flag.join(' ')} when v0Compatible is set, and not otherwise`, async () => {
       const server = makeServer();
       registerTools(server, baseConfig);
 
       await callTool(server, tool, { ...args(), v0Compatible: true });
       const withFlag = mockRun.mock.calls.map((c) => c[1].args);
       expect(withFlag.length).toBeGreaterThan(0);
-      expect(withFlag.some((a) => a.includes('--v0-compatible'))).toBe(true);
+      expect(withFlag.some((a) => carries(a, flag))).toBe(true);
 
       mockRun.mockClear();
       await callTool(server, tool, args());
       const without = mockRun.mock.calls.map((c) => c[1].args);
       expect(without.length).toBeGreaterThan(0);
-      expect(without.some((a) => a.includes('--v0-compatible'))).toBe(false);
+      expect(without.some((a) => carries(a, flag))).toBe(false);
     });
   }
+
+  it('rego_policy_diff reads each side as v0 only when that side asks', async () => {
+    const server = makeServer();
+    registerTools(server, baseConfig);
+    await callTool(server, 'rego_policy_diff', {
+      pathA: policy(),
+      sourceB: 'package rbac\n',
+      query: 'data.rbac.allow',
+      v0CompatibleA: true,
+    });
+    const evals = mockRun.mock.calls.map((c) => c[1].args).filter((a) => a[0] === 'eval');
+    expect(evals).toHaveLength(2);
+    // Side A loads the fixture path; side B an inline temp file.
+    const sideA = evals.find((a) => a.some((x) => x.endsWith('rbac.rego')))!;
+    const sideB = evals.find((a) => a !== sideA)!;
+    expect(sideA).toContain('--v0-compatible');
+    expect(sideB).not.toContain('--v0-compatible');
+  });
 });

@@ -21,6 +21,12 @@ const RegoGenerateTestSkeletonInput = {
     .describe(
       'Generate table-driven test stubs instead of single-case stubs. Each rule gets a `cases` array and an `every tc in cases { ... }` assertion loop. Pair with `rego_test varValues: true` to see which case failed.',
     ),
+  v0Compatible: z
+    .boolean()
+    .optional()
+    .describe(
+      'Read the policy as Rego v0 (`--v0-compatible`). The stubs are still written with `import rego.v1`, which a v0 test run (`rego_test` with `v0Compatible`) accepts too.',
+    ),
 };
 
 interface AstPackage {
@@ -326,9 +332,9 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
         openWorldHint: false,
       },
     },
-    async ({ source, tableStyle }, { signal }) => {
+    async ({ source, tableStyle, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoGenerateTestSkeletonOutput>(config, async () => {
-        const result = await opa.parse({ source }, signal);
+        const result = await opa.parse({ source, v0Compatible }, signal);
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
         if (result.exitCode !== 0) {

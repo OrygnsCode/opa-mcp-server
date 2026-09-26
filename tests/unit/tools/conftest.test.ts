@@ -563,6 +563,59 @@ describe('conftest_test', () => {
     expect(env.error?.message).toMatch(/exit code 2/);
   });
 
+  it('calls a policy that does not compile INVALID_REGO, and points pre-1.0 Rego at v0Compatible', async () => {
+    const v0Error =
+      'Error: running test: load: loading policies: 1 error occurred during loading:\npolicy\\p.rego:3: rego_parse_error: `if` keyword is required before rule body';
+    mockRun.mockResolvedValue(spawnFailure(1, v0Error));
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+
+    const plain = await callTool(server, 'conftest_test', { files: [passingConfig] });
+    expect(plain.error?.code).toBe('INVALID_REGO');
+    expect(plain.error?.hint).toMatch(/v0Compatible/);
+
+    // Already reading v0: the syntax is simply wrong, so no v0 advice.
+    const asV0 = await callTool(server, 'conftest_test', {
+      files: [passingConfig],
+      v0Compatible: true,
+    });
+    expect(asV0.error?.code).toBe('INVALID_REGO');
+    expect(asV0.error?.hint).not.toMatch(/v0Compatible/);
+
+    mockRun.mockResolvedValue(
+      spawnFailure(1, 'policy\\p.rego:4: rego_unsafe_var_error: var x is unsafe'),
+    );
+    const unsafe = await callTool(server, 'conftest_test', { files: [passingConfig] });
+    expect(unsafe.error?.code).toBe('INVALID_REGO');
+    expect(unsafe.error?.hint).not.toMatch(/v0Compatible/);
+
+    // A pre-1.0 policy in the future.keywords style fails only on a built-in
+    // v1 removed, which v0Compatible also fixes.
+    mockRun.mockResolvedValue(
+      spawnFailure(
+        1,
+        'policy\\main.rego:7: rego_type_error: deprecated built-in function calls in expression: re_match',
+      ),
+    );
+    const removed = await callTool(server, 'conftest_test', { files: [passingConfig] });
+    expect(removed.error?.code).toBe('INVALID_REGO');
+    expect(removed.error?.hint).toMatch(/v0Compatible/);
+  });
+
+  it('calls a policy that fails while running EVAL_ERROR, as rego_eval does', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        'Error: running test: query rule: evaluating policy: policy\\main.rego:4: eval_conflict_error: complete rules must not produce multiple outputs',
+      ),
+    );
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool(server, 'conftest_test', { files: [passingConfig] });
+    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.message).toMatch(/eval_conflict_error/);
+  });
+
   it('maps unparseable JSON stdout to UNKNOWN_ERROR', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess('not json at all'));
 
@@ -1091,6 +1144,23 @@ describe('conftest_push', () => {
     const env = await callTool(server, 'conftest_push', { repository, policy: policyDir });
 
     expect(env.error?.code).toBe('CONFTEST_NOT_FOUND');
+  });
+
+  it('calls a policy that does not load before pushing INVALID_REGO', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        'Error: push bundle: pushing layers: load: loading policies: policy\\p.rego:3: rego_parse_error: `if` keyword is required before rule body',
+      ),
+    );
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool(server, 'conftest_push', {
+      repository,
+      policy: policyDir,
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.hint).toMatch(/v0Compatible/);
   });
 
   it('maps non-zero exit to UNKNOWN_ERROR', async () => {

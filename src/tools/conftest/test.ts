@@ -32,6 +32,7 @@ import {
 } from '../../lib/conftest-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
+import { conftestFailure } from './_failure.js';
 
 const PARSER_LIST = CONFTEST_PARSERS.join(', ');
 
@@ -114,6 +115,12 @@ const ConftestTestInput = {
     .boolean()
     .optional()
     .describe('Return `passed: false` even when only warnings (no hard failures) are present.'),
+  v0Compatible: z
+    .boolean()
+    .optional()
+    .describe(
+      'Read the policies as Rego v0 (`--rego-version v0`), the syntax before OPA 1.0: rules without `if`, `deny[msg] { ... }`. conftest reads v1 by default and refuses such a policy.',
+    ),
 };
 
 export interface ConftestTestOutput {
@@ -225,6 +232,7 @@ export function registerConftestTest(server: McpServer, config: Config): void {
             data: input.data,
             combine: input.combine,
             failOnWarn: input.failOnWarn,
+            regoV0: input.v0Compatible,
           },
           signal,
         );
@@ -249,11 +257,12 @@ export function registerConftestTest(server: McpServer, config: Config): void {
         // ── No results: a command-level error ────────────────────────────
         // Examples: policy directory not found, malformed Rego syntax,
         // unknown --parser value, etc.
-        const detail = result.stderr.trim() || result.stdout.trim();
-        return err(
-          'UNKNOWN_ERROR',
-          `conftest test failed with exit code ${result.exitCode}: ${detail || 'no output'}`,
-          { details: { exitCode: result.exitCode, stderr: result.stderr.trim() } },
+        return conftestFailure(
+          'test',
+          result.exitCode,
+          result.stdout,
+          result.stderr,
+          input.v0Compatible,
         );
       });
     },

@@ -15,9 +15,11 @@ import {
   tryParseJson,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 const RegoDescribePolicyInput = {
   source: z.string().min(1).describe('Rego source to describe.'),
+  v0Compatible: v0CompatibleField,
 };
 
 interface AstRefPart {
@@ -97,9 +99,9 @@ export function registerRegoDescribePolicy(server: McpServer, config: Config): v
         openWorldHint: false,
       },
     },
-    async ({ source }, { signal }) => {
+    async ({ source, v0Compatible }, { signal }) => {
       return withToolEnvelope<RegoDescribePolicyOutput>(config, async () => {
-        const result = await opa.parse({ source }, signal);
+        const result = await opa.parse({ source, v0Compatible }, signal);
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
         if (result.exitCode !== 0) {

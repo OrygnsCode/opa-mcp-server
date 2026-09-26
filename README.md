@@ -371,16 +371,14 @@ Operate on Rego source code without needing a running OPA server. Wrap
 
 Run a query against a policy and input. Wrap `opa eval`, `opa test`, and
 `opa bench`. Each of these tools takes `v0Compatible` to load a policy
-written before OPA 1.0 without migrating it, and so do the other tools that
-hand a policy straight to `opa`: `rego_check`, `rego_check_schema`,
-`rego_format`, `rego_format_write`, `rego_parse_ast`, `rego_inspect`,
-`rego_coverage_gaps`, `rego_explain_decision`, `opa_bundle_build` and
-`opa_bundle_verify`. OPA then reads the query as v0 too, so the future
-keywords are imported for it and `in` and `every` still work there. Tools
-that do more than pass a policy to one `opa` command, such as
-`rego_explain_undefined`, `rego_policy_diff` and `rego_verify`, read Rego v1
-only, as does `rego_deps`, since `opa deps` has no such option; run
-`rego_migrate_v1` first.
+written before OPA 1.0 without migrating it, and so does every other tool
+that reads a policy through `opa` or conftest, from `rego_check` to
+`rego_verify` and `conftest_test`. OPA then reads the query as v0 too, so
+the future keywords are imported for it and `in` and `every` still work
+there. `rego_policy_diff` takes it per side (`v0CompatibleA`,
+`v0CompatibleB`), to compare a legacy policy with its migrated copy. The
+exceptions are `rego_deps`, since `opa deps` has no such option, and the
+Regal tools, which need none, since Regal reads either version.
 
 | Tool                      | What it does                                                                                                                                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

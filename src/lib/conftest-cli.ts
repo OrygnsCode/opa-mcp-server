@@ -134,6 +134,8 @@ export interface ConftestTestInput {
    * extension does not match their format (e.g. a `.tfstate` file as `json`).
    */
   parser?: ConftestParser;
+  /** Read the policies as Rego v0 (`--rego-version v0`). */
+  regoV0?: boolean;
 }
 
 /** Input for `conftest verify`. */
@@ -144,6 +146,8 @@ export interface ConftestVerifyInput {
   namespace?: string;
   /** Absolute paths to data directories. */
   data?: string[];
+  /** Read the policies as Rego v0 (`--rego-version v0`). */
+  regoV0?: boolean;
 }
 
 /** Input for `conftest pull`. */
@@ -158,6 +162,8 @@ export interface ConftestPullInput {
 export interface ConftestPushInput {
   /** OCI repository URL to push policies to. */
   repository: string;
+  /** Read the policies as Rego v0 (`--rego-version v0`); push loads them first. */
+  regoV0?: boolean;
   /** Local directory containing policies to push. Defaults to `./policy`. */
   policy?: string;
 }
@@ -368,6 +374,7 @@ export class ConftestCli {
         // Flags
         if (input.combine) args.push('--combine');
         if (input.failOnWarn) args.push('--fail-on-warn');
+        if (input.regoV0) args.push('--rego-version', 'v0');
         // conftest's --parser overrides extension detection, so inline
         // config names its parser explicitly rather than trusting the temp
         // file's extension. A global `parser` wins when both are given.
@@ -398,6 +405,7 @@ export class ConftestCli {
     if (input.policy) args.push('--policy', input.policy);
     if (input.namespace) args.push('--namespace', input.namespace);
     for (const d of input.data ?? []) args.push('--data', d);
+    if (input.regoV0) args.push('--rego-version', 'v0');
     const anchored = anchorDrive(args, [input.policy, ...(input.data ?? [])]);
     if (anchored.conflict) return anchored.conflict;
     return this.run(args, signal, anchored.cwd);
@@ -422,6 +430,7 @@ export class ConftestCli {
     const args = ['push', input.repository];
     const target = relativeToParent(input.policy);
     if (target) args.push('--policy', target.name);
+    if (input.regoV0) args.push('--rego-version', 'v0');
     return this.run(args, signal, target?.parent);
   }
 

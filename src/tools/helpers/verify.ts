@@ -13,6 +13,7 @@ import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { mapSubprocessFailure, tryParseJson, withToolEnvelope } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 import { parseProperty } from '../../lib/rego-property-parser.js';
 import { runVerify, type VerifyResult } from '../../lib/rego-verify-engine.js';
 import type { OpaModule } from '../../lib/rego-ast-types.js';
@@ -28,6 +29,7 @@ const RegoVerifyInput = {
         '  never_true   - rule is never true for any input (finds inputs that trigger it)\n' +
         '  satisfiable  - at least one input exists where rule is true (returns a witness)',
     ),
+  v0Compatible: v0CompatibleField,
 };
 
 export function registerRegoVerify(server: McpServer, config: Config): void {
@@ -57,7 +59,7 @@ export function registerRegoVerify(server: McpServer, config: Config): void {
         openWorldHint: false,
       },
     },
-    async ({ source, rule, kind }, { signal }) => {
+    async ({ source, rule, kind, v0Compatible }, { signal }) => {
       return withToolEnvelope<VerifyResult>(config, async () => {
         // Parse property spec
         const { property, errors: propErrors } = parseProperty({ rule, kind });
@@ -68,7 +70,7 @@ export function registerRegoVerify(server: McpServer, config: Config): void {
         }
 
         // Parse the Rego source via OPA
-        const parseResult = await opa.parse({ source }, signal);
+        const parseResult = await opa.parse({ source, v0Compatible }, signal);
         const subprocessFailure = mapSubprocessFailure(parseResult, 'opa');
         if (subprocessFailure) return subprocessFailure;
         if (parseResult.exitCode !== 0) {

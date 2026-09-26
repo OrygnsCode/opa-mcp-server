@@ -26,6 +26,7 @@ import type { SpawnResult } from '../../lib/subprocess.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { sanitizeInlinePathsDeep } from '../../lib/inline-paths.js';
+import { PRE_V1_ERRORS } from '../_rego-version.js';
 import {
   mapSubprocessFailure,
   tryParseJson,
@@ -74,6 +75,13 @@ const RegoPolicyDiffInput = {
     .describe(
       'Additional data or policy paths loaded for both evaluations. Each must be inside an allowed root.',
     ),
+  v0CompatibleA: z
+    .boolean()
+    .optional()
+    .describe(
+      'Read policy A as Rego v0 (`--v0-compatible`), the syntax before OPA 1.0. Set this and leave `v0CompatibleB` off to compare a legacy policy with its migrated copy.',
+    ),
+  v0CompatibleB: z.boolean().optional().describe('Read policy B as Rego v0 (`--v0-compatible`).'),
 };
 
 /** Raw value extracted from one side of an OPA eval result. */
@@ -183,13 +191,27 @@ export function diffValues(a: unknown, b: unknown, path = ''): string[] {
  * usually empty. Runtime errors (`eval_*` codes) are EVAL_ERROR, anything
  * else is the policy or query not compiling.
  */
-function sideFailure(side: 'A' | 'B', result: SpawnResult): ToolEnvelope<never> {
-  const parsed = tryParseJson<{ errors?: Array<{ code?: unknown }> }>(result.stdout);
+function sideFailure(
+  side: 'A' | 'B',
+  result: SpawnResult,
+  v0Compatible: boolean | undefined,
+): ToolEnvelope<never> {
+  const parsed = tryParseJson<{ errors?: Array<{ code?: unknown; message?: unknown }> }>(
+    result.stdout,
+  );
   const errors = Array.isArray(parsed?.errors) ? parsed.errors : [];
   const runtime =
     errors.length > 0 &&
     errors.every((e) => typeof e.code === 'string' && e.code.startsWith('eval_'));
+  const preV1 =
+    !v0Compatible &&
+    errors.some((e) => typeof e.message === 'string' && PRE_V1_ERRORS.test(e.message));
   return err(runtime ? 'EVAL_ERROR' : 'INVALID_REGO', `Policy ${side} failed to evaluate.`, {
+    ...(preV1
+      ? {
+          hint: `Policy ${side} looks like pre-1.0 Rego; set \`v0Compatible${side}\` to read it as v0.`,
+        }
+      : {}),
     details: sanitizeInlinePathsDeep({
       policy: side,
       exitCode: result.exitCode,
@@ -215,7 +237,21 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
         openWorldHint: true,
       },
     },
-    async ({ sourceA, pathA, sourceB, pathB, query, input, inputPath, dataPaths }, { signal }) => {
+    async (
+      {
+        sourceA,
+        pathA,
+        sourceB,
+        pathB,
+        query,
+        input,
+        inputPath,
+        dataPaths,
+        v0CompatibleA,
+        v0CompatibleB,
+      },
+      { signal },
+    ) => {
       return withToolEnvelope<RegoPolicyDiffOutput>(config, async () => {
         // ── Input validation ──────────────────────────────────────────────
         if (sourceA === undefined && pathA === undefined) {
@@ -270,15 +306,19 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
           ...(resolvedInputPath !== undefined ? { inputPath: resolvedInputPath } : {}),
         };
 
-        const evalInputA =
-          sourceA !== undefined
+        const evalInputA = {
+          ...(sourceA !== undefined
             ? { ...commonOpts, source: sourceA, paths: resolvedDataPaths }
-            : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathA!] };
+            : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathA!] }),
+          ...(v0CompatibleA ? { v0Compatible: true } : {}),
+        };
 
-        const evalInputB =
-          sourceB !== undefined
+        const evalInputB = {
+          ...(sourceB !== undefined
             ? { ...commonOpts, source: sourceB, paths: resolvedDataPaths }
-            : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathB!] };
+            : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathB!] }),
+          ...(v0CompatibleB ? { v0Compatible: true } : {}),
+        };
 
         // ── Run both evals in parallel ─────────────────────────────────────
         const [resultA, resultB] = await Promise.all([
@@ -290,12 +330,12 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
         const binaryFailure = mapSubprocessFailure(resultA, 'opa');
         if (binaryFailure) return binaryFailure;
 
-        if (resultA.exitCode !== 0) return sideFailure('A', resultA);
+        if (resultA.exitCode !== 0) return sideFailure('A', resultA, v0CompatibleA);
 
         const binaryFailureB = mapSubprocessFailure(resultB, 'opa');
         if (binaryFailureB) return binaryFailureB;
 
-        if (resultB.exitCode !== 0) return sideFailure('B', resultB);
+        if (resultB.exitCode !== 0) return sideFailure('B', resultB, v0CompatibleB);
 
         // ── Extract and compare ───────────────────────────────────────────
         const valueA = extractResultValue(resultA.stdout);

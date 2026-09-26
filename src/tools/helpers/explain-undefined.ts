@@ -34,6 +34,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
+import { v0CompatibleField } from '../_rego-version.js';
 
 // ─── Input schema ───────────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ const RegoExplainUndefinedInput = {
     .describe('Policy .rego file paths to load. Mutually exclusive with source.'),
   input: z.unknown().optional().describe('Input document (JSON value) for the query.'),
   inputPath: z.string().optional().describe('Path to an input JSON file.'),
+  v0Compatible: v0CompatibleField,
 };
 
 // ─── OPA AST types (subset) ─────────────────────────────────────────────────
@@ -287,6 +289,7 @@ async function evalPrefixStandalone(
     paths?: string[];
     input?: unknown;
     inputPath?: string;
+    v0Compatible?: boolean;
   },
   opa: OpaCli,
   signal: AbortSignal | undefined,
@@ -298,6 +301,7 @@ async function evalPrefixStandalone(
       paths: evalBase.paths,
       input: evalBase.input,
       inputPath: evalBase.inputPath,
+      v0Compatible: evalBase.v0Compatible,
       // The parsed path carries the `data` root; the flag takes the package
       // name as written in the module.
       package: pkg.replace(/^data\./, '') || undefined,
@@ -442,6 +446,7 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
           paths: resolvedPaths.length > 0 ? resolvedPaths : undefined,
           input: args.input,
           inputPath: resolvedInputPath,
+          ...(args.v0Compatible ? { v0Compatible: true } : {}),
         };
 
         // ── Step 1: plain eval ────────────────────────────────────────────
@@ -471,7 +476,10 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         const asts: OpaAst[] = [];
 
         if (args.source) {
-          const pr = await opa.parse({ source: args.source, includeLocations: true }, signal);
+          const pr = await opa.parse(
+            { source: args.source, includeLocations: true, v0Compatible: args.v0Compatible },
+            signal,
+          );
           const parseFailure = mapSubprocessFailure(pr, 'opa');
           if (parseFailure) return parseFailure;
           if (pr.exitCode === 0) {
@@ -483,7 +491,10 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
           for (const filePath of regoFiles) {
             try {
               const src = await readFile(filePath, 'utf8');
-              const pr = await opa.parse({ source: src, includeLocations: true }, signal);
+              const pr = await opa.parse(
+                { source: src, includeLocations: true, v0Compatible: args.v0Compatible },
+                signal,
+              );
               const parseFailure = mapSubprocessFailure(pr, 'opa');
               if (parseFailure) return parseFailure;
               if (pr.exitCode === 0) {
