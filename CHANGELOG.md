@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-27
+
 ### Added
 
 - `v0Compatible` on every tool that reads a policy through `opa` or
@@ -26,82 +28,83 @@ not part of the public surface and may change in minor releases.
   `rego_check`, `rego_check_schema`, `rego_format`, `rego_parse_ast`,
   `rego_inspect`, `rego_describe_policy`, `rego_generate_test_skeleton`,
   `rego_infer_input_schema`, `rego_verify`, `opa_bundle_build`,
-  `conftest_test`, `conftest_verify` and `conftest_push`; `rego_policy_diff` takes it per
-  side, so a legacy policy can be diffed against its migrated copy. OPA 1.x
-  refuses pre-1.0 Rego without it, so a policy that had not been migrated
-  could not be evaluated or tested, including the original a migrated copy
-  has to be compared against. OPA reads the query as v0 too, so the future
-  keywords are imported for it and `in` and `every` work there as they do
-  against a v1 policy. `rego_deps` has no such option, since `opa deps` has
-  none, and the Regal tools need none, since Regal reads either version.
+  `conftest_test`, `conftest_verify` and `conftest_push`. `rego_policy_diff`
+  takes it per side, so a legacy policy can be diffed against its migrated
+  copy. OPA 1.x refuses pre-1.0 Rego without it, so a policy that had not
+  been migrated could not be evaluated or tested, including the original a
+  migrated copy has to be compared against. OPA reads the query as v0 too,
+  so the future keywords are imported for it and `in` and `every` work
+  there as they do against a v1 policy. `rego_deps` has no such option,
+  since `opa deps` has none, and the Regal tools need none, since Regal
+  reads either version.
 - `rego_eval` takes `inputs`, up to 50 input documents, and returns a result
   or an error for each. One process runs per document, so an input that
   raises a runtime error does not take the others with it. A policy that
   does not compile, or data that does not load, fails the call once, and
   after an input times out the inputs not yet started are reported with the
   code `NOT_EVALUATED` rather than run. `partial` with `inputs` needs
-  `unknowns`: without them opa treats all of `input` as unknown and every
-  entry would get the same residual, and so does `unknowns: ["input"]`.
+  `unknowns` that leave part of `input` known: with none, or with
+  `unknowns: ["input"]`, opa ignores each document and every entry would
+  get the same residual.
 
 ### Changed
 
 - `rego_migrate_v1` migrates the policies `opa fmt --rego-v1` refuses. A rule
   named `contains`, `every`, `if` or `in` is renamed along with every
   reference to it in the module, including one through an import of its own
-  package, `re_match` and `net.cidr_overlap` become `regex.match` and
-  `net.cidr_contains`, and `all`, `any`, `set_diff` and the `cast_*`
-  built-ins are replaced by helper functions, appended to the module, that
-  return what each built-in did for every argument. `all()` in particular
-  skips the undefined elements of a comprehension, which the usual `every`
-  rewrite does not. A `with` that mocks `re_match` or `net.cidr_overlap`
-  follows the rename. Where a rename would change behaviour, the old name
-  gets a helper of its own instead: when the module calls both names and
-  mocks either, which would then reach both, and when it binds `regex` or
-  `net` itself, which would hide the built-in. An import whose name v1 reserves or gives to a
-  removed built-in, by its path or its alias, is renamed along with its
-  uses. The output lists each rewrite by line. Given `inputs`, it evaluates
-  the original as v0 and the result as v1 on each and reports any rule whose
-  value or type differs; an input on which the whole package fails is
-  compared rule by rule, both sides read the same clock, and `queries`
-  compares expressions too, which is the only way a function is compared.
-  Since this runs the policy, `http.send` included, the tool is now
-  annotated as open-world and not read-only. When the formatter still
-  refuses, the error names its first message and says which line it means,
-  instead of calling a type error a syntax error, and a source that parses
-  only as v1 is returned unchanged rather than rejected.
+  package, and so is an import whose path or alias v1 reserves. `re_match`
+  and `net.cidr_overlap` become `regex.match` and `net.cidr_contains`, and a
+  `with` that mocks them follows the rename. Where the rename would change
+  behaviour, because the module calls both names and mocks either, or binds
+  `regex` or `net` itself, the old name gets a helper instead. `all`, `any`,
+  `set_diff` and the `cast_*` built-ins are replaced by helper functions,
+  appended to the module, that return what each built-in did for every
+  argument; `all()` in particular skips the undefined elements of a
+  comprehension, which the usual `every` rewrite does not. The output lists
+  each rewrite by line. When the formatter still refuses, the error names
+  its first message and says which line it means, instead of calling a type
+  error a syntax error, and a source that parses only as v1 is returned
+  unchanged rather than rejected.
+- `rego_migrate_v1` given `inputs` evaluates the original as v0 and the
+  result as v1 on each and reports any rule whose value or type differs.
+  An input on which the whole package fails is compared rule by rule, both
+  sides read the same clock, and `queries` compares expressions too, which
+  is the only way a function is compared. Since this runs the policy,
+  `http.send` included, the tool is now annotated as open-world and not
+  read-only.
 - `rego_eval` and its variants, `rego_compile_query` and
   `rego_explain_decision` no longer require `source` or `paths`, and an
-  empty `source` counts as none. A query on its own evaluates, which is how a
-  built-in gets tried out. When such a query reads `data` and comes back
+  empty `source` counts as none. A query on its own evaluates, which is how
+  a built-in gets tried out. When such a query reads `data` and comes back
   undefined, the result says nothing was loaded.
 - `opa_exec` reports a policy that does not load or activate as
   `INVALID_REGO`, naming opa's reason, where it returned `EVAL_ERROR` with
   the reason inside log lines in `details`. This applies to `bundle` and
   `dataPaths` alike.
+- `conftest_test`, `conftest_verify` and `conftest_push` report a policy
+  that does not compile as `INVALID_REGO`, and one that fails while running
+  as `EVAL_ERROR`, where they returned `UNKNOWN_ERROR`, and point at
+  `v0Compatible` when the policy is pre-1.0 Rego.
 
 ### Fixed
 
-- `rego_infer_input_schema` said nothing when a file did not parse and built
-  the schema from the rest, so a pre-1.0 policy came back as one that reads
-  no input at all. It now names the files it left out, and fails with
-  `INVALID_REGO` when none parsed.
-- `conftest_test`, `conftest_verify` and `conftest_push` report a policy
-  that does not compile as `INVALID_REGO`, and one that fails while running
-  as `EVAL_ERROR`, rather than `UNKNOWN_ERROR`, and point at `v0Compatible`
-  when the policy is pre-1.0 Rego.
 - `opa_exec` loads `dataPaths` the way `opa eval --data` loads them. Each
   entry used to reach `opa exec` as a bundle of its own, so a `.rego` file
   failed with "gzip: invalid header", two directories failed as bundles with
   overlapping roots, and a data file not named `data.json`, `data.yaml` or
-  `data.yml` was skipped. Plain files and directories are now built into one bundle
-  first, which adds one `opa build` to the call. A directory therefore
-  contributes every JSON and YAML file in it, so one that loaded before now
-  fails if it holds conflicting files, such as test fixtures, or files that
-  do not parse as data, such as JSONC editor settings or chart templates;
-  pass it as `bundle` to load it as before. A `.tar.gz` inside such a
-  directory is not loaded, which `opa eval --data` would do, and is named
-  in `warnings`. An archive, whatever its name, and a directory holding a
-  `.manifest` are still loaded as bundles.
+  `data.yml` was skipped. Plain files and directories are now built into one
+  bundle first, which adds one `opa build` to the call. A directory
+  therefore contributes every JSON and YAML file in it, so one that loaded
+  before now fails if it holds conflicting files, such as test fixtures, or
+  files that do not parse as data, such as JSONC editor settings or chart
+  templates; pass it as `bundle` to load it as before. A `.tar.gz` inside
+  such a directory is not loaded, which `opa eval --data` would do, and is
+  named in `warnings`. An archive, whatever its name, and a directory
+  holding a `.manifest` are still loaded as bundles.
+- `rego_infer_input_schema` said nothing when a file did not parse and built
+  the schema from the rest, so a pre-1.0 policy came back as one that reads
+  no input at all. It now names the files it left out, and fails with
+  `INVALID_REGO` when none parsed.
 - `rego_check_schema` with a schema directory said a policy it could not
   parse, such as a pre-1.0 one checked without `v0Compatible`, carried no
   `schemas:` annotations. The parse error is reported instead, and a path
@@ -1753,7 +1756,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.4.0...v0.5.0
