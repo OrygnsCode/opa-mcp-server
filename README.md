@@ -22,9 +22,15 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
-> **Status:** v0.7.0. Tool surface, error codes, and
+> **Status:** v0.8.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.8.0:** `opa_exec` loads `dataPaths` as `opa eval --data`
+> does, so a directory that also holds test fixtures, or JSON and YAML that
+> is not data, can now fail to load; pass it as `bundle` to load it as
+> before. A policy that does not load is `INVALID_REGO` in `opa_exec` and
+> the conftest tools, where it was `EVAL_ERROR` and `UNKNOWN_ERROR`.
 
 > **Upgrading to 0.7.0:** Node.js 22 or later is required. The bundled OPA
 > is 1.21, which reads YAML against the 1.2 schema: bare `yes`, `no`, `on`
