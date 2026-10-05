@@ -34,6 +34,12 @@ import {
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
 
+/** Most inputs one `rego_policy_diff` call compares on. */
+const MAX_DIFF_INPUTS = 50;
+
+/** How many inputs are compared at once; each takes two `opa eval` processes. */
+const DIFF_CONCURRENCY = 3;
+
 const RegoPolicyDiffInput = {
   sourceA: z
     .string()
@@ -69,6 +75,14 @@ const RegoPolicyDiffInput = {
     .describe(
       'Path to a JSON input file. Must be inside an allowed root. Mutually exclusive with input.',
     ),
+  inputs: z
+    .array(z.unknown())
+    .min(1)
+    .max(MAX_DIFF_INPUTS)
+    .optional()
+    .describe(
+      `Up to ${MAX_DIFF_INPUTS} input documents to compare the two policies on, in place of \`input\`/\`inputPath\`. The result is \`batch\`, one entry per input in order, and \`differing\` counts the inputs on which the policies disagree. A policy that does not compile fails the call once; a runtime error on one input is reported in its entry.`,
+    ),
   dataPaths: z
     .array(z.string())
     .optional()
@@ -92,6 +106,9 @@ export interface RegoPolicyDiffOutput {
   query: string;
   /** True when resultA and resultB are structurally identical. */
   equal: boolean;
+  /** Whether each side produced a value; an undefined result is left out of the JSON. */
+  definedA: boolean;
+  definedB: boolean;
   /** Value extracted from policy A's evaluation. Undefined when the query is undefined for that policy. */
   resultA: ResultValue;
   /** Value extracted from policy B's evaluation. */
@@ -101,6 +118,35 @@ export interface RegoPolicyDiffOutput {
    * Empty when equal is true. "." denotes a root-level scalar difference.
    */
   changedPaths: string[];
+}
+
+/** One input of a batch: the same result on both sides, two results, or an error. */
+export type RegoPolicyDiffBatchEntry =
+  | { index: number; equal: true; result: ResultValue }
+  | {
+      index: number;
+      equal: false;
+      /** Whether each side produced a value; an undefined result is left out of the JSON. */
+      definedA: boolean;
+      definedB: boolean;
+      resultA: ResultValue;
+      resultB: ResultValue;
+      changedPaths: string[];
+    }
+  | {
+      index: number;
+      error: { policy: 'A' | 'B'; code: string; message: string; details?: unknown };
+    };
+
+export interface RegoPolicyDiffBatchOutput {
+  query: string;
+  /** True when every input gave the same result on both sides and none failed. */
+  equal: boolean;
+  /** Inputs on which the two policies gave different results. */
+  differing: number;
+  /** Inputs on which a policy failed at runtime. */
+  errorCount: number;
+  batch: RegoPolicyDiffBatchEntry[];
 }
 
 /**
@@ -229,7 +275,7 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
     {
       title: 'Diff two Rego policies',
       description:
-        'Evaluate the same query against two policies (or two versions of the same policy) and compare the results. Both evaluations run in parallel. Returns `equal: true/false`, the raw result from each side, and `changedPaths` -- the dot/bracket paths that differ. Useful for verifying that a refactor preserves behavior, or understanding exactly where two policies diverge. Each side takes either inline source (sourceA/sourceB) or a file/directory path (pathA/pathB). The same input and query are used for both evaluations.',
+        'Evaluate the same query against two policies (or two versions of the same policy) and compare the results. Both evaluations run in parallel. Returns `equal: true/false`, the raw result from each side, and `changedPaths` -- the dot/bracket paths that differ. Useful for verifying that a refactor preserves behavior, or understanding exactly where two policies diverge. Each side takes either inline source (sourceA/sourceB) or a file/directory path (pathA/pathB). The same input and query are used for both evaluations; pass `inputs` to compare on many input documents in one call, and `dataPaths` to load the data the policies read.',
       inputSchema: RegoPolicyDiffInput,
       annotations: {
         readOnlyHint: false,
@@ -246,110 +292,199 @@ export function registerRegoPolicyDiff(server: McpServer, config: Config): void 
         query,
         input,
         inputPath,
+        inputs,
         dataPaths,
         v0CompatibleA,
         v0CompatibleB,
       },
       { signal },
     ) => {
-      return withToolEnvelope<RegoPolicyDiffOutput>(config, async () => {
-        // ── Input validation ──────────────────────────────────────────────
-        if (sourceA === undefined && pathA === undefined) {
-          return err('INVALID_INPUT', 'One of sourceA or pathA is required.');
-        }
-        if (sourceA !== undefined && pathA !== undefined) {
-          return err('INVALID_INPUT', 'Provide either sourceA or pathA, not both.');
-        }
-        if (sourceB === undefined && pathB === undefined) {
-          return err('INVALID_INPUT', 'One of sourceB or pathB is required.');
-        }
-        if (sourceB !== undefined && pathB !== undefined) {
-          return err('INVALID_INPUT', 'Provide either sourceB or pathB, not both.');
-        }
-        if (input !== undefined && inputPath !== undefined) {
-          return err('INVALID_INPUT', 'Provide either input or inputPath, not both.');
-        }
-
-        // ── Path validation ───────────────────────────────────────────────
-        let resolvedPathA: string | undefined;
-        if (pathA !== undefined) {
-          const v = validatePaths([pathA], config, { mustExist: true });
-          if (!v.ok) return v.error;
-          resolvedPathA = v.resolved[0];
-        }
-
-        let resolvedPathB: string | undefined;
-        if (pathB !== undefined) {
-          const v = validatePaths([pathB], config, { mustExist: true });
-          if (!v.ok) return v.error;
-          resolvedPathB = v.resolved[0];
-        }
-
-        let resolvedInputPath: string | undefined;
-        if (inputPath !== undefined) {
-          const v = validatePaths([inputPath], config, { mustExist: true });
-          if (!v.ok) return v.error;
-          resolvedInputPath = v.resolved[0];
-        }
-
-        let resolvedDataPaths: string[] = [];
-        if (dataPaths && dataPaths.length > 0) {
-          const v = validatePaths(dataPaths, config, { mustExist: true });
-          if (!v.ok) return v.error;
-          resolvedDataPaths = v.resolved;
-        }
-
-        // ── Build eval inputs ─────────────────────────────────────────────
-        const commonOpts = {
+      /** Both sides on every input; a compile error or a lost binary ends the call. */
+      const diffBatch = async (
+        docs: unknown[],
+        sideA: Parameters<OpaCli['eval']>[0],
+        sideB: Parameters<OpaCli['eval']>[0],
+      ): Promise<ToolEnvelope<RegoPolicyDiffBatchOutput>> => {
+        const batch = new Array<RegoPolicyDiffBatchEntry>(docs.length);
+        let fatal: ToolEnvelope<never> | undefined;
+        let next = 0;
+        const worker = async (): Promise<void> => {
+          while (fatal === undefined && next < docs.length) {
+            const index = next++;
+            const [a, b] = await Promise.all([
+              opa.eval({ ...sideA, input: docs[index] }, signal),
+              opa.eval({ ...sideB, input: docs[index] }, signal),
+            ]);
+            for (const [policy, result, v0] of [
+              ['A', a, v0CompatibleA],
+              ['B', b, v0CompatibleB],
+            ] as const) {
+              const lost = mapSubprocessFailure(result, 'opa');
+              if (lost) {
+                fatal ??= lost;
+                return;
+              }
+              if (result.exitCode !== 0) {
+                const failure = sideFailure(policy, result, v0);
+                // A policy that does not compile fails alike for every input.
+                if (failure.error!.code !== 'EVAL_ERROR') {
+                  fatal ??= failure;
+                  return;
+                }
+                batch[index] ??= {
+                  index,
+                  error: {
+                    policy,
+                    code: failure.error!.code,
+                    message: failure.error!.message,
+                    details: failure.error!.details,
+                  },
+                };
+              }
+            }
+            if (batch[index] !== undefined) continue;
+            const valueA = extractResultValue(a.stdout);
+            const valueB = extractResultValue(b.stdout);
+            const changedPaths = diffValues(valueA, valueB);
+            batch[index] =
+              changedPaths.length === 0
+                ? { index, equal: true, result: valueA }
+                : {
+                    index,
+                    equal: false,
+                    definedA: valueA !== undefined,
+                    definedB: valueB !== undefined,
+                    resultA: valueA,
+                    resultB: valueB,
+                    changedPaths,
+                  };
+          }
+        };
+        await Promise.all(
+          Array.from({ length: Math.min(DIFF_CONCURRENCY, docs.length) }, () => worker()),
+        );
+        if (fatal !== undefined) return fatal;
+        const differing = batch.filter((e) => 'equal' in e && !e.equal).length;
+        const errorCount = batch.filter((e) => 'error' in e).length;
+        return ok<RegoPolicyDiffBatchOutput>({
           query,
-          ...(input !== undefined ? { input } : {}),
-          ...(resolvedInputPath !== undefined ? { inputPath: resolvedInputPath } : {}),
-        };
-
-        const evalInputA = {
-          ...(sourceA !== undefined
-            ? { ...commonOpts, source: sourceA, paths: resolvedDataPaths }
-            : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathA!] }),
-          ...(v0CompatibleA ? { v0Compatible: true } : {}),
-        };
-
-        const evalInputB = {
-          ...(sourceB !== undefined
-            ? { ...commonOpts, source: sourceB, paths: resolvedDataPaths }
-            : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathB!] }),
-          ...(v0CompatibleB ? { v0Compatible: true } : {}),
-        };
-
-        // ── Run both evals in parallel ─────────────────────────────────────
-        const [resultA, resultB] = await Promise.all([
-          opa.eval(evalInputA, signal),
-          opa.eval(evalInputB, signal),
-        ]);
-
-        // ── Error mapping (check A first, then B) ─────────────────────────
-        const binaryFailure = mapSubprocessFailure(resultA, 'opa');
-        if (binaryFailure) return binaryFailure;
-
-        if (resultA.exitCode !== 0) return sideFailure('A', resultA, v0CompatibleA);
-
-        const binaryFailureB = mapSubprocessFailure(resultB, 'opa');
-        if (binaryFailureB) return binaryFailureB;
-
-        if (resultB.exitCode !== 0) return sideFailure('B', resultB, v0CompatibleB);
-
-        // ── Extract and compare ───────────────────────────────────────────
-        const valueA = extractResultValue(resultA.stdout);
-        const valueB = extractResultValue(resultB.stdout);
-        const changedPaths = diffValues(valueA, valueB);
-
-        return ok<RegoPolicyDiffOutput>({
-          query,
-          equal: changedPaths.length === 0,
-          resultA: valueA,
-          resultB: valueB,
-          changedPaths,
+          equal: differing === 0 && errorCount === 0,
+          differing,
+          errorCount,
+          batch,
         });
-      });
+      };
+
+      return withToolEnvelope<RegoPolicyDiffOutput | RegoPolicyDiffBatchOutput>(
+        config,
+        async () => {
+          // ── Input validation ──────────────────────────────────────────────
+          if (sourceA === undefined && pathA === undefined) {
+            return err('INVALID_INPUT', 'One of sourceA or pathA is required.');
+          }
+          if (sourceA !== undefined && pathA !== undefined) {
+            return err('INVALID_INPUT', 'Provide either sourceA or pathA, not both.');
+          }
+          if (sourceB === undefined && pathB === undefined) {
+            return err('INVALID_INPUT', 'One of sourceB or pathB is required.');
+          }
+          if (sourceB !== undefined && pathB !== undefined) {
+            return err('INVALID_INPUT', 'Provide either sourceB or pathB, not both.');
+          }
+          if (input !== undefined && inputPath !== undefined) {
+            return err('INVALID_INPUT', 'Provide either input or inputPath, not both.');
+          }
+          if (inputs !== undefined && (input !== undefined || inputPath !== undefined)) {
+            return err('INVALID_INPUT', 'Provide `inputs` or `input`/`inputPath`, not both.');
+          }
+
+          // ── Path validation ───────────────────────────────────────────────
+          let resolvedPathA: string | undefined;
+          if (pathA !== undefined) {
+            const v = validatePaths([pathA], config, { mustExist: true });
+            if (!v.ok) return v.error;
+            resolvedPathA = v.resolved[0];
+          }
+
+          let resolvedPathB: string | undefined;
+          if (pathB !== undefined) {
+            const v = validatePaths([pathB], config, { mustExist: true });
+            if (!v.ok) return v.error;
+            resolvedPathB = v.resolved[0];
+          }
+
+          let resolvedInputPath: string | undefined;
+          if (inputPath !== undefined) {
+            const v = validatePaths([inputPath], config, { mustExist: true });
+            if (!v.ok) return v.error;
+            resolvedInputPath = v.resolved[0];
+          }
+
+          let resolvedDataPaths: string[] = [];
+          if (dataPaths && dataPaths.length > 0) {
+            const v = validatePaths(dataPaths, config, { mustExist: true });
+            if (!v.ok) return v.error;
+            resolvedDataPaths = v.resolved;
+          }
+
+          // ── Build eval inputs ─────────────────────────────────────────────
+          const commonOpts = {
+            query,
+            ...(input !== undefined ? { input } : {}),
+            ...(resolvedInputPath !== undefined ? { inputPath: resolvedInputPath } : {}),
+          };
+
+          const evalInputA = {
+            ...(sourceA !== undefined
+              ? { ...commonOpts, source: sourceA, paths: resolvedDataPaths }
+              : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathA!] }),
+            ...(v0CompatibleA ? { v0Compatible: true } : {}),
+          };
+
+          const evalInputB = {
+            ...(sourceB !== undefined
+              ? { ...commonOpts, source: sourceB, paths: resolvedDataPaths }
+              : { ...commonOpts, paths: [...resolvedDataPaths, resolvedPathB!] }),
+            ...(v0CompatibleB ? { v0Compatible: true } : {}),
+          };
+
+          if (inputs !== undefined) {
+            return diffBatch(inputs, evalInputA, evalInputB);
+          }
+
+          // ── Run both evals in parallel ─────────────────────────────────────
+          const [resultA, resultB] = await Promise.all([
+            opa.eval(evalInputA, signal),
+            opa.eval(evalInputB, signal),
+          ]);
+
+          // ── Error mapping (check A first, then B) ─────────────────────────
+          const binaryFailure = mapSubprocessFailure(resultA, 'opa');
+          if (binaryFailure) return binaryFailure;
+
+          if (resultA.exitCode !== 0) return sideFailure('A', resultA, v0CompatibleA);
+
+          const binaryFailureB = mapSubprocessFailure(resultB, 'opa');
+          if (binaryFailureB) return binaryFailureB;
+
+          if (resultB.exitCode !== 0) return sideFailure('B', resultB, v0CompatibleB);
+
+          // ── Extract and compare ───────────────────────────────────────────
+          const valueA = extractResultValue(resultA.stdout);
+          const valueB = extractResultValue(resultB.stdout);
+          const changedPaths = diffValues(valueA, valueB);
+
+          return ok<RegoPolicyDiffOutput>({
+            query,
+            equal: changedPaths.length === 0,
+            definedA: valueA !== undefined,
+            definedB: valueB !== undefined,
+            resultA: valueA,
+            resultB: valueB,
+            changedPaths,
+          });
+        },
+      );
     },
   );
 }

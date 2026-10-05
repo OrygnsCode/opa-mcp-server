@@ -349,7 +349,7 @@ v := input.b if input.b
       inputs: [{ a: 1 }, { a: 2 }, { a: 3 }],
     });
     expect(env.ok).toBe(false);
-    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.code).toBe('INVALID_REGO');
   });
 
   it('fails the call once for data that does not load', async () => {

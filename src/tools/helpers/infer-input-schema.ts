@@ -2,16 +2,12 @@
  * `rego_infer_input_schema` -- statically analyse Rego source and return
  * a JSON Schema describing every input.* field the policy reads.
  *
- * Uses `opa parse --format=json` to get the module AST, then walks the
- * tree for Ref nodes whose first term is the `input` var. String-keyed
- * path components become nested object properties; variable-keyed
- * components (array wildcards like `_`) mark the parent field as an
- * array type.
- *
- * The result is not a validation schema -- it cannot infer scalar types
- * without semantic analysis -- but it gives the complete set of fields a
- * policy touches, which is the correct starting point for writing
- * integration tests or setting up `opa check --schema`.
+ * Uses `opa parse --format=json` for the module ASTs and `inputShape` to
+ * follow the bindings a policy reads input through: loop variables, rules
+ * whose value is an input path, function parameters and `object.get` keys.
+ * A key the policy computes is left open (`additionalProperties` and
+ * `items`), and a scalar type is set only where the policy shows it, by a
+ * comparison with a literal, an `is_*` check or a string built-in.
  */
 import { stat } from 'node:fs/promises';
 import { basename, relative } from 'node:path';
@@ -21,6 +17,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
+import { ANY, inputShape, type InputPath, type ScalarType } from '../../lib/input-shape.js';
 import { findRegoFiles } from '../../lib/rego-files.js';
 import { err, ok } from '../../lib/errors.js';
 import {
@@ -45,106 +42,72 @@ const RegoInferInputSchemaInput = {
   v0Compatible: v0CompatibleField,
 };
 
-interface OpaTerm {
-  type: string;
-  value: unknown;
-}
-
 interface SchemaNode {
-  type?: 'object' | 'array';
+  type?: ScalarType;
   properties?: Record<string, SchemaNode>;
   items?: SchemaNode;
+  additionalProperties?: SchemaNode;
 }
 
 export interface RegoInferInputSchemaOutput {
   /** JSON Schema draft-07 object describing the inferred input shape. */
   schema: object;
-  /** Human-readable list of every input.* path found, e.g. ["input.action", "input.user.role"]. */
+  /**
+   * Every input path found, e.g. `input.user.role` or
+   * `input.request.object.spec.containers[].image`. `[]` is an array element,
+   * `[*]` any key or element.
+   */
   inputPaths: string[];
   /** Number of .rego files analysed. */
   filesAnalyzed: number;
 }
 
-/**
- * Recursively walk an OPA parse AST (arbitrary JSON) and collect every
- * Ref whose first term is the `input` variable. Each collected ref is an
- * array of path parts: string for a named key, null for a variable/wildcard.
- */
-function collectInputRefs(node: unknown, refs: Array<Array<string | null>>): void {
-  if (node === null || node === undefined || typeof node !== 'object') return;
-
-  if (Array.isArray(node)) {
-    for (const item of node) collectInputRefs(item, refs);
-    return;
+/** Insert one input path into the schema tree. */
+function mergePath(node: SchemaNode, path: InputPath, idx: number): SchemaNode | undefined {
+  if (idx >= path.length) return node;
+  const part = path[idx];
+  if (part === null) {
+    node.type = 'array';
+    node.items ??= {};
+    return mergePath(node.items, path, idx + 1);
   }
-
-  const obj = node as Record<string, unknown>;
-
-  if (obj['type'] === 'ref' && Array.isArray(obj['value'])) {
-    const terms = obj['value'] as OpaTerm[];
-    if (terms.length >= 2 && terms[0]?.type === 'var' && terms[0]?.value === 'input') {
-      const path: Array<string | null> = [];
-      for (let i = 1; i < terms.length; i++) {
-        const t = terms[i];
-        if (!t) break;
-        if (t.type === 'string' && typeof t.value === 'string') {
-          path.push(t.value);
-        } else if (t.type === 'var') {
-          path.push(null); // array wildcard (e.g. `_` or a named loop variable)
-        } else {
-          break; // computed/dynamic key -- cannot statically resolve
-        }
-      }
-      if (path.length > 0) refs.push(path);
-    }
+  if (part === ANY) {
+    // Any key or element: open in both shapes, since the policy does not say which.
+    node.items ??= node.additionalProperties ?? {};
+    node.additionalProperties = node.items;
+    return mergePath(node.items, path, idx + 1);
   }
-
-  for (const val of Object.values(obj)) {
-    collectInputRefs(val, refs);
-  }
-}
-
-/**
- * Insert a single input path into the growing schema tree.
- * A null part signals array access; everything else is an object key.
- */
-function mergePath(node: SchemaNode, path: Array<string | null>, idx: number): void {
-  if (idx >= path.length) return;
-  const part: string | null | undefined = path[idx];
-
-  if (part === null || part === undefined) {
-    if (node.type !== 'array') {
-      node.type = 'array';
-      node.items = { type: 'object', properties: {} };
-      delete node.properties;
-    }
-    if (idx + 1 < path.length && node.items) {
-      mergePath(node.items, path, idx + 1);
-    }
-    return;
-  }
-
-  if (!node.properties) node.properties = {};
+  node.properties ??= {};
   if (node.type !== 'array') node.type = 'object';
-  if (!node.properties[part]) node.properties[part] = {};
-  if (idx + 1 < path.length) mergePath(node.properties[part], path, idx + 1);
+  node.properties[part!] ??= {};
+  return mergePath(node.properties[part!]!, path, idx + 1);
 }
 
-function buildSchema(allPaths: Array<Array<string | null>>): object {
-  const seen = new Set<string>();
+function buildSchema(paths: InputPath[], types: Map<string, Set<ScalarType>>): object {
   const root: SchemaNode = { type: 'object', properties: {} };
-  for (const path of allPaths) {
-    const key = JSON.stringify(path);
-    if (!seen.has(key)) {
-      seen.add(key);
-      mergePath(root, path, 0);
-    }
+  const nodes = new Map<string, SchemaNode>();
+  for (const path of paths) {
+    const node = mergePath(root, path, 0);
+    if (node) nodes.set(JSON.stringify(path), node);
+  }
+  // A scalar type only where the policy shows exactly one, and only on a node
+  // the policy does not also read into.
+  for (const [key, seen] of types) {
+    const node = nodes.get(key);
+    if (!node || seen.size !== 1) continue;
+    const [type] = [...seen];
+    const structured = node.properties || node.items || node.additionalProperties;
+    if (!structured || type === 'object' || type === 'array') node.type = type;
   }
   return { $schema: 'http://json-schema.org/draft-07/schema#', ...root };
 }
 
-function pathToString(path: Array<string | null>): string {
-  return 'input.' + path.map((p) => (p === null ? '[]' : p)).join('.');
+function pathToString(path: InputPath): string {
+  let out = 'input';
+  for (const seg of path) {
+    out += seg === null ? '[]' : seg === ANY ? '[*]' : `.${seg}`;
+  }
+  return out;
 }
 
 export function registerRegoInferInputSchema(server: McpServer, config: Config): void {
@@ -155,7 +118,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
     {
       title: 'Infer input schema',
       description:
-        'Statically analyse one or more Rego policies and return a JSON Schema (draft-07) object describing every input.* field the policies read. Uses opa parse for AST-level analysis -- no running OPA server required. Correct starting point for writing integration tests, configuring opa check --schema validation, or documenting a policy API. Accepts inline source, individual files, or directories (walked recursively for *.rego files).',
+        'Statically analyse one or more Rego policies and return a JSON Schema (draft-07) object describing every input.* field the policies read. It follows the ways a policy reads input: loop variables (`some c in input.containers` then `c.image`), rules whose value is an input path (`pod_spec := input.request.object.spec`), function parameters (`trusted(c)`) and `object.get` keys. A key the policy computes is left open, and a scalar type is set only where a comparison with a literal, an `is_*` check or a string built-in shows it. Uses opa parse -- no running OPA server required. A starting point for test inputs and for a schema to give rego_check_schema; review it first, since types the policy never shows are left out. Accepts inline source, individual files, or directories (walked recursively for *.rego files).',
       inputSchema: RegoInferInputSchemaInput,
       annotations: {
         readOnlyHint: true,
@@ -173,7 +136,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
           );
         }
 
-        const allRefs: Array<Array<string | null>> = [];
+        const asts: unknown[] = [];
         let filesAnalyzed = 0;
         /** Files that did not parse, named relative to the path they were found under. */
         const unparsed: string[] = [];
@@ -189,7 +152,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
             });
           }
           const ast = tryParseJson(result.stdout);
-          if (ast) collectInputRefs(ast, allRefs);
+          if (ast) asts.push(ast);
           filesAnalyzed = 1;
         } else {
           const validation = validatePaths(paths!, config, { mustExist: true });
@@ -221,7 +184,7 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
             // policy that reads no input.
             const ast = result.exitCode === 0 ? tryParseJson(result.stdout) : undefined;
             if (ast) {
-              collectInputRefs(ast, allRefs);
+              asts.push(ast);
               filesAnalyzed++;
             } else {
               unparsed.push(label);
@@ -246,18 +209,9 @@ export function registerRegoInferInputSchema(server: McpServer, config: Config):
           );
         }
 
-        const schema = buildSchema(allRefs);
-
-        const seen = new Set<string>();
-        const inputPaths: string[] = [];
-        for (const p of allRefs) {
-          const s = pathToString(p);
-          if (!seen.has(s)) {
-            seen.add(s);
-            inputPaths.push(s);
-          }
-        }
-        inputPaths.sort();
+        const shape = inputShape(asts);
+        const schema = buildSchema(shape.paths, shape.types);
+        const inputPaths = [...new Set(shape.paths.map(pathToString))].sort();
 
         const warnings: string[] = [];
         if (unparsed.length > 0) {

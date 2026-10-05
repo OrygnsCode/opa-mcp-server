@@ -126,7 +126,7 @@ describe('rego_test_multiroot (explicit mode)', () => {
     expect(env.data?.roots[1]!.error).toBeUndefined();
   });
 
-  it('records per-root EVAL_ERROR and continues running remaining roots', async () => {
+  it('records a root that does not load as INVALID_REGO and runs the remaining roots', async () => {
     // Root 1: compilation error (package conflict on stderr, empty stdout, exit 1).
     mockRun
       .mockResolvedValueOnce(spawnFailure(1, '1 error occurred: package conflict', ''))
@@ -144,7 +144,8 @@ describe('rego_test_multiroot (explicit mode)', () => {
     expect(env.data?.rootsWithFailures).toBe(0);
     // Errored root contributes 0 to totals.
     expect(env.data?.totalPassed).toBe(1);
-    expect(env.data?.roots[0]!.error?.code).toBe('EVAL_ERROR');
+    // As rego_test reports a run that never reached the tests.
+    expect(env.data?.roots[0]!.error?.code).toBe('INVALID_REGO');
     expect(env.data?.roots[0]!.error?.message).toContain('package conflict');
     // Second root ran and succeeded.
     expect(env.data?.roots[1]!.passed).toBe(1);
@@ -306,6 +307,26 @@ describe('rego_test_multiroot (explicit mode)', () => {
     expect(env.data?.roots[1]!.coveragePct).toBe(90);
     // overallCoveragePct only from roots that have coverage data.
     expect(env.data?.overallCoveragePct).toBeCloseTo(80, 1);
+  });
+
+  it('tells a root that does not compile from one whose tests fail, in coverage mode', async () => {
+    mockRun
+      .mockResolvedValueOnce(
+        spawnFailure(1, '1 error occurred: a.rego:3: rego_parse_error: unexpected eof token', ''),
+      )
+      .mockResolvedValueOnce(spawnFailure(2, 'data.b_test.test_x: FAIL (1ms)', ''));
+
+    const server = makeServer();
+    registerRegoTestMultiroot(server, baseConfig);
+
+    const env = await callTool<MultiRootTestOutput>(server, 'rego_test_multiroot', {
+      roots: [{ path: root1() }, { path: root2() }],
+      coverage: true,
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.roots[0]!.error?.code).toBe('INVALID_REGO');
+    expect(env.data?.roots[1]!.error?.code).toBe('EVAL_ERROR');
   });
 
   it('emits a warning and partial results when a subprocess returns aborted', async () => {

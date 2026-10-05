@@ -154,6 +154,25 @@ function prepareEval(
   return { ok: true, evalInput };
 }
 
+/**
+ * Whether OPA's `errors` say the policy or query does not compile: every one
+ * carries a `rego_*` code (parse, type, safety). A failure while evaluating
+ * carries an `eval_*` code instead.
+ */
+export function compileErrors(errors: unknown): boolean {
+  return (
+    Array.isArray(errors) &&
+    errors.length > 0 &&
+    errors.every((e) => {
+      const code = (e as { code?: unknown } | null)?.code;
+      return typeof code === 'string' && code.startsWith('rego_');
+    })
+  );
+}
+
+/** Text from `opa test` or another command that names a `rego_*` compile error. */
+export const COMPILE_ERROR_TEXT = /\brego_[a-z_]+_error\b/;
+
 /** Call `opa eval` and turn its output into the structured envelope. */
 async function executeEval(
   opa: OpaCli,
@@ -181,10 +200,7 @@ async function executeEval(
     // A policy or query that does not compile is the caller's Rego to fix, as
     // opa_exec and the conftest tools report it; EVAL_ERROR stays for a
     // failure at evaluation time.
-    const compile =
-      Array.isArray(errors) &&
-      errors.length > 0 &&
-      errors.every((e) => typeof e.code === 'string' && e.code.startsWith('rego_'));
+    const compile = compileErrors(errors);
     const preV1 =
       !evalInput.v0Compatible &&
       mentionsPreV1(...(errors ?? []).map((e) => e.message), result.stderr);

@@ -1119,6 +1119,25 @@ describe('rego_test', () => {
     expect(env.error?.message).toContain('FAIL');
   });
 
+  it('returns INVALID_REGO in coverage mode when the policies do not compile', async () => {
+    // As without coverage: opa never reached the tests.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '1 error occurred: policy.rego:3: rego_parse_error: unexpected eof token',
+        '',
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      coverage: true,
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_REGO');
+  });
+
   it('rejects threshold values outside 0-100', async () => {
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
@@ -1579,7 +1598,8 @@ describe('rego_bench', () => {
       query: 'data.x ==',
       paths: [validRegoPath()],
     });
-    expect(env.error?.code).toBe('EVAL_ERROR');
+    // A query that does not compile is INVALID_REGO, as rego_eval reports it.
+    expect(env.error?.code).toBe('INVALID_REGO');
     expect(JSON.stringify(env.error?.details)).toContain('rego_parse_error');
   });
 

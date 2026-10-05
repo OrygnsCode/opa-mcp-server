@@ -4,7 +4,7 @@
  * `regal lint` prints no results when a module does not parse; it writes a
  * JSON error to stderr naming the first failure:
  *
- *   {"errors": ["... failed to parse 2 module(s) — first error: 1 error
+ *   {"errors": ["... failed to parse 2 module(s) \u2014 first error: 1 error
  *     occurred: C:\\p\\broken.rego:4: rego_parse_error: unexpected eof token ..."]}
  *
  * Reporting that as "regal produced no parseable JSON" (UNKNOWN_ERROR) hid a

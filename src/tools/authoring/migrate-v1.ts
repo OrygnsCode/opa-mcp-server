@@ -28,6 +28,7 @@ import {
   functionRules,
   packageQuery,
   planV0Migration,
+  readsExternalData,
   renameRuleRefs,
   type MigrationRewrite,
 } from '../../lib/rego-migrate.js';
@@ -37,6 +38,7 @@ import {
   sanitizeInlinePathsDeep,
   sanitizeInlineText,
   tryParseJson,
+  validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
 import type { ToolEnvelope } from '../../types.js';
@@ -92,6 +94,12 @@ const RegoMigrateV1Input = {
     .optional()
     .describe(
       `Up to ${MAX_QUERIES} Rego expressions to compare on each of \`inputs\` as well. A function has no value without arguments, so this is how functions are compared: \`data.lib.names.label_ok(input.name, input.label)\`. An expression that names a rule this tool renames, as \`data.<package>.<rule>\`, reaches it under its new name on the migrated side.`,
+    ),
+  dataPaths: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Data files (JSON or YAML), or directories of them, to load on both sides when comparing `inputs`, for a policy that reads `data`. Without them every such reference is undefined on both sides, and they agree about nothing. A `.rego` module found there is loaded too, so it has to parse as both v0 and v1. Each path must be inside an allowed root.',
     ),
 };
 
@@ -227,11 +235,13 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     inputs: unknown[],
     v0Compatible: boolean,
     mocks: string,
+    data: string[] | undefined,
     signal: AbortSignal | undefined,
   ): Promise<SideResult[] | ToolEnvelope<never>> => {
     const batch = await opa.eval(
       {
         source,
+        paths: data,
         query: `r := [[d, t] | some i; x := input[i]; d := ${query} with input as x${mocks}; t := {k: type_name(v) | v := d[k]}]`,
         input: inputs,
         v0Compatible,
@@ -261,6 +271,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         const one = await opa.eval(
           {
             source,
+            paths: data,
             query: `d := ${query}${mocks}; t := {k: type_name(v) | v := d[k]}`,
             input: inputs[index],
             v0Compatible,
@@ -301,11 +312,13 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     input: unknown,
     v0Compatible: boolean,
     mocks: string,
+    data: string[] | undefined,
     signal: AbortSignal | undefined,
   ): Promise<{ outcome: Outcome } | { fatal: ToolEnvelope<never> }> => {
     const one = await opa.eval(
       {
         source,
+        paths: data,
         query: `d := ${query}[${JSON.stringify(rule)}]${mocks}; t := type_name(d)`,
         input,
         v0Compatible,
@@ -336,6 +349,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     inputs: unknown[],
     v0Compatible: boolean,
     mocks: string,
+    data: string[] | undefined,
     signal: AbortSignal | undefined,
   ): Promise<{ outcomes: Outcome[] } | { compileError: string } | ToolEnvelope<never>> => {
     // The wrapper's variables carry a prefix, so a variable the expression
@@ -343,6 +357,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     const batch = await opa.eval(
       {
         source,
+        paths: data,
         query: `q__r := {[q__i, q__v, type_name(q__v)] | some q__i; q__in := input[q__i]; q__v := (${expr}) with input as q__in${mocks}}`,
         input: inputs,
         v0Compatible,
@@ -374,6 +389,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         const one = await opa.eval(
           {
             source,
+            paths: data,
             query: `q__r := {[q__v, type_name(q__v)] | q__v := (${expr})${mocks}}`,
             input: inputs[index],
             v0Compatible,
@@ -418,6 +434,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
     after: SideResult[],
     v0Flag: boolean,
     mocks: string,
+    data: string[] | undefined,
     signal: AbortSignal | undefined,
   ): Promise<number | ToolEnvelope<never>> => {
     const failing = inputs
@@ -449,6 +466,7 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
           inputs[job.i],
           job.v0,
           mocks,
+          data,
           signal,
         );
         if ('fatal' in result) {
@@ -587,8 +605,20 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         openWorldHint: true,
       },
     },
-    async ({ source, inputs, queries }, { signal }) => {
+    async ({ source, inputs, queries, dataPaths }, { signal }) => {
       return withToolEnvelope<RegoMigrateV1Output>(config, async () => {
+        let data: string[] | undefined;
+        if (dataPaths?.length) {
+          if (inputs === undefined) {
+            return err(
+              'INVALID_INPUT',
+              '`dataPaths` are loaded to compare `inputs`; pass those too.',
+            );
+          }
+          const v = validatePaths(dataPaths, config, { mustExist: true });
+          if (!v.ok) return v.error;
+          data = v.resolved;
+        }
         if (inputs !== undefined && (inputs.length === 0 || inputs.length > MAX_INPUTS)) {
           return err(
             'INVALID_INPUT',
@@ -731,6 +761,13 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         }
 
         const migrated = fmtResult.stdout;
+        // `future.keywords.not` changes how `not` evaluates, so a rule that
+        // negates an expression on input deserves a second look.
+        if (/^\s*import\s+future\.keywords\.not\b/m.test(migrated)) {
+          notes.push(
+            'The result imports `future.keywords.not`, which changes how `not` evaluates; see the OPA documentation of that import. Probe each rule that negates an expression on an input field with that field missing, null and of the wrong type, or rewrite it to negate a helper rule over a bound value (`not trusted(c)`); then the import can go.',
+          );
+        }
         const report = await checkAndReport(source, migrated, rewrites, notes, signal);
         if (!report.ok || inputs === undefined) return report;
         if (!report.data!.valid) {
@@ -755,9 +792,9 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         const rules = documentRules(ast);
         const renamedRules = plan?.renamedRules ?? {};
 
-        const before = await evaluateSide(source, query, inputs, v0Flag, mocks, signal);
+        const before = await evaluateSide(source, query, inputs, v0Flag, mocks, data, signal);
         if (!Array.isArray(before)) return before;
-        const after = await evaluateSide(migrated, query, inputs, false, mocks, signal);
+        const after = await evaluateSide(migrated, query, inputs, false, mocks, data, signal);
         if (!Array.isArray(after)) return after;
         const left = await pinDownFailures(
           source,
@@ -770,16 +807,17 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
           after,
           v0Flag,
           mocks,
+          data,
           signal,
         );
         if (typeof left !== 'number') return left;
 
         const compared: QueryComparison[] = [];
         for (const [i, expr] of (queries ?? []).entries()) {
-          const a = await evaluateQuery(source, expr, inputs, v0Flag, mocks, signal);
+          const a = await evaluateQuery(source, expr, inputs, v0Flag, mocks, data, signal);
           if ('ok' in a) return a;
           const migratedExpr = renameRuleRefs(expr, ast, renamedRules);
-          const b = await evaluateQuery(migrated, migratedExpr, inputs, false, mocks, signal);
+          const b = await evaluateQuery(migrated, migratedExpr, inputs, false, mocks, data, signal);
           if ('ok' in b) return b;
           if ('compileError' in a && 'compileError' in b) {
             return err('INVALID_INPUT', `\`queries[${i}]\` does not compile: ${a.compileError}`, {
@@ -792,6 +830,11 @@ export function registerRegoMigrateV1(server: McpServer, config: Config): void {
         }
 
         const reportNotes = report.data!.notes;
+        if (data === undefined && ast !== undefined && readsExternalData(ast)) {
+          reportNotes.push(
+            'The policy reads `data` outside its own package and no `dataPaths` were given, so every such reference was undefined on both sides and the rules that use them agree about nothing. Pass `dataPaths` with the data the policy is deployed with.',
+          );
+        }
         if (left > 0) {
           reportNotes.push(
             `${left} input(s) raised an error on at least one side and were compared as a whole package, not rule by rule, so an error on both sides there counts as agreement.`,

@@ -956,6 +956,64 @@ describe('rego_suggest_fix', () => {
     expect(env.data?.suggestions[0]?.suggestion).toMatch(/rego_format/);
   });
 
+  it('takes rego_lint violations exactly as rego_lint returns them', async () => {
+    // Regal 0.43 output for `allow if input.roles[_] != "banned"`: no code, no message.
+    const violations = [
+      {
+        title: 'not-equals-in-loop',
+        description: 'Use of != in loop',
+        category: 'bugs',
+        level: 'error',
+        related_resources: [
+          {
+            description: 'documentation',
+            ref: 'https://www.openpolicyagent.org/projects/regal/rules/bugs/not-equals-in-loop',
+          },
+        ],
+        location: {
+          file: '<inline>',
+          row: 3,
+          col: 25,
+          text: 'allow if input.roles[_] != "banned"',
+        },
+      },
+      {
+        title: 'prefer-some-in-iteration',
+        description: 'Prefer `some .. in` for iteration',
+        category: 'style',
+        level: 'error',
+        related_resources: [
+          {
+            description: 'documentation',
+            ref: 'https://www.openpolicyagent.org/projects/regal/rules/style/prefer-some-in-iteration',
+          },
+        ],
+      },
+    ];
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      suggestions: Array<{
+        code: string;
+        message: string;
+        suggestion: string;
+        confidence: string;
+        docs?: string;
+      }>;
+    }>(server, 'rego_suggest_fix', { diagnostics: violations });
+    expect(env.ok).toBe(true);
+    const [bug, style] = env.data!.suggestions;
+    expect(bug).toMatchObject({
+      code: 'not-equals-in-loop',
+      message: 'Use of != in loop',
+      confidence: 'high',
+    });
+    expect(bug!.suggestion).toMatch(/not v in xs/);
+    expect(bug!.docs).toMatch(/not-equals-in-loop$/);
+    expect(style).toMatchObject({ code: 'prefer-some-in-iteration', confidence: 'medium' });
+    expect(style!.suggestion).toMatch(/prefer-some-in-iteration/);
+  });
+
   it('matches Regal violations by their title (used as the code)', async () => {
     const server = makeServer();
     registerHelperTools(server, baseConfig);
@@ -1248,7 +1306,7 @@ describe('rego_explain_undefined', () => {
     expect(mockRun).toHaveBeenCalledTimes(2);
   });
 
-  it('returns EVAL_ERROR when the plain eval exits non-zero', async () => {
+  it('returns INVALID_REGO when the policy does not compile, as rego_eval does', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(1, '{"errors": [{"code": "rego_parse_error"}]}'));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
@@ -1257,7 +1315,26 @@ describe('rego_explain_undefined', () => {
       source: 'broken policy',
     });
     expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_REGO');
+  });
+
+  it('returns EVAL_ERROR when the policy fails while it runs', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '',
+        '{"errors": [{"code": "eval_conflict_error", "message": "complete rules must not produce multiple outputs"}]}',
+      ),
+    );
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\n\nallow := 1\n\nallow := 2\n',
+    });
+    expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.hint).toMatch(/failed while it ran/);
   });
 
   it('returns OPA_BINARY_NOT_FOUND when opa is unreachable', async () => {

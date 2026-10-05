@@ -110,7 +110,7 @@ const MAX_UNPARSEABLE = 20;
 // Hints for the rules the sweep can report: regal's bugs category. Keys for
 // rules regal does not ship, or ships in categories the sweep does not
 // enable, were removed rather than left to suggest the sweep knew about them.
-const REMEDIATION_HINTS: Record<string, string> = {
+export const REMEDIATION_HINTS: Record<string, string> = {
   'constant-condition':
     'The condition is always true or always false; remove it or fix the logic so the rule body reflects a real runtime check.',
   'deprecated-builtin':
@@ -119,6 +119,10 @@ const REMEDIATION_HINTS: Record<string, string> = {
     'Two definitions of the rule are identical. Remove one; a duplicate is usually a copy that was meant to check something else.',
   'impossible-not':
     'The negated reference is always defined, typically a multi-value rule such as `deny`, which is an empty set when nothing matches. So `not deny` never holds and the rule containing it never applies. Test the size instead: `count(deny) == 0`.',
+  'if-object-literal':
+    'The braces after `if` hold an object literal, not conditions, and a literal is always true, so the rule always applies. Write the conditions as expressions, such as `input.role == "admin"`.',
+  'not-equals-in-loop':
+    '`xs[_] != v` holds when any element differs from v, so it does not say that v is absent. Write `not v in xs`, after checking that xs is an array.',
   'inconsistent-args':
     'The function is called with a different number of arguments than its definition. The extra or missing argument silently makes the call undefined.',
   'rule-shadows-builtin':

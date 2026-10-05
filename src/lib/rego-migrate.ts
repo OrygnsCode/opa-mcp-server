@@ -527,6 +527,40 @@ function packagePath(ast: unknown): string[] | undefined {
   return out;
 }
 
+/**
+ * Whether the module reads the data document outside its own package, through
+ * a reference or an import such as `data.roles[input.user]`. Evaluated with no
+ * data loaded, every such reference is undefined on both sides of a
+ * comparison, which then agrees about nothing.
+ */
+export function readsExternalData(ast: unknown): boolean {
+  const own = packagePath(ast);
+  let found = false;
+  const visit = (node: unknown): void => {
+    if (found || node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    const term = node as { type?: unknown; value?: unknown };
+    if (term.type === 'ref' && Array.isArray(term.value)) {
+      const [head, ...rest] = term.value as Array<{ type?: unknown; value?: unknown }>;
+      if (head?.type === 'var' && head.value === 'data') {
+        const inside =
+          own !== undefined &&
+          own.every((seg, i) => rest[i]?.type === 'string' && rest[i]?.value === seg);
+        if (!inside) {
+          found = true;
+          return;
+        }
+      }
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(ast);
+  return found;
+}
+
 /** The query that reads this module's package document, e.g. `data["k8s"]["admission"]`. */
 export function packageQuery(ast: unknown): string | undefined {
   const path = packagePath(ast);

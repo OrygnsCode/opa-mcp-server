@@ -10,6 +10,7 @@
  *   non-raw-regex-pattern      use a raw string for a regex pattern
  *   prefer-equals-comparison   `==` rather than `=` in a comparison
  *   redundant-existence-check  drop a check the following expression implies
+ *   constant-condition         drop a condition that is always true
  *   constant-condition         drop a condition that is always true or false
  *
  * Older releases fix a subset of these.

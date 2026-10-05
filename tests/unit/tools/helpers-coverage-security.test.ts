@@ -236,8 +236,8 @@ describe('rego_coverage_gaps', () => {
     expect(env.error?.code).toBe('NO_TESTS_FOUND');
   });
 
-  it('returns EVAL_ERROR when opa exits non-zero and no coverage report', async () => {
-    mockRun.mockResolvedValueOnce(spawnFailure(1, 'compile error'));
+  it('returns EVAL_ERROR when tests fail and there is no coverage report', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(2, 'data.authz_test.test_x: FAIL (1ms)'));
     const server = makeServer();
     registerRegoCoverageGaps(server, baseConfig);
     const env = await callTool(server, 'rego_coverage_gaps', {
@@ -245,6 +245,19 @@ describe('rego_coverage_gaps', () => {
     });
 
     expect(env.error?.code).toBe('EVAL_ERROR');
+  });
+
+  it('returns INVALID_REGO when the policies do not compile, as rego_test does', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(1, '1 error occurred: authz.rego:3: rego_parse_error: unexpected eof token'),
+    );
+    const server = makeServer();
+    registerRegoCoverageGaps(server, baseConfig);
+    const env = await callTool(server, 'rego_coverage_gaps', {
+      paths: [fixturePath('policies', 'valid')],
+    });
+
+    expect(env.error?.code).toBe('INVALID_REGO');
   });
 
   it('returns OPA_BINARY_NOT_FOUND when opa is unreachable', async () => {

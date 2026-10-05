@@ -96,7 +96,7 @@ describe('validatePath — happy paths', () => {
   });
 });
 
-describe('validatePath — Git Bash, Cygwin and WSL drive spellings', () => {
+describe('validatePath - Git Bash, Cygwin and WSL drive spellings', () => {
   const windows = process.platform === 'win32';
 
   it.runIf(windows)('reads /c/..., /cygdrive/c/... and /mnt/c/... as the drive', () => {

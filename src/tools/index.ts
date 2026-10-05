@@ -40,6 +40,7 @@
  *   Category G -- Meta:             mcp_server_info
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 
 import type { Config } from '../config.js';
 import { registerAuthoringTools } from './authoring/index.js';
@@ -50,7 +51,31 @@ import { registerHelperTools } from './helpers/index.js';
 import { registerMetaTools } from './meta/index.js';
 import { registerServerManagementTools } from './server-management/index.js';
 
+/**
+ * Make every tool refuse arguments it does not declare. The SDK turns a raw
+ * shape into a non-strict object, which drops unknown keys before the handler
+ * runs: an `input_path` meant as rego_eval's `inputPath` was dropped and the
+ * query evaluated with no input at all, and a misspelled `stirct` on
+ * rego_check was ignored. The published schemas already say
+ * `additionalProperties: false`; now the server holds to it.
+ */
+export function strictArguments(server: McpServer): void {
+  const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
+  (server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (
+    ...args: unknown[]
+  ) => {
+    const [name, toolConfig, callback] = args as [unknown, { inputSchema?: unknown }, unknown];
+    const shape = toolConfig.inputSchema;
+    const strict =
+      shape !== undefined && !(shape instanceof z.ZodType)
+        ? z.object(shape as z.ZodRawShape).strict()
+        : shape;
+    return register(name, { ...toolConfig, inputSchema: strict }, callback);
+  };
+}
+
 export function registerTools(server: McpServer, config: Config): void {
+  strictArguments(server);
   registerAuthoringTools(server, config);
   registerEvaluationTools(server, config);
   registerBundleTools(server, config);

@@ -37,6 +37,7 @@ import {
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
 import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
+import { compileErrors } from '../evaluation/_shared.js';
 
 // ─── Input schema ───────────────────────────────────────────────────────────
 
@@ -494,12 +495,20 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             tryParseJson(plainResult.stdout) ??
             plainResult.stderr;
           const preV1 = !args.v0Compatible && mentionsPreV1(plainResult.stderr, plainResult.stdout);
-          return err('EVAL_ERROR', 'OPA evaluation failed.', {
-            details: { opaOutput: detail },
-            hint: preV1
-              ? PRE_V1_HINT
-              : 'Check for syntax errors or undefined references in the query or policy.',
-          });
+          // Not compiling is the caller's Rego to fix, as rego_eval reports it.
+          const compile = compileErrors((detail as { errors?: unknown } | undefined)?.errors);
+          return err(
+            compile ? 'INVALID_REGO' : 'EVAL_ERROR',
+            compile ? 'The policy or query does not compile.' : 'OPA evaluation failed.',
+            {
+              details: { opaOutput: detail },
+              hint: preV1
+                ? PRE_V1_HINT
+                : compile
+                  ? 'Check for syntax errors or undefined references in the query or policy.'
+                  : 'The policy failed while it ran; the error names the rule and line.',
+            },
+          );
         }
 
         const plainJson = tryParseJson<{ result?: unknown[] }>(plainResult.stdout);

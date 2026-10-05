@@ -18,7 +18,8 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
+import { compileErrors } from './_shared.js';
 
 const RegoBenchInput = {
   query: z.string().min(1).describe('Rego query to benchmark.'),
@@ -151,15 +152,26 @@ export function registerRegoBench(server: McpServer, config: Config): void {
           // `opa bench --format=json` writes its diagnostics to stdout as an
           // `errors` array and leaves stderr empty, so reporting stderr alone
           // handed back an error with nothing in it.
-          const diagnostics = tryParseJson<{ errors?: unknown }>(result.stdout);
-          return err('EVAL_ERROR', 'opa bench exited with an error.', {
-            details: {
-              ...(diagnostics?.errors !== undefined
-                ? { errors: diagnostics.errors }
-                : { stdout: result.stdout.trim() }),
-              stderr: result.stderr.trim(),
+          const diagnostics = tryParseJson<{ errors?: Array<{ message?: unknown }> }>(
+            result.stdout,
+          );
+          const compile = compileErrors(diagnostics?.errors);
+          const preV1 =
+            !v0Compatible &&
+            mentionsPreV1(...(diagnostics?.errors ?? []).map((e) => e?.message), result.stderr);
+          return err(
+            compile ? 'INVALID_REGO' : 'EVAL_ERROR',
+            compile ? 'The policy or query does not compile.' : 'opa bench exited with an error.',
+            {
+              ...(preV1 ? { hint: PRE_V1_HINT } : {}),
+              details: {
+                ...(diagnostics?.errors !== undefined
+                  ? { errors: diagnostics.errors }
+                  : { stdout: result.stdout.trim() }),
+                stderr: result.stderr.trim(),
+              },
             },
-          });
+          );
         }
 
         // With `--count N` OPA prints one JSON document per repetition, back to
