@@ -21,7 +21,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
 
 const RegoTestInput = {
   paths: z
@@ -146,6 +146,11 @@ export interface CoverageReport {
 }
 
 export interface RegoTestOutput {
+  /**
+   * Whether the suite passes: at least one test ran and none failed, errored
+   * or was skipped (a `todo_test_`). Absent in coverage mode.
+   */
+  allPassed?: boolean;
   /**
    * Number of passing tests. Always 0 in coverage mode (OPA does not emit
    * test records when coverage output is active).
@@ -273,7 +278,13 @@ export function registerRegoTest(server: McpServer, config: Config): void {
           return handleCoverageMode(result.stdout, result.stderr, result.exitCode, threshold);
         }
 
-        return handleTestRecordsMode(result.stdout, result.stderr, result.exitCode, runPattern);
+        return handleTestRecordsMode(
+          result.stdout,
+          result.stderr,
+          result.exitCode,
+          runPattern,
+          v0Compatible,
+        );
       });
     },
   );
@@ -467,6 +478,7 @@ function handleTestRecordsMode(
   stderr: string,
   exitCode: number | null,
   runPattern?: string,
+  v0Compatible?: boolean,
 ): ReturnType<typeof ok<RegoTestOutput>> | ReturnType<typeof err> {
   let records: TestRecord[] = [];
   let repetitions = 1;
@@ -502,7 +514,10 @@ function handleTestRecordsMode(
     // everything is fine while their policies are broken.
     if (exitCode !== 0) {
       return err('INVALID_REGO', 'opa test could not load the policies under the provided paths.', {
-        hint: 'Fix the reported policy errors, then re-run the tests.',
+        hint:
+          !v0Compatible && mentionsPreV1(stderr)
+            ? PRE_V1_HINT
+            : 'Fix the reported policy errors, then re-run the tests.',
         details: { stderr: stderr.trim() },
       });
     }
@@ -531,6 +546,9 @@ function handleTestRecordsMode(
   const hasGroups = Object.keys(parameterizedGroups).length > 0;
 
   return ok<RegoTestOutput>({
+    // A skipped (todo_test_) or errored test is not a pass; opa test exits
+    // non-zero for both.
+    allPassed: failed === 0 && errored === 0 && skipped === 0 && passed > 0,
     passed,
     failed,
     skipped,

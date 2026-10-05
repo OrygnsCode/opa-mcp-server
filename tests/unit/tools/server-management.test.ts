@@ -163,13 +163,20 @@ describe('opa_get_policy', () => {
 });
 
 describe('opa_put_policy', () => {
-  it('PUTs raw Rego source as text/plain', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse({}));
+  const notFound = () => okResponse({ code: 'resource_not_found' }, { status: 404 });
+
+  it('PUTs raw Rego source as text/plain, and says a new id replaced nothing', async () => {
+    fetchMock.mockResolvedValueOnce(notFound()).mockResolvedValueOnce(okResponse({}));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const source = 'package rbac\nimport rego.v1\nallow := true';
-    await callTool(server, 'opa_put_policy', { id: 'rbac', source });
+    const env = await callTool<{ id: string; replaced: boolean }>(server, 'opa_put_policy', {
+      id: 'rbac',
+      source,
+    });
 
+    expect(env.data).toEqual({ id: 'rbac', replaced: false });
+    expect(fetchMock.mock.calls[0]![1].method).toBe('GET');
     const { url, init } = lastFetchCall();
     expect(url).toBe('http://localhost:8181/v1/policies/rbac');
     expect(init.method).toBe('PUT');
@@ -178,8 +185,50 @@ describe('opa_put_policy', () => {
     expect(init.body).toBe(source);
   });
 
+  it('says replaced: true when a policy with that id existed', async () => {
+    fetchMock
+      .mockResolvedValueOnce(okResponse({ result: { id: 'rbac', raw: 'package rbac' } }))
+      .mockResolvedValueOnce(okResponse({}));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool<{ replaced: boolean }>(server, 'opa_put_policy', {
+      id: 'rbac',
+      source: 'package rbac',
+    });
+    expect(env.data?.replaced).toBe(true);
+  });
+
+  it('reports a policy OPA cannot compile as INVALID_REGO, with the v0 hint', async () => {
+    fetchMock.mockResolvedValueOnce(notFound()).mockResolvedValueOnce(
+      okResponse(
+        {
+          code: 'invalid_parameter',
+          message: 'error(s) occurred while compiling module(s)',
+          errors: [
+            {
+              code: 'rego_parse_error',
+              message: '`if` keyword is required before rule body',
+              location: { file: 'rbac', row: 3, col: 1 },
+            },
+          ],
+        },
+        { status: 400 },
+      ),
+    );
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const env = await callTool(server, 'opa_put_policy', {
+      id: 'rbac',
+      source: 'package rbac\n\nallow {\n\ttrue\n}\n',
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toBe('error(s) occurred while compiling module(s)');
+    expect(env.error?.hint).toMatch(/rego_migrate_v1.*--v0-compatible/);
+    expect((env.error?.details as { errors: unknown[] }).errors).toHaveLength(1);
+  });
+
   it('attaches the bearer token when OPA_TOKEN is set', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse({}));
+    fetchMock.mockResolvedValueOnce(notFound()).mockResolvedValueOnce(okResponse({}));
     const server = makeServer();
     registerServerManagementTools(server, { ...baseConfig, opaToken: 'secret-token' });
     await callTool(server, 'opa_put_policy', { id: 'rbac', source: 'package rbac' });
@@ -201,7 +250,9 @@ describe('opa_put_policy', () => {
   });
 
   it('surfaces a 5xx as UNKNOWN_ERROR with status in details', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse({ message: 'internal error' }, { status: 500 }));
+    fetchMock
+      .mockResolvedValueOnce(notFound())
+      .mockResolvedValueOnce(okResponse({ message: 'internal error' }, { status: 500 }));
     const server = makeServer();
     registerServerManagementTools(server, baseConfig);
     const env = await callTool(server, 'opa_put_policy', {
@@ -448,6 +499,29 @@ describe('data tools — path traversal rejection', () => {
     });
     expect(env.error?.code).toBe('INVALID_INPUT');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('opa_query_decision says whether the decision is defined', async () => {
+    fetchMock
+      .mockResolvedValueOnce(okResponse({}))
+      .mockResolvedValueOnce(okResponse({ result: false }));
+    const server = makeServer();
+    registerServerManagementTools(server, baseConfig);
+    const none = await callTool<{ defined: boolean; result?: unknown }>(
+      server,
+      'opa_query_decision',
+      { path: 'rbac/allow', input: {} },
+    );
+    expect(none.data?.defined).toBe(false);
+    expect(none.data?.result).toBeUndefined();
+    const decided = await callTool<{ defined: boolean; result?: unknown }>(
+      server,
+      'opa_query_decision',
+      { path: 'rbac/allow', input: {} },
+    );
+    // false is a decision; only a missing result is undefined.
+    expect(decided.data?.defined).toBe(true);
+    expect(decided.data?.result).toBe(false);
   });
 
   it('opa_query_decision rejects percent-encoded traversal', async () => {

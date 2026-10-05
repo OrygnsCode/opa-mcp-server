@@ -12,14 +12,25 @@
  * with remediation guidance so the agent can prioritize fixes without
  * wading through style and formatting noise.
  *
+ * A module that does not parse is left out and named in `unparseable`, and
+ * the rest are audited: Regal stops at the first such module, which turned
+ * one broken file in a fleet into no audit at all.
+ *
  * Requires regal. Returns REGAL_NOT_FOUND if the binary is absent.
  */
+import { basename, relative, sep } from 'node:path';
+
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { RegalCli } from '../../lib/regal-cli.js';
+import {
+  regalParseError,
+  regalParseFailure,
+  type RegalParseFailure,
+} from '../../lib/regal-errors.js';
 import { err, ok } from '../../lib/errors.js';
 import {
   mapSubprocessFailure,
@@ -75,6 +86,8 @@ export interface SecurityFinding {
   row?: number;
   col?: number;
   remediation: string;
+  /** The Regal rule's documentation. */
+  docs?: string;
 }
 
 export interface RegoSecurityAuditOutput {
@@ -83,7 +96,12 @@ export interface RegoSecurityAuditOutput {
   mediumSeverity: number;
   filesScanned: number;
   findings: SecurityFinding[];
+  /** Modules left out because they do not parse. */
+  unparseable?: Array<{ file: string; row: number; message: string }>;
 }
+
+/** Most unparseable modules skipped before the audit gives up; each costs a Regal run. */
+const MAX_UNPARSEABLE = 20;
 
 /**
  * Remediation hints keyed by Regal rule title. The values give a
@@ -98,19 +116,42 @@ const REMEDIATION_HINTS: Record<string, string> = {
   'deprecated-builtin':
     'Replace the deprecated builtin with its current equivalent before upgrading OPA, where deprecated functions may be removed.',
   'duplicate-rule':
-    'Remove the duplicate rule definition. Multiple conflicting definitions cause non-deterministic evaluation and can mask security gaps.',
+    'Two definitions of the rule are identical. Remove one; a duplicate is usually a copy that was meant to check something else.',
   'impossible-not':
-    'The negation is of a condition that is always false, so not(...) is always true. Review whether the rule is overly permissive.',
+    'The negated reference is always defined, typically a multi-value rule such as `deny`, which is an empty set when nothing matches. So `not deny` never holds and the rule containing it never applies. Test the size instead: `count(deny) == 0`.',
   'inconsistent-args':
     'The function is called with a different number of arguments than its definition. The extra or missing argument silently makes the call undefined.',
   'rule-shadows-builtin':
-    'Rename the local variable to avoid shadowing the OPA builtin. Shadowed builtins silently change semantics.',
+    'A rule is named after an OPA builtin, such as `count` or `contains`, which hides the builtin in this package. Rename the rule.',
+  'var-shadows-builtin':
+    'A variable is named after an OPA builtin, which hides the builtin in that rule body. Rename the variable.',
   'sprintf-arguments-mismatch':
     'The sprintf format string and the number of arguments do not match. This produces undefined output at runtime.',
 };
 
 const DEFAULT_REMEDIATION =
   'Review the Regal documentation for this rule and apply the recommended fix before deploying to production.';
+
+/**
+ * Narrow the lint so `file` is left out: drop it when it was a target itself,
+ * or add an ignore pattern for it under the directory target that holds it.
+ * Returns the new targets, or undefined when `file` is under no target.
+ */
+function skipModule(file: string, targets: string[], ignore: string[]): string[] | undefined {
+  const norm = (p: string) => {
+    const joined = p.replace(/[\\/]+/g, sep);
+    return process.platform === 'win32' ? joined.toLowerCase() : joined;
+  };
+  const target = norm(file);
+  if (targets.some((t) => norm(t) === target)) {
+    return targets.filter((t) => norm(t) !== target);
+  }
+  const dir = targets.find((t) => target.startsWith(norm(t).replace(/[\\/]*$/, sep)));
+  if (dir === undefined) return undefined;
+  const rel = relative(dir, file).replace(/\\/g, '/');
+  ignore.push(`**/${basename(dir)}/${rel}`);
+  return targets;
+}
 
 export function registerRegoSecurityAudit(server: McpServer, config: Config): void {
   const regal = new RegalCli(config);
@@ -120,7 +161,7 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
     {
       title: 'Rego security audit',
       description:
-        'Run regal lint restricted to its `bugs` category, the correctness rules whose defects most often turn into policy bypasses, plus any custom rules placed in a `security` category, across one or more policy directories. Returns findings grouped by severity (high/medium) with remediation guidance. Use this for a periodic fleet-wide sweep rather than per-file style review. Requires regal.',
+        'Run regal lint restricted to its `bugs` category plus any custom rules placed in a `security` category, across one or more policy directories, and return the findings grouped by severity (high/medium) with remediation guidance and a link to each rule. Use it for a periodic fleet-wide sweep rather than per-file style review. Modules that do not parse are listed in `unparseable` and the rest are audited. These are lint findings: a policy with none can still let a request through, so probe it with `rego_eval` inputs (absent, null and wrong-typed fields) for that. Requires regal.',
       inputSchema: RegoSecurityAuditInput,
       annotations: {
         readOnlyHint: false,
@@ -132,6 +173,9 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
       return withToolEnvelope<RegoSecurityAuditOutput>(config, async () => {
         const validation = validatePaths(paths, config, { mustExist: true });
         if (!validation.ok) return validation.error;
+        let targets = [...validation.resolved];
+        const ignore = [...(ignoreFiles ?? [])];
+        const unparseable: RegalParseFailure[] = [];
 
         let resolvedConfigFile: string | undefined;
         if (configFile) {
@@ -143,9 +187,9 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
         const sweep = (categories: string[]) =>
           regal.lint(
             {
-              paths: validation.resolved,
+              paths: targets,
               configFile: resolvedConfigFile,
-              ignoreFiles,
+              ignoreFiles: ignore.length > 0 ? ignore : undefined,
               // Start from zero rules and enable regal's bugs category, plus a
               // security category that regal does not ship but a project's
               // custom rules may populate.
@@ -157,26 +201,51 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
             signal,
           );
 
-        let result = await sweep(['security', 'bugs']);
-        // Regal 0.31 and later validate category names against the rules they
-        // loaded and refuse one that nothing defines, which is the case for
-        // `security` in a project without custom rules. 0.30 ignored it.
-        if (
-          result.exitCode !== null &&
-          result.exitCode !== 0 &&
-          /unknown categor(?:y|ies)/i.test(result.stderr)
-        ) {
-          result = await sweep(['bugs']);
-        }
+        let categories = ['security', 'bugs'];
+        let result = await sweep(categories);
+        let parsed: RegalOutput | undefined;
+        for (;;) {
+          // Regal 0.31 and later validate category names against the rules they
+          // loaded and refuse one that nothing defines, which is the case for
+          // `security` in a project without custom rules. 0.30 ignored it.
+          if (
+            categories.length > 1 &&
+            result.exitCode !== null &&
+            result.exitCode !== 0 &&
+            /unknown categor(?:y|ies)/i.test(result.stderr)
+          ) {
+            categories = ['bugs'];
+            result = await sweep(categories);
+            continue;
+          }
 
-        const subprocessFailure = mapSubprocessFailure(result, 'regal');
-        if (subprocessFailure) return subprocessFailure;
+          const subprocessFailure = mapSubprocessFailure(result, 'regal');
+          if (subprocessFailure) return subprocessFailure;
 
-        const parsed = tryParseJson<RegalOutput>(result.stdout);
-        if (!parsed) {
-          return err('UNKNOWN_ERROR', 'regal lint produced no parseable JSON output.', {
-            details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
-          });
+          parsed = tryParseJson<RegalOutput>(result.stdout);
+          if (parsed) break;
+
+          const failure = regalParseFailure(result.stderr);
+          if (!failure) {
+            return err('UNKNOWN_ERROR', 'regal lint produced no parseable JSON output.', {
+              details: { stderr: result.stderr.trim(), exitCode: result.exitCode },
+            });
+          }
+          // Leave the module out and audit the rest. A directory target keeps
+          // its other modules through an ignore pattern relative to it: Regal
+          // matches `**/`-anchored patterns against an absolute target, not
+          // absolute paths.
+          // A module reported again was not excluded by its pattern; stop
+          // rather than run Regal for nothing.
+          const again = unparseable.some((u) => u.file === failure.file);
+          const skipped = again ? undefined : skipModule(failure.file, targets, ignore);
+          if (skipped === undefined || unparseable.length >= MAX_UNPARSEABLE) {
+            return regalParseError(failure);
+          }
+          targets = skipped;
+          unparseable.push(failure);
+          if (targets.length === 0) return regalParseError(failure);
+          result = await sweep(categories);
         }
 
         const rawViolations = parsed.violations ?? [];
@@ -195,6 +264,7 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
             row: v.location?.row,
             col: v.location?.col,
             remediation,
+            ...(v.related_resources?.[0]?.ref ? { docs: v.related_resources[0].ref } : {}),
           };
         });
 
@@ -204,13 +274,36 @@ export function registerRegoSecurityAudit(server: McpServer, config: Config): vo
           return a.file.localeCompare(b.file);
         });
 
-        return ok<RegoSecurityAuditOutput>({
-          totalFindings: findings.length,
-          highSeverity: findings.filter((f) => f.severity === 'high').length,
-          mediumSeverity: findings.filter((f) => f.severity === 'medium').length,
-          filesScanned,
-          findings,
-        });
+        const warnings: string[] = [];
+        if (unparseable.length > 0) {
+          warnings.push(
+            `${unparseable.length} module(s) do not parse and were not audited: ${unparseable.map((u) => `${u.file}:${u.row}`).join(', ')}.`,
+          );
+        }
+        if (findings.length === 0) {
+          warnings.push(
+            'No lint findings. That does not show the policy cannot be bypassed: probe it with rego_eval inputs that leave fields out or give them the wrong type.',
+          );
+        }
+        return ok<RegoSecurityAuditOutput>(
+          {
+            totalFindings: findings.length,
+            highSeverity: findings.filter((f) => f.severity === 'high').length,
+            mediumSeverity: findings.filter((f) => f.severity === 'medium').length,
+            filesScanned,
+            findings,
+            ...(unparseable.length > 0
+              ? {
+                  unparseable: unparseable.map((u) => ({
+                    file: u.file,
+                    row: u.row,
+                    message: u.message,
+                  })),
+                }
+              : {}),
+          },
+          warnings,
+        );
       });
     },
   );

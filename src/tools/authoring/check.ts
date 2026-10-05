@@ -19,7 +19,7 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
 
 const RegoCheckInput = {
   source: z.string().optional().describe('Inline Rego source. Mutually exclusive with `paths`.'),
@@ -64,6 +64,8 @@ interface CheckErrorRecord {
 export interface RegoCheckOutput {
   valid: boolean;
   errors: CheckErrorRecord[];
+  /** Set when the errors say the policy is pre-1.0 Rego. */
+  hint?: string;
 }
 
 export function registerRegoCheck(server: McpServer, config: Config): void {
@@ -164,7 +166,12 @@ export function registerRegoCheck(server: McpServer, config: Config): void {
                   : e,
               )
             : rawErrors;
-        return ok<RegoCheckOutput>({ valid: false, errors });
+        const preV1 = !v0Compatible && mentionsPreV1(...rawErrors.map((e) => e.message));
+        return ok<RegoCheckOutput>({
+          valid: false,
+          errors,
+          ...(preV1 ? { hint: PRE_V1_HINT } : {}),
+        });
       });
     },
   );

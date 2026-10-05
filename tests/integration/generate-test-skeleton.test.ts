@@ -99,6 +99,16 @@ describe('rego_generate_test_skeleton output compiles', () => {
 
 ${file}`,
       ).toBe(true);
+
+      // Unfilled, it must not pass: a placeholder input against a placeholder
+      // expectation tests nothing, so every stub is a todo_test_ opa skips.
+      const run = spawnSync(OPA, ['test', 'authz.rego', 'authz_test.rego'], {
+        cwd: workDir,
+        encoding: 'utf8',
+        windowsHide: true,
+      });
+      expect(run.status, run.stdout + run.stderr).not.toBe(0);
+      expect(run.stdout).toMatch(/SKIPPED: 5\/5/);
     }, 30_000);
   }
 });

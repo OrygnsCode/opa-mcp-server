@@ -7,10 +7,10 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
-import { OpaClient } from '../../lib/opa-client.js';
+import { OpaClient, OpaHttpError } from '../../lib/opa-client.js';
 import { ok } from '../../lib/errors.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
-import { mapOpaClientError } from './_shared.js';
+import { compileFailure, mapOpaClientError } from './_shared.js';
 
 interface OpaPolicyRecord {
   id: string;
@@ -133,7 +133,7 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
     {
       title: 'Upload or replace OPA policy',
       description:
-        'Upload a Rego policy under the given ID. Replaces any existing policy with that ID. The policy is uploaded as raw text/plain -- OPA parses it on the server side.',
+        "Upload a Rego policy under the given ID. Replaces any existing policy with that ID; `replaced` says whether one existed. The policy is uploaded as raw text/plain and OPA compiles it on the server, so a policy that does not compile comes back as INVALID_REGO with OPA's errors, and nothing is stored.",
       inputSchema: {
         id: z.string().min(1).describe('Policy ID to create or replace.'),
         source: z.string().min(1).describe('Rego source.'),
@@ -147,16 +147,29 @@ export function registerPolicyTools(server: McpServer, config: Config): void {
     },
     async ({ id, source }, { signal }) => {
       return withToolEnvelope<{ id: string; replaced: boolean }>(config, async () => {
+        const path = `/v1/policies/${encodeURIComponent(id)}`;
+        // OPA answers a create and a replace alike, so look first; `replaced`
+        // used to be true for every upload.
+        let existed: boolean;
+        try {
+          await opa.request({ method: 'GET', path, signal });
+          existed = true;
+        } catch (e) {
+          if (e instanceof OpaHttpError && e.status === 404) existed = false;
+          else return mapOpaClientError(e);
+        }
         try {
           await opa.request({
             method: 'PUT',
-            path: `/v1/policies/${encodeURIComponent(id)}`,
+            path,
             rawBody: source,
             rawContentType: 'text/plain',
             signal,
           });
-          return ok({ id, replaced: true });
+          return ok({ id, replaced: existed });
         } catch (e) {
+          const compile = compileFailure(e);
+          if (compile) return compile;
           return mapOpaClientError(e);
         }
       });

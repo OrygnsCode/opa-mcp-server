@@ -13,14 +13,15 @@
  * policy touches, which is the correct starting point for writing
  * integration tests or setting up `opa check --schema`.
  */
-import { readdir, stat } from 'node:fs/promises';
-import { basename, extname, join, relative } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { basename, relative } from 'node:path';
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
+import { findRegoFiles } from '../../lib/rego-files.js';
 import { err, ok } from '../../lib/errors.js';
 import {
   mapSubprocessFailure,
@@ -144,20 +145,6 @@ function buildSchema(allPaths: Array<Array<string | null>>): object {
 
 function pathToString(path: Array<string | null>): string {
   return 'input.' + path.map((p) => (p === null ? '[]' : p)).join('.');
-}
-
-async function findRegoFiles(root: string): Promise<string[]> {
-  const files: string[] = [];
-  const entries = await readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = join(root, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await findRegoFiles(full)));
-    } else if (entry.isFile() && extname(entry.name) === '.rego') {
-      files.push(full);
-    }
-  }
-  return files;
 }
 
 export function registerRegoInferInputSchema(server: McpServer, config: Config): void {

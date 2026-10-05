@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { isDirectory, validatePath } from '../../../src/lib/security.js';
+import { isDirectory, validatePath, windowsDrivePath } from '../../../src/lib/security.js';
 
 /**
  * Directory link: a junction on Windows, which needs no privilege, a symlink
@@ -93,6 +93,30 @@ describe('validatePath — happy paths', () => {
     const otherRoot = join(workDir, 'something-else');
     const result = validatePath(realFile, [otherRoot, allowedRoot]);
     expect(result.ok).toBe(true);
+  });
+});
+
+describe('validatePath — Git Bash, Cygwin and WSL drive spellings', () => {
+  const windows = process.platform === 'win32';
+
+  it.runIf(windows)('reads /c/..., /cygdrive/c/... and /mnt/c/... as the drive', () => {
+    expect(windowsDrivePath('/c/Users/x/p.rego')).toBe('C:\\Users\\x\\p.rego');
+    expect(windowsDrivePath('/cygdrive/d/work')).toBe('D:\\work');
+    expect(windowsDrivePath('/mnt/c')).toBe('C:\\');
+    expect(windowsDrivePath('/usr/local')).toBe('/usr/local');
+    expect(windowsDrivePath('C:\\x')).toBe('C:\\x');
+  });
+
+  it.runIf(windows)('accepts the Git Bash spelling of a path inside a root', () => {
+    const real = resolve(realFile);
+    const msys = `/${real[0]!.toLowerCase()}/${real.slice(3).replace(/\\/g, '/')}`;
+    const result = validatePath(msys, [allowedRoot]);
+    expect(result.ok).toBe(true);
+    expect(result.resolved?.toLowerCase()).toBe(real.toLowerCase());
+  });
+
+  it.runIf(!windows)('leaves such paths alone off Windows', () => {
+    expect(windowsDrivePath('/c/Users/x')).toBe('/c/Users/x');
   });
 });
 

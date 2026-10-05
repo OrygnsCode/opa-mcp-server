@@ -71,7 +71,7 @@ export function registerRegoEval(server: McpServer, config: Config): void {
     {
       title: 'Evaluate Rego query',
       description:
-        'Evaluate a Rego query against a policy and an input document using `opa eval`. Returns the standard `{result: [...]}` shape. The bread-and-butter authoring tool. The policy is optional, so a query alone tries out a built-in or an expression. Pass `inputs` to evaluate one query against many input documents in one call, and `v0Compatible` for a policy still written in pre-1.0 Rego.',
+        'Evaluate a Rego query against a policy and an input document using `opa eval`. Returns the standard `{result: [...]}` shape plus `defined`, which is false when the query produced no value (undefined is not `false`), and `printed`, the lines the policy wrote with `print()`. The bread-and-butter authoring tool. The policy is optional, so a query alone tries out a built-in or an expression. Pass `inputs` to evaluate one query against many input documents in one call, and `v0Compatible` for a policy still written in pre-1.0 Rego.',
       inputSchema: RegoEvalInput,
       annotations: {
         readOnlyHint: false,
