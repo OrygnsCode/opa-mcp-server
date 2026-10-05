@@ -10,7 +10,7 @@
 import type { Config } from '../config.js';
 import { err } from './errors.js';
 import { logger } from './logger.js';
-import { formatEnvelope, type McpToolResult } from './output.js';
+import { formatEnvelope, type McpToolResult, type Shrink } from './output.js';
 import { validatePath } from './security.js';
 import type { SpawnResult } from './subprocess.js';
 import type { ToolEnvelope, ToolErrorCode } from '../types.js';
@@ -186,10 +186,11 @@ export function validatePaths(
 export async function withToolEnvelope<T>(
   config: Config,
   body: () => Promise<ToolEnvelope<T>>,
+  options: { shrink?: Shrink<T> } = {},
 ): Promise<McpToolResult> {
   try {
     const envelope = await body();
-    return formatEnvelope(envelope, config.maxResponseBytes);
+    return formatEnvelope(envelope, config.maxResponseBytes, options.shrink);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'An unknown error occurred';
     // Log the full error (with stack) server-side, but never return a raw stack

@@ -138,7 +138,7 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
           // A count cannot promise a size: the largest records run past 2 KB
           // each, so a hundred of those exceed the default cap. Measure the
           // envelope as it will be sent and refuse rather than truncate.
-          const bytes = Buffer.byteLength(JSON.stringify(ok(data), null, 2), 'utf8');
+          const bytes = Buffer.byteLength(JSON.stringify(ok(data)), 'utf8');
           if (bytes > config.maxResponseBytes) {
             return err(
               'OUTPUT_TOO_LARGE',

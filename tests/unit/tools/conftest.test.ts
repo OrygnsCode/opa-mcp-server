@@ -301,7 +301,8 @@ describe('conftest_test', () => {
     expect(mockRun).toHaveBeenCalledWith('/usr/local/bin/conftest', expect.any(Object));
   });
 
-  it('returns empty summary when results array is empty', async () => {
+  it('returns an empty summary, and no pass, when results array is empty', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([])));
     mockRun.mockResolvedValueOnce(spawnSuccess(conftestJson([])));
 
     const server = makeServer();
@@ -311,14 +312,72 @@ describe('conftest_test', () => {
     });
 
     expect(env.ok).toBe(true);
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.nothingEvaluated).toBe(true);
     expect(env.data?.summary).toEqual({
       passed: 0,
+      unchecked: 0,
       failed: 0,
       warnings: 0,
       skipped: 0,
       successes: 0,
       failures: 0,
     });
+  });
+
+  it('reports a run that evaluated no rule as not passed, naming the namespaces with rules', async () => {
+    // conftest 0.71 on a policy in `package k8s` run without --namespace: one
+    // entry per file, 0 tests, exit 0.
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess('[{"filename":"deploy.yaml","namespace":"main","successes":0}]'),
+    );
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        conftestJson([
+          makeFileResult({
+            filename: 'deploy.yaml',
+            namespace: 'k8s',
+            successes: 0,
+            failures: [{ msg: 'privileged' }],
+          }),
+          makeFileResult({ filename: 'deploy.yaml', namespace: 'main', successes: 0 }),
+        ]),
+        '',
+      ),
+    );
+
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [passingConfig],
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.nothingEvaluated).toBe(true);
+    expect(env.data?.namespacesWithRules).toEqual(['k8s']);
+    expect(env.data?.summary.passed).toBe(0);
+    expect(env.data?.summary.unchecked).toBe(1);
+    expect(env.warnings?.[0]).toMatch(
+      /No rule was evaluated in namespace `main`.*Namespaces with rules: k8s/,
+    );
+    expect(mockRun.mock.calls[1]![1].args).toContain('--all-namespaces');
+  });
+
+  it('does not look for other namespaces when every namespace was already tested', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess('[{"filename":"deploy.yaml","namespace":"main","successes":0}]'),
+    );
+    const server = makeServer();
+    registerConftestTools(server, baseConfig);
+    const env = await callTool<ConftestTestOutput>(server, 'conftest_test', {
+      files: [passingConfig],
+      allNamespaces: true,
+    });
+    expect(env.data?.passed).toBe(false);
+    expect(env.data?.nothingEvaluated).toBe(true);
+    expect(env.warnings?.[0]).toMatch(/in any namespace/);
+    expect(mockRun).toHaveBeenCalledTimes(1);
   });
 
   // ── Mutual exclusion guards ─────────────────────────────────────────────────
@@ -344,6 +403,7 @@ describe('conftest_test', () => {
     });
     expect(env.data?.summary).toEqual({
       passed: 1,
+      unchecked: 0,
       failed: 0,
       warnings: 0,
       skipped: 0,

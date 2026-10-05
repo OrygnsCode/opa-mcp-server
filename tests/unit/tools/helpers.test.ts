@@ -32,7 +32,7 @@ afterEach(() => {
 // ─── rego_explain_decision ─────────────────────────────────────────────────
 
 describe('rego_explain_decision', () => {
-  it('runs eval with --explain=full and returns a structured trace summary', async () => {
+  it('runs eval with --explain=full and returns the summary and the trace as lines', async () => {
     const trace = [
       { Op: 'Enter', Node: { head: { name: 'data.rbac.allow' } }, Message: '' },
       { Op: 'Enter', Node: { head: { name: 'helper' } }, Message: '' },
@@ -53,13 +53,14 @@ describe('rego_explain_decision', () => {
       result: unknown;
       rulesFired: string[];
       rulesEvaluated: string[];
-      trace: unknown[];
+      trace: string[];
       summary: { totalEvents: number; enterEvents: number; exitEvents: number; failEvents: number };
     }>(server, 'rego_explain_decision', {
       query: 'data.rbac.allow',
       paths: [fixturePath('policies', 'valid', 'rbac.rego')],
     });
     expect(env.ok).toBe(true);
+    expect(env.data?.trace.every((line) => typeof line === 'string')).toBe(true);
     expect(env.data?.result).toBe(true);
     expect(env.data?.summary.totalEvents).toBe(4);
     expect(env.data?.summary.enterEvents).toBe(2);
@@ -136,6 +137,36 @@ describe('rego_explain_decision', () => {
     expect(env.data?.summary.failEvents).toBe(1);
     expect(env.data?.rulesEvaluated).toEqual([]);
     expect(env.data?.rulesFired).toEqual([]);
+  });
+
+  it('cuts the trace, not the result, when the response is over the cap', async () => {
+    const trace = Array.from({ length: 300 }, (_, i) => ({
+      Op: 'Note',
+      QueryID: 0,
+      Message: `note ${i} ${'x'.repeat(40)}`,
+    }));
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({ result: [{ expressions: [{ value: ['denied'] }] }], explanation: trace }),
+      ),
+    );
+    const server = makeServer();
+    registerHelperTools(server, { ...baseConfig, maxResponseBytes: 4_000 });
+    const env = await callTool<{
+      result: unknown;
+      trace: string[];
+      traceTruncated?: { shown: number; total: number };
+    }>(server, 'rego_explain_decision', {
+      query: 'data.x.deny',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.ok).toBe(true);
+    expect(env.truncated).toBe(true);
+    expect(env.data?.result).toEqual(['denied']);
+    expect(env.data?.traceTruncated?.total).toBe(300);
+    expect(env.data?.traceTruncated?.shown).toBe(env.data?.trace.length);
+    expect(env.data?.trace.length).toBeGreaterThan(10);
+    expect(env.data?.trace[0]).toMatch(/Note "note 0 /);
   });
 
   it('returns undefined result when the eval result array is empty', async () => {

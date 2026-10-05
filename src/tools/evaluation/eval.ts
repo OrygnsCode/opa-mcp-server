@@ -10,6 +10,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
+import { fitPrefix } from '../../lib/output.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
 import {
   MAX_BATCH_INPUTS,
@@ -19,6 +20,36 @@ import {
   type RegoEvalBatchOutput,
   type RegoEvalOutput,
 } from './_shared.js';
+
+interface ExplanationCut {
+  shown: number;
+  total: number;
+  /** Whether the events' `Locals` and `LocalMetadata` were removed. */
+  localsDropped: boolean;
+}
+
+type ExplainOutput = RegoEvalOutput & { explanationTruncated?: ExplanationCut };
+
+/**
+ * Fit an oversized raw trace under the response cap while keeping the result:
+ * drop the bound-variable payloads every event repeats, then trailing events.
+ */
+function shrinkExplanation(
+  data: ExplainOutput,
+  fits: (candidate: ExplainOutput) => boolean,
+): ExplainOutput | undefined {
+  const events = (data.explanation ?? []) as Array<Record<string, unknown>>;
+  const lean = events.map(({ Locals: _l, LocalMetadata: _m, ...rest }) => rest);
+  return fitPrefix(
+    lean,
+    (kept) => ({
+      ...data,
+      explanation: kept,
+      explanationTruncated: { shown: kept.length, total: events.length, localsDropped: true },
+    }),
+    fits,
+  );
+}
 
 const RegoEvalInput = {
   ...SharedEvalInput,
@@ -63,7 +94,7 @@ export function registerRegoEval(server: McpServer, config: Config): void {
     {
       title: 'Evaluate Rego with execution trace',
       description:
-        "Evaluate with `--explain=full` and return a structured trace alongside the result. Use this when an agent needs to see why a rule fired (or didn't) -- the trace is the basis for `rego_explain_decision`.",
+        "Evaluate with `--explain=full` and return OPA's raw trace events (with their AST nodes) alongside the result. For a readable trace use `rego_explain_decision`, which renders the same events as lines. Raw events are large: over the response cap the bound-variable values are dropped first, then trailing events (`explanationTruncated`), and the result is kept.",
       inputSchema: SharedEvalInput,
       annotations: {
         readOnlyHint: false,
@@ -72,8 +103,10 @@ export function registerRegoEval(server: McpServer, config: Config): void {
       },
     },
     async (args, { signal }) => {
-      return withToolEnvelope<RegoEvalOutput>(config, () =>
-        runEval(opa, config, args, { explain: 'full' }, signal),
+      return withToolEnvelope<ExplainOutput>(
+        config,
+        () => runEval(opa, config, args, { explain: 'full' }, signal),
+        { shrink: shrinkExplanation },
       );
     },
   );
