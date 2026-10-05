@@ -1,0 +1,1570 @@
+[
+ {
+  "Op": "Enter",
+  "Node": [
+   {
+    "index": 0,
+    "terms": [
+     {
+      "type": "ref",
+      "value": [
+       {
+        "type": "var",
+        "value": "eq"
+       }
+      ]
+     },
+     {
+      "type": "ref",
+      "value": [
+       {
+        "type": "var",
+        "value": "data"
+       },
+       {
+        "type": "string",
+        "value": "authz"
+       },
+       {
+        "type": "string",
+        "value": "allow"
+       }
+      ]
+     },
+     {
+      "type": "var",
+      "value": "$term1"
+     }
+    ]
+   }
+  ],
+  "Location": {
+   "file": "",
+   "row": 1,
+   "col": 1
+  },
+  "QueryID": 0,
+  "ParentID": 0,
+  "Locals": [],
+  "LocalMetadata": {},
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Eval",
+  "Node": {
+   "index": 0,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "data"
+      },
+      {
+       "type": "string",
+       "value": "authz"
+      },
+      {
+       "type": "string",
+       "value": "allow"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "$term1"
+    }
+   ]
+  },
+  "Location": {
+   "file": "",
+   "row": 1,
+   "col": 1
+  },
+  "QueryID": 0,
+  "ParentID": 0,
+  "Locals": [],
+  "LocalMetadata": {},
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Index",
+  "Node": {
+   "index": 0,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "data"
+      },
+      {
+       "type": "string",
+       "value": "authz"
+      },
+      {
+       "type": "string",
+       "value": "allow"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "$term1"
+    }
+   ]
+  },
+  "Location": {
+   "file": "",
+   "row": 1,
+   "col": 1
+  },
+  "QueryID": 0,
+  "ParentID": 0,
+  "Locals": [],
+  "LocalMetadata": {},
+  "Message": "(matched 1 rule, early exit)",
+  "Ref": [
+   {
+    "type": "var",
+    "value": "data"
+   },
+   {
+    "type": "string",
+    "value": "authz"
+   },
+   {
+    "type": "string",
+    "value": "allow"
+   }
+  ]
+ },
+ {
+  "Op": "Enter",
+  "Node": {
+   "head": {
+    "name": "allow",
+    "ref": [
+     {
+      "type": "var",
+      "value": "allow"
+     }
+    ],
+    "value": {
+     "type": "boolean",
+     "value": true
+    }
+   },
+   "body": [
+    {
+     "index": 0,
+     "terms": [
+      {
+       "type": "ref",
+       "value": [
+        {
+         "type": "var",
+         "value": "eq"
+        }
+       ]
+      },
+      {
+       "type": "var",
+       "value": "__local2__"
+      },
+      {
+       "type": "ref",
+       "value": [
+        {
+         "type": "var",
+         "value": "input"
+        },
+        {
+         "type": "string",
+         "value": "user"
+        },
+        {
+         "type": "string",
+         "value": "roles"
+        },
+        {
+         "type": "var",
+         "value": "__local1__"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "index": 1,
+     "terms": [
+      {
+       "type": "ref",
+       "value": [
+        {
+         "type": "var",
+         "value": "eq"
+        }
+       ]
+      },
+      {
+       "type": "var",
+       "value": "__local2__"
+      },
+      {
+       "type": "string",
+       "value": "admin"
+      }
+     ]
+    },
+    {
+     "index": 2,
+     "negated": true,
+     "terms": {
+      "type": "ref",
+      "value": [
+       {
+        "type": "var",
+        "value": "input"
+       },
+       {
+        "type": "string",
+        "value": "user"
+       },
+       {
+        "type": "string",
+        "value": "suspended"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 5,
+   "col": 1
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Eval",
+  "Node": {
+   "index": 0,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "__local2__"
+    },
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "input"
+      },
+      {
+       "type": "string",
+       "value": "user"
+      },
+      {
+       "type": "string",
+       "value": "roles"
+      },
+      {
+       "type": "var",
+       "value": "__local1__"
+      }
+     ]
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 6,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Eval",
+  "Node": {
+   "index": 1,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "__local2__"
+    },
+    {
+     "type": "string",
+     "value": "admin"
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 7,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 0
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "dev"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Fail",
+  "Node": {
+   "index": 1,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "__local2__"
+    },
+    {
+     "type": "string",
+     "value": "admin"
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 7,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 0
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "dev"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": {
+   "index": 0,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "__local2__"
+    },
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "input"
+      },
+      {
+       "type": "string",
+       "value": "user"
+      },
+      {
+       "type": "string",
+       "value": "roles"
+      },
+      {
+       "type": "var",
+       "value": "__local1__"
+      }
+     ]
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 6,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 0
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "dev"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Eval",
+  "Node": {
+   "index": 1,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "__local2__"
+    },
+    {
+     "type": "string",
+     "value": "admin"
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 7,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Eval",
+  "Node": {
+   "index": 2,
+   "negated": true,
+   "terms": {
+    "type": "ref",
+    "value": [
+     {
+      "type": "var",
+      "value": "input"
+     },
+     {
+      "type": "string",
+      "value": "user"
+     },
+     {
+      "type": "string",
+      "value": "suspended"
+     }
+    ]
+   }
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 8,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Enter",
+  "Node": [
+   {
+    "index": 0,
+    "terms": {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "input"
+      },
+      {
+       "type": "string",
+       "value": "user"
+      },
+      {
+       "type": "string",
+       "value": "suspended"
+      }
+     ]
+    }
+   }
+  ],
+  "Location": {
+   "file": "roles.rego",
+   "row": 8,
+   "col": 2
+  },
+  "QueryID": 2,
+  "ParentID": 1,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Eval",
+  "Node": {
+   "index": 0,
+   "terms": {
+    "type": "ref",
+    "value": [
+     {
+      "type": "var",
+      "value": "input"
+     },
+     {
+      "type": "string",
+      "value": "user"
+     },
+     {
+      "type": "string",
+      "value": "suspended"
+     }
+    ]
+   }
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 8,
+   "col": 2
+  },
+  "QueryID": 2,
+  "ParentID": 1,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Exit",
+  "Node": [
+   {
+    "index": 0,
+    "terms": {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "input"
+      },
+      {
+       "type": "string",
+       "value": "user"
+      },
+      {
+       "type": "string",
+       "value": "suspended"
+      }
+     ]
+    }
+   }
+  ],
+  "Location": {
+   "file": "roles.rego",
+   "row": 8,
+   "col": 2
+  },
+  "QueryID": 2,
+  "ParentID": 1,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   },
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": true
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$_term_2_0",
+    "location": null
+   },
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": [
+   {
+    "index": 0,
+    "terms": {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "input"
+      },
+      {
+       "type": "string",
+       "value": "user"
+      },
+      {
+       "type": "string",
+       "value": "suspended"
+      }
+     ]
+    }
+   }
+  ],
+  "Location": {
+   "file": "roles.rego",
+   "row": 8,
+   "col": 2
+  },
+  "QueryID": 2,
+  "ParentID": 1,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   },
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": true
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$_term_2_0",
+    "location": null
+   },
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": {
+   "index": 0,
+   "terms": {
+    "type": "ref",
+    "value": [
+     {
+      "type": "var",
+      "value": "input"
+     },
+     {
+      "type": "string",
+      "value": "user"
+     },
+     {
+      "type": "string",
+      "value": "suspended"
+     }
+    ]
+   }
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 8,
+   "col": 2
+  },
+  "QueryID": 2,
+  "ParentID": 1,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   },
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": true
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$_term_2_0",
+    "location": null
+   },
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Fail",
+  "Node": {
+   "index": 2,
+   "negated": true,
+   "terms": {
+    "type": "ref",
+    "value": [
+     {
+      "type": "var",
+      "value": "input"
+     },
+     {
+      "type": "string",
+      "value": "user"
+     },
+     {
+      "type": "string",
+      "value": "suspended"
+     }
+    ]
+   }
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 8,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": {
+   "index": 1,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "__local2__"
+    },
+    {
+     "type": "string",
+     "value": "admin"
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 7,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": {
+   "index": 0,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "__local2__"
+    },
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "input"
+      },
+      {
+       "type": "string",
+       "value": "user"
+      },
+      {
+       "type": "string",
+       "value": "roles"
+      },
+      {
+       "type": "var",
+       "value": "__local1__"
+      }
+     ]
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 6,
+   "col": 2
+  },
+  "QueryID": 1,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "__local1__",
+    "type": "number",
+    "value": 1
+   },
+   {
+    "name": "__local2__",
+    "type": "string",
+    "value": "admin"
+   }
+  ],
+  "LocalMetadata": {
+   "__local1__": {
+    "name": "__local0__",
+    "location": null
+   },
+   "__local2__": {
+    "name": "role",
+    "location": {
+     "file": "roles.rego",
+     "row": 6,
+     "col": 7
+    }
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Enter",
+  "Node": {
+   "default": true,
+   "head": {
+    "name": "allow",
+    "ref": [
+     {
+      "type": "var",
+      "value": "allow"
+     }
+    ],
+    "value": {
+     "type": "boolean",
+     "value": false
+    },
+    "assign": true
+   },
+   "body": [
+    {
+     "index": 0,
+     "terms": {
+      "type": "boolean",
+      "value": true
+     }
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 3,
+   "col": 1
+  },
+  "QueryID": 3,
+  "ParentID": 0,
+  "Locals": [],
+  "LocalMetadata": {},
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Eval",
+  "Node": {
+   "index": 0,
+   "terms": {
+    "type": "boolean",
+    "value": true
+   }
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 3,
+   "col": 1
+  },
+  "QueryID": 3,
+  "ParentID": 0,
+  "Locals": [],
+  "LocalMetadata": {},
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Exit",
+  "Node": {
+   "default": true,
+   "head": {
+    "name": "allow",
+    "ref": [
+     {
+      "type": "var",
+      "value": "allow"
+     }
+    ],
+    "value": {
+     "type": "boolean",
+     "value": false
+    },
+    "assign": true
+   },
+   "body": [
+    {
+     "index": 0,
+     "terms": {
+      "type": "boolean",
+      "value": true
+     }
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 3,
+   "col": 1
+  },
+  "QueryID": 3,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": true
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$_term_3_0",
+    "location": null
+   }
+  },
+  "Message": "early",
+  "Ref": null
+ },
+ {
+  "Op": "Exit",
+  "Node": [
+   {
+    "index": 0,
+    "terms": [
+     {
+      "type": "ref",
+      "value": [
+       {
+        "type": "var",
+        "value": "eq"
+       }
+      ]
+     },
+     {
+      "type": "ref",
+      "value": [
+       {
+        "type": "var",
+        "value": "data"
+       },
+       {
+        "type": "string",
+        "value": "authz"
+       },
+       {
+        "type": "string",
+        "value": "allow"
+       }
+      ]
+     },
+     {
+      "type": "var",
+      "value": "$term1"
+     }
+    ]
+   }
+  ],
+  "Location": {
+   "file": "",
+   "row": 1,
+   "col": 1
+  },
+  "QueryID": 0,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": false
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$term1",
+    "location": null
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": [
+   {
+    "index": 0,
+    "terms": [
+     {
+      "type": "ref",
+      "value": [
+       {
+        "type": "var",
+        "value": "eq"
+       }
+      ]
+     },
+     {
+      "type": "ref",
+      "value": [
+       {
+        "type": "var",
+        "value": "data"
+       },
+       {
+        "type": "string",
+        "value": "authz"
+       },
+       {
+        "type": "string",
+        "value": "allow"
+       }
+      ]
+     },
+     {
+      "type": "var",
+      "value": "$term1"
+     }
+    ]
+   }
+  ],
+  "Location": {
+   "file": "",
+   "row": 1,
+   "col": 1
+  },
+  "QueryID": 0,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": false
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$term1",
+    "location": null
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": {
+   "index": 0,
+   "terms": [
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "eq"
+      }
+     ]
+    },
+    {
+     "type": "ref",
+     "value": [
+      {
+       "type": "var",
+       "value": "data"
+      },
+      {
+       "type": "string",
+       "value": "authz"
+      },
+      {
+       "type": "string",
+       "value": "allow"
+      }
+     ]
+    },
+    {
+     "type": "var",
+     "value": "$term1"
+    }
+   ]
+  },
+  "Location": {
+   "file": "",
+   "row": 1,
+   "col": 1
+  },
+  "QueryID": 0,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": false
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$term1",
+    "location": null
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": {
+   "default": true,
+   "head": {
+    "name": "allow",
+    "ref": [
+     {
+      "type": "var",
+      "value": "allow"
+     }
+    ],
+    "value": {
+     "type": "boolean",
+     "value": false
+    },
+    "assign": true
+   },
+   "body": [
+    {
+     "index": 0,
+     "terms": {
+      "type": "boolean",
+      "value": true
+     }
+    }
+   ]
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 3,
+   "col": 1
+  },
+  "QueryID": 3,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": true
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$_term_3_0",
+    "location": null
+   }
+  },
+  "Message": "",
+  "Ref": null
+ },
+ {
+  "Op": "Redo",
+  "Node": {
+   "index": 0,
+   "terms": {
+    "type": "boolean",
+    "value": true
+   }
+  },
+  "Location": {
+   "file": "roles.rego",
+   "row": 3,
+   "col": 1
+  },
+  "QueryID": 3,
+  "ParentID": 0,
+  "Locals": [
+   {
+    "name": "_",
+    "type": "boolean",
+    "value": true
+   }
+  ],
+  "LocalMetadata": {
+   "_": {
+    "name": "$_term_3_0",
+    "location": null
+   }
+  },
+  "Message": "",
+  "Ref": null
+ }
+]

@@ -42,10 +42,10 @@ edit the environment variables to match your environment.
 Two additional files are provided for Claude Code users working in a policy
 repo day-to-day:
 
-| File                                               | Purpose                                                                                                                  |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| [`CLAUDE.md`](./CLAUDE.md)                         | Standing instructions template. Copy to your repo root or `.claude/CLAUDE.md`. Claude Code loads it every session.       |
-| [`claude-code-hook.json`](./claude-code-hook.json) | PostToolUse hook config. Merge the `hooks` block into `.claude/settings.json` to run `opa check` on every `.rego` write. |
+| File                                               | Purpose                                                                                                                          |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [`CLAUDE.md`](./CLAUDE.md)                         | Standing instructions template. Copy to your repo root or `.claude/CLAUDE.md`. Claude Code loads it every session.               |
+| [`claude-code-hook.json`](./claude-code-hook.json) | PostToolUse hook config. Merge the `hooks` block into `.claude/settings.json` to run `opa check` on every `.rego` write or edit. |
 
 ### Using CLAUDE.md
 
@@ -59,12 +59,12 @@ you want Claude to know about.
 1. Copy `.claude/settings.json` if it does not already exist in your repo, or
    open the existing one.
 2. Merge the `"hooks"` key from `claude-code-hook.json` into it.
-3. Ensure `opa` is on `PATH` (or replace `'opa'` in the command string with
-   the absolute path).
+3. Ensure `python3` and `opa` are on `PATH` (or replace `'opa'` in the
+   command string with the absolute path).
 
-After that, every time Claude Code writes a `.rego` file the hook runs
-`opa check` and reports any syntax errors directly in the session -- no
-manual tool call required.
+After that, every time Claude Code writes or edits a `.rego` file the hook
+runs `opa check`. On an error it exits 2, which is how a PostToolUse hook
+hands its stderr back to Claude, so the agent sees the error and can fix it.
 
 If you do not see your client here, the server itself is just stdio - any
 MCP-compliant client can run it via:

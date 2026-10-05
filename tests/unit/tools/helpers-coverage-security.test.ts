@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -235,8 +236,8 @@ describe('rego_coverage_gaps', () => {
     expect(env.error?.code).toBe('NO_TESTS_FOUND');
   });
 
-  it('returns EVAL_ERROR when opa exits non-zero and no coverage report', async () => {
-    mockRun.mockResolvedValueOnce(spawnFailure(1, 'compile error'));
+  it('returns EVAL_ERROR when tests fail and there is no coverage report', async () => {
+    mockRun.mockResolvedValueOnce(spawnFailure(2, 'data.authz_test.test_x: FAIL (1ms)'));
     const server = makeServer();
     registerRegoCoverageGaps(server, baseConfig);
     const env = await callTool(server, 'rego_coverage_gaps', {
@@ -244,6 +245,19 @@ describe('rego_coverage_gaps', () => {
     });
 
     expect(env.error?.code).toBe('EVAL_ERROR');
+  });
+
+  it('returns INVALID_REGO when the policies do not compile, as rego_test does', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(1, '1 error occurred: authz.rego:3: rego_parse_error: unexpected eof token'),
+    );
+    const server = makeServer();
+    registerRegoCoverageGaps(server, baseConfig);
+    const env = await callTool(server, 'rego_coverage_gaps', {
+      paths: [fixturePath('policies', 'valid')],
+    });
+
+    expect(env.error?.code).toBe('INVALID_REGO');
   });
 
   it('returns OPA_BINARY_NOT_FOUND when opa is unreachable', async () => {
@@ -380,6 +394,14 @@ describe('rego_coverage_gaps', () => {
 
 // ─── rego_security_audit ──────────────────────────────────────────────────
 
+/** What regal 0.43 writes to stderr for a module it cannot parse. */
+const regalParseStderr = (file: string, count = 1): string =>
+  JSON.stringify({
+    errors: [
+      `error(s) encountered while linting: errors encountered when reading files to lint: failed to parse ${count} module(s) - first error: 1 error occurred: ${file}:4: rego_parse_error: unexpected eof token\n\tallow if {\n\t         ^`,
+    ],
+  });
+
 describe('rego_security_audit', () => {
   const mockLintResult = (violations: unknown[]) =>
     JSON.stringify({
@@ -455,8 +477,11 @@ describe('rego_security_audit', () => {
 
   it('attaches specific hints for real regal bugs-category rule names', async () => {
     const cases: Array<{ title: string; match: RegExp }> = [
-      { title: 'duplicate-rule', match: /duplicate/ },
-      { title: 'rule-shadows-builtin', match: /shadow/i },
+      { title: 'duplicate-rule', match: /identical/ },
+      { title: 'rule-shadows-builtin', match: /rule is named after an OPA builtin/ },
+      { title: 'var-shadows-builtin', match: /variable is named after an OPA builtin/ },
+      // `not deny` never holds: the old text said the opposite.
+      { title: 'impossible-not', match: /never holds.*count\(deny\) == 0/ },
       { title: 'sprintf-arguments-mismatch', match: /sprintf/i },
     ];
     for (const { title, match } of cases) {
@@ -475,6 +500,64 @@ describe('rego_security_audit', () => {
       });
       expect(env.data?.findings[0]?.remediation).toMatch(match);
     }
+  });
+
+  it('links each finding to its rule documentation', async () => {
+    const violation = {
+      ...mediumViolation,
+      related_resources: [{ description: 'documentation', ref: 'https://example.test/rule' }],
+    };
+    mockRun.mockResolvedValueOnce(spawnFailure(3, '', mockLintResult([violation])));
+    const server = makeServer();
+    registerRegoSecurityAudit(server, baseConfig);
+    const env = await callTool<RegoSecurityAuditOutput>(server, 'rego_security_audit', {
+      paths: [fixturePath('policies', 'valid')],
+    });
+    expect(env.data?.findings[0]?.docs).toBe('https://example.test/rule');
+  });
+
+  it('says that no findings is not evidence the policy holds', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(mockLintResult([])));
+    const server = makeServer();
+    registerRegoSecurityAudit(server, baseConfig);
+    const env = await callTool<RegoSecurityAuditOutput>(server, 'rego_security_audit', {
+      paths: [fixturePath('policies', 'valid')],
+    });
+    expect(env.warnings?.join(' ')).toMatch(/does not show the policy cannot be bypassed/);
+  });
+
+  it('leaves out a module that does not parse and audits the rest', async () => {
+    const dir = fixturePath('policies', 'valid');
+    const broken = join(dir, 'rbac.rego');
+    mockRun
+      .mockResolvedValueOnce(spawnFailure(1, regalParseStderr(broken)))
+      .mockResolvedValueOnce(spawnFailure(3, '', mockLintResult([mediumViolation])));
+    const server = makeServer();
+    registerRegoSecurityAudit(server, baseConfig);
+    const env = await callTool<RegoSecurityAuditOutput>(server, 'rego_security_audit', {
+      paths: [dir],
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.totalFindings).toBe(1);
+    expect(env.data?.unparseable).toEqual([
+      { file: broken, row: 4, message: 'unexpected eof token' },
+    ]);
+    expect(env.warnings?.[0]).toMatch(/1 module\(s\) do not parse and were not audited/);
+    const args = mockRun.mock.calls[1]![1].args;
+    expect(args[args.indexOf('--ignore-files') + 1]).toBe('**/valid/rbac.rego');
+  });
+
+  it('returns INVALID_REGO when nothing it was given parses', async () => {
+    const file = fixturePath('policies', 'valid', 'rbac.rego');
+    mockRun.mockResolvedValueOnce(spawnFailure(1, regalParseStderr(file)));
+    const server = makeServer();
+    registerRegoSecurityAudit(server, baseConfig);
+    const env = await callTool<RegoSecurityAuditOutput>(server, 'rego_security_audit', {
+      paths: [file],
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toMatch(/rbac\.rego at row 4: unexpected eof token/);
+    expect(mockRun).toHaveBeenCalledTimes(1);
   });
 
   it('attaches the default remediation hint for unknown rule titles', async () => {

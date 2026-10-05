@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { formatEnvelope } from '../../../src/lib/output.js';
+import { fitPrefix, formatEnvelope } from '../../../src/lib/output.js';
 import type { ToolEnvelope } from '../../../src/types.js';
 
 const okEnvelope = <T>(data: T): ToolEnvelope<T> => ({ ok: true, data });
@@ -29,10 +29,9 @@ describe('formatEnvelope — basic shape', () => {
     expect(parsed.error?.code).toBe('INVALID_INPUT');
   });
 
-  it('serializes data as pretty-printed JSON (two-space indent)', () => {
+  it('serializes compact JSON, without indentation', () => {
     const result = formatEnvelope(okEnvelope({ a: { nested: 'thing' } }), 100_000);
-    const text = result.content[0]!.text;
-    expect(text).toContain('\n  ');
+    expect(result.content[0]!.text).toBe('{"ok":true,"data":{"a":{"nested":"thing"}}}');
   });
 });
 
@@ -44,7 +43,7 @@ describe('formatEnvelope — truncation', () => {
     expect(parsed.truncated).toBeUndefined();
   });
 
-  it('replaces a too-large data payload with a __truncated marker', () => {
+  it('replaces a too-large data payload with a marker giving the size and the cap', () => {
     const huge = { items: Array.from({ length: 10_000 }, (_, i) => `item-${i}`) };
     const result = formatEnvelope(okEnvelope(huge), 1_000);
     const parsed = JSON.parse(result.content[0]!.text) as ToolEnvelope<{
@@ -53,7 +52,31 @@ describe('formatEnvelope — truncation', () => {
     }>;
     expect(parsed.truncated).toBe(true);
     expect(parsed.data?.__truncated).toBe(true);
-    expect(parsed.data?.message).toMatch(/exceeded maxResponseBytes/i);
+    expect(parsed.data?.message).toMatch(/^The response was \d+ bytes, over the 1000-byte cap/);
+    expect(parsed.data?.message).not.toMatch(/file/);
+  });
+
+  it('lets a tool shrink its own payload, keeping what fits', () => {
+    const data = { result: 'kept', lines: Array.from({ length: 500 }, (_, i) => `line ${i}`) };
+    const result = formatEnvelope(okEnvelope(data), 1_000, (d, fits) =>
+      fitPrefix(d.lines, (lines) => ({ ...d, lines }), fits),
+    );
+    const text = result.content[0]!.text;
+    const parsed = JSON.parse(text) as ToolEnvelope<typeof data>;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1_000);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.data?.result).toBe('kept');
+    expect(parsed.data?.lines.length).toBeGreaterThan(10);
+    expect(parsed.data?.lines[0]).toBe('line 0');
+  });
+
+  it('falls back to the marker when the shrunk payload still does not fit', () => {
+    const data = { result: 'x'.repeat(5_000), lines: ['a'] };
+    const result = formatEnvelope(okEnvelope(data), 1_000, (d, fits) =>
+      fitPrefix(d.lines, (lines) => ({ ...d, lines }), fits),
+    );
+    const parsed = JSON.parse(result.content[0]!.text) as ToolEnvelope<{ __truncated?: boolean }>;
+    expect(parsed.data?.__truncated).toBe(true);
   });
 
   it('drops oversize error details first and keeps the message and code', () => {
@@ -203,5 +226,33 @@ describe('formatEnvelope — warnings preservation', () => {
     const parsed = JSON.parse(result.content[0]!.text) as ToolEnvelope<unknown>;
     expect(parsed.warnings).toEqual(['stale-cache']);
     expect(parsed.truncated).toBe(true);
+  });
+});
+
+describe('fitPrefix', () => {
+  it('finds the longest prefix that fits', () => {
+    const got = fitPrefix(
+      [1, 2, 3, 4, 5],
+      (p) => p,
+      (p) => p.length <= 3,
+    );
+    expect(got).toEqual([1, 2, 3]);
+  });
+
+  it('keeps everything when everything fits, and gives up when nothing does', () => {
+    expect(
+      fitPrefix(
+        [1, 2],
+        (p) => p,
+        () => true,
+      ),
+    ).toEqual([1, 2]);
+    expect(
+      fitPrefix(
+        [1, 2],
+        (p) => p,
+        () => false,
+      ),
+    ).toBeUndefined();
   });
 });

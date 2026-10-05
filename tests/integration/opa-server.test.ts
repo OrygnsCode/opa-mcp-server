@@ -261,7 +261,10 @@ describe('policy lifecycle (list / get / put / delete)', () => {
       source,
     });
     expect(putEnv.ok).toBe(true);
-    expect(putEnv.data?.replaced).toBe(true);
+    // A new id replaces nothing; uploading it again does.
+    expect(putEnv.data?.replaced).toBe(false);
+    const again = await call<{ replaced: boolean }>('opa_put_policy', { id, source });
+    expect(again.data?.replaced).toBe(true);
 
     const getEnv = await call<{ policy: { id: string; raw: string } }>('opa_get_policy', {
       id,
@@ -271,6 +274,28 @@ describe('policy lifecycle (list / get / put / delete)', () => {
 
     const delEnv = await call<{ deleted: boolean }>('opa_delete_policy', { id });
     expect(delEnv.ok).toBe(true);
+  });
+
+  it('refuses a policy the server cannot compile as INVALID_REGO, storing nothing', async () => {
+    const { call } = await setup();
+    const id = `it_v0_${Date.now()}.rego`;
+    const env = await call('opa_put_policy', {
+      id,
+      source: 'package itv0\n\nallow {\n\tinput.x == 1\n}\n',
+    });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.hint).toMatch(/rego_migrate_v1/);
+    expect((await call('opa_get_policy', { id })).ok).toBe(false);
+  });
+
+  it('opa_query_decision says when a path is undefined', async () => {
+    const { call } = await setup();
+    const env = await call<{ defined: boolean; result?: unknown }>('opa_query_decision', {
+      path: 'no_such_package/allow',
+      input: {},
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.defined).toBe(false);
   });
 
   it('returns POLICY_NOT_FOUND on get of a missing policy', async () => {

@@ -432,3 +432,86 @@ describe('rego_policy_diff tool', () => {
     expect(mockRun).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('rego_policy_diff on a batch of inputs', () => {
+  const A = fixturePath('policies', 'valid', 'rbac.rego');
+  const B = fixturePath('policies', 'valid', 'http_authz.rego');
+  const runtimeError = JSON.stringify({
+    errors: [
+      { code: 'eval_conflict_error', message: 'complete rules must not produce multiple outputs' },
+    ],
+  });
+
+  // Answer by policy and by the input piped in: the batch runs in parallel.
+  // A allows x == 1, B allows x == 2, and x == 99 raises a conflict in both.
+  beforeEach(() => {
+    mockRun.mockImplementation((_bin, opts) => {
+      const side = opts.args.includes(A) ? 1 : 2;
+      const { x } = JSON.parse(opts.stdin!) as { x: number };
+      if (x === 99) return Promise.resolve({ ...okSpawn, exitCode: 1, stdout: runtimeError });
+      return Promise.resolve({ ...okSpawn, stdout: x === side ? opaResult(true) : opaEmpty });
+    });
+  });
+
+  const diff = (inputs: unknown[]) => {
+    const server = makeServer();
+    registerRegoPolicyDiff(server, { ...baseConfig, allowedPaths: [fixturePath()] });
+    return callTool<{
+      equal: boolean;
+      differing: number;
+      errorCount: number;
+      batch: Array<Record<string, unknown>>;
+    }>(server, 'rego_policy_diff', { pathA: A, pathB: B, query: 'data.x.allow', inputs });
+  };
+
+  it('compares both policies on every input, in order', async () => {
+    const env = await diff([{ x: 1 }, { x: 2 }, { x: 3 }]);
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.equal).toBe(false);
+    expect(env.data?.differing).toBe(2);
+    expect(env.data?.batch[0]).toMatchObject({
+      index: 0,
+      equal: false,
+      definedA: true,
+      definedB: false,
+    });
+    expect(env.data?.batch[1]).toMatchObject({
+      index: 1,
+      equal: false,
+      definedA: false,
+      definedB: true,
+    });
+    // Undefined on both sides is agreement.
+    expect(env.data?.batch[2]).toEqual({ index: 2, equal: true });
+  });
+
+  it('reports a runtime error in its own entry and compares the rest', async () => {
+    const env = await diff([{ x: 99 }, { x: 3 }]);
+    expect(env.ok).toBe(true);
+    expect(env.data?.errorCount).toBe(1);
+    expect(env.data?.batch[0]).toMatchObject({ index: 0, error: { code: 'EVAL_ERROR' } });
+    expect(env.data?.batch[1]).toEqual({ index: 1, equal: true });
+  });
+
+  it('fails once when a policy does not compile, since no input can fix that', async () => {
+    mockRun.mockImplementation(() =>
+      Promise.resolve({ ...okSpawn, exitCode: 1, stdout: opaError('unexpected eof token') }),
+    );
+    const env = await diff(Array.from({ length: 12 }, (_, x) => ({ x })));
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(mockRun.mock.calls.length).toBeLessThan(24);
+  });
+
+  it('refuses inputs together with input', async () => {
+    const server = makeServer();
+    registerRegoPolicyDiff(server, baseConfig);
+    const env = await callTool(server, 'rego_policy_diff', {
+      sourceA: 'package x',
+      sourceB: 'package x',
+      query: 'data.x.allow',
+      input: {},
+      inputs: [{}],
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+  });
+});

@@ -32,7 +32,7 @@ afterEach(() => {
 // ─── rego_explain_decision ─────────────────────────────────────────────────
 
 describe('rego_explain_decision', () => {
-  it('runs eval with --explain=full and returns a structured trace summary', async () => {
+  it('runs eval with --explain=full and returns the summary and the trace as lines', async () => {
     const trace = [
       { Op: 'Enter', Node: { head: { name: 'data.rbac.allow' } }, Message: '' },
       { Op: 'Enter', Node: { head: { name: 'helper' } }, Message: '' },
@@ -53,13 +53,14 @@ describe('rego_explain_decision', () => {
       result: unknown;
       rulesFired: string[];
       rulesEvaluated: string[];
-      trace: unknown[];
+      trace: string[];
       summary: { totalEvents: number; enterEvents: number; exitEvents: number; failEvents: number };
     }>(server, 'rego_explain_decision', {
       query: 'data.rbac.allow',
       paths: [fixturePath('policies', 'valid', 'rbac.rego')],
     });
     expect(env.ok).toBe(true);
+    expect(env.data?.trace.every((line) => typeof line === 'string')).toBe(true);
     expect(env.data?.result).toBe(true);
     expect(env.data?.summary.totalEvents).toBe(4);
     expect(env.data?.summary.enterEvents).toBe(2);
@@ -136,6 +137,36 @@ describe('rego_explain_decision', () => {
     expect(env.data?.summary.failEvents).toBe(1);
     expect(env.data?.rulesEvaluated).toEqual([]);
     expect(env.data?.rulesFired).toEqual([]);
+  });
+
+  it('cuts the trace, not the result, when the response is over the cap', async () => {
+    const trace = Array.from({ length: 300 }, (_, i) => ({
+      Op: 'Note',
+      QueryID: 0,
+      Message: `note ${i} ${'x'.repeat(40)}`,
+    }));
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(
+        JSON.stringify({ result: [{ expressions: [{ value: ['denied'] }] }], explanation: trace }),
+      ),
+    );
+    const server = makeServer();
+    registerHelperTools(server, { ...baseConfig, maxResponseBytes: 4_000 });
+    const env = await callTool<{
+      result: unknown;
+      trace: string[];
+      traceTruncated?: { shown: number; total: number };
+    }>(server, 'rego_explain_decision', {
+      query: 'data.x.deny',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.ok).toBe(true);
+    expect(env.truncated).toBe(true);
+    expect(env.data?.result).toEqual(['denied']);
+    expect(env.data?.traceTruncated?.total).toBe(300);
+    expect(env.data?.traceTruncated?.shown).toBe(env.data?.trace.length);
+    expect(env.data?.trace.length).toBeGreaterThan(10);
+    expect(env.data?.trace[0]).toMatch(/Note "note 0 /);
   });
 
   it('returns undefined result when the eval result array is empty', async () => {
@@ -925,6 +956,64 @@ describe('rego_suggest_fix', () => {
     expect(env.data?.suggestions[0]?.suggestion).toMatch(/rego_format/);
   });
 
+  it('takes rego_lint violations exactly as rego_lint returns them', async () => {
+    // Regal 0.43 output for `allow if input.roles[_] != "banned"`: no code, no message.
+    const violations = [
+      {
+        title: 'not-equals-in-loop',
+        description: 'Use of != in loop',
+        category: 'bugs',
+        level: 'error',
+        related_resources: [
+          {
+            description: 'documentation',
+            ref: 'https://www.openpolicyagent.org/projects/regal/rules/bugs/not-equals-in-loop',
+          },
+        ],
+        location: {
+          file: '<inline>',
+          row: 3,
+          col: 25,
+          text: 'allow if input.roles[_] != "banned"',
+        },
+      },
+      {
+        title: 'prefer-some-in-iteration',
+        description: 'Prefer `some .. in` for iteration',
+        category: 'style',
+        level: 'error',
+        related_resources: [
+          {
+            description: 'documentation',
+            ref: 'https://www.openpolicyagent.org/projects/regal/rules/style/prefer-some-in-iteration',
+          },
+        ],
+      },
+    ];
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      suggestions: Array<{
+        code: string;
+        message: string;
+        suggestion: string;
+        confidence: string;
+        docs?: string;
+      }>;
+    }>(server, 'rego_suggest_fix', { diagnostics: violations });
+    expect(env.ok).toBe(true);
+    const [bug, style] = env.data!.suggestions;
+    expect(bug).toMatchObject({
+      code: 'not-equals-in-loop',
+      message: 'Use of != in loop',
+      confidence: 'high',
+    });
+    expect(bug!.suggestion).toMatch(/not v in xs/);
+    expect(bug!.docs).toMatch(/not-equals-in-loop$/);
+    expect(style).toMatchObject({ code: 'prefer-some-in-iteration', confidence: 'medium' });
+    expect(style!.suggestion).toMatch(/prefer-some-in-iteration/);
+  });
+
   it('matches Regal violations by their title (used as the code)', async () => {
     const server = makeServer();
     registerHelperTools(server, baseConfig);
@@ -1048,6 +1137,8 @@ function makeAst(opts: {
     row: number;
     isDefault?: boolean;
     defaultVal?: unknown;
+    /** A multi-value rule: `deny contains msg if ...`. */
+    multiValue?: boolean;
     body?: Array<{ row: number; col?: number; text: string }>;
   }>;
 }): object {
@@ -1056,7 +1147,11 @@ function makeAst(opts: {
       path: [{ value: 'data' }, { value: opts.pkgName }],
     },
     rules: opts.rules.map((r) => ({
-      head: r.isDefault ? { name: r.name, value: { value: r.defaultVal } } : { name: r.name },
+      head: r.isDefault
+        ? { name: r.name, value: { value: r.defaultVal } }
+        : r.multiValue
+          ? { name: r.name, key: { type: 'var', value: 'msg' } }
+          : { name: r.name },
       ...(r.isDefault ? { default: true } : {}),
       body: (r.body ?? []).map((e) => ({
         location: { file: '<inline>', row: e.row, col: e.col ?? 3, text: b64(e.text) },
@@ -1093,10 +1188,103 @@ describe('rego_explain_undefined', () => {
     expect(env.ok).toBe(true);
     expect(env.data?.queryResult).toBe('defined');
     expect(env.data?.value).toBe(true);
-    expect(env.data?.rulesFound).toBe(0);
+    expect(env.data?.rulesFound).toBe(1);
     // No trace eval and no condition evals: the parse is only there to rule
     // out a default having supplied the value.
     expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('explains a multi-value rule that holds nothing as empty, not defined', async () => {
+    // deny contains "guest write" if { input.user.role == "guest"; ... } for a dev.
+    mockRun
+      .mockResolvedValueOnce(
+        spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: [] }] }] })),
+      )
+      .mockResolvedValueOnce(
+        spawnSuccess(
+          JSON.stringify(
+            makeAst({
+              pkgName: 'authz',
+              rules: [
+                {
+                  name: 'deny',
+                  row: 3,
+                  multiValue: true,
+                  body: [{ row: 4, text: 'input.user.role == "guest"' }],
+                },
+              ],
+            }),
+          ),
+        ),
+      )
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: [] })))
+      // The condition evaluated on its own does not hold.
+      .mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      queryResult: string;
+      value: unknown;
+      summary: string;
+      rules: Array<{ blockingCondition: { text: string } | null }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.authz.deny',
+      source: 'package authz\n\ndeny contains "guest write" if input.user.role == "guest"\n',
+      input: { user: { role: 'dev' } },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.queryResult).toBe('empty');
+    expect(env.data?.value).toEqual([]);
+    expect(env.data?.summary).toMatch(/is empty because no definition added an element/);
+    expect(env.data?.rules[0]?.blockingCondition?.text).toBe('input.user.role == "guest"');
+  });
+
+  it('refuses source together with paths', async () => {
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.rbac.allow',
+      source: 'package rbac\n\nallow if true\n',
+      paths: [fixturePath('policies', 'valid', 'rbac.rego')],
+    });
+    expect(env.error?.code).toBe('INVALID_INPUT');
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+
+  it('walks a directory and parses only the modules of the queried package', async () => {
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess('{}'))
+      .mockResolvedValueOnce(
+        spawnSuccess(
+          JSON.stringify(
+            makeAst({
+              pkgName: 'rbac',
+              rules: [
+                { name: 'allow', row: 5, body: [{ row: 6, text: 'input.user.role == "admin"' }] },
+              ],
+            }),
+          ),
+        ),
+      )
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ explanation: [] })))
+      .mockResolvedValueOnce(spawnSuccess('{}'));
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool<{
+      queryResult: string;
+      rulesFound: number;
+      rules: Array<{ location: { file: string } }>;
+    }>(server, 'rego_explain_undefined', {
+      query: 'data.rbac.allow',
+      paths: [fixturePath('policies', 'valid')],
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.queryResult).toBe('undefined');
+    expect(env.data?.rulesFound).toBe(1);
+    expect(env.data?.rules[0]?.location.file).toMatch(/rbac\.rego$/);
+    // http_authz.rego declares another package, so it is never parsed.
+    const parses = mockRun.mock.calls.filter((c) => c[1].args[0] === 'parse');
+    expect(parses).toHaveLength(1);
   });
 
   it('returns queryResult: undefined with rulesFound: 0 when no source or paths provided', async () => {
@@ -1118,7 +1306,7 @@ describe('rego_explain_undefined', () => {
     expect(mockRun).toHaveBeenCalledTimes(2);
   });
 
-  it('returns EVAL_ERROR when the plain eval exits non-zero', async () => {
+  it('returns INVALID_REGO when the policy does not compile, as rego_eval does', async () => {
     mockRun.mockResolvedValueOnce(spawnFailure(1, '{"errors": [{"code": "rego_parse_error"}]}'));
     const server = makeServer();
     registerHelperTools(server, baseConfig);
@@ -1127,7 +1315,26 @@ describe('rego_explain_undefined', () => {
       source: 'broken policy',
     });
     expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_REGO');
+  });
+
+  it('returns EVAL_ERROR when the policy fails while it runs', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '',
+        '{"errors": [{"code": "eval_conflict_error", "message": "complete rules must not produce multiple outputs"}]}',
+      ),
+    );
+    const server = makeServer();
+    registerHelperTools(server, baseConfig);
+    const env = await callTool(server, 'rego_explain_undefined', {
+      query: 'data.authz.allow',
+      source: 'package authz\n\nallow := 1\n\nallow := 2\n',
+    });
+    expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.hint).toMatch(/failed while it ran/);
   });
 
   it('returns OPA_BINARY_NOT_FOUND when opa is unreachable', async () => {
@@ -1731,7 +1938,7 @@ describe('rego_explain_undefined', () => {
     );
     expect(env.data?.queryResult).toBe('defined');
     expect(env.data?.value).toBe(true);
-    expect(env.data?.rulesFound).toBe(0);
+    expect(env.data?.rulesFound).toBe(1);
     expect(mockRun).toHaveBeenCalledTimes(2);
   });
 

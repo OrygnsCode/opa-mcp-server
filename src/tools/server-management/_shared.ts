@@ -14,6 +14,7 @@ import {
   OpaUrlCredentialsError,
 } from '../../lib/opa-client.js';
 import type { ToolEnvelope, ToolErrorCode } from '../../types.js';
+import { mentionsPreV1 } from '../_rego-version.js';
 
 /**
  * Split a user-supplied OPA data path into its key segments.
@@ -157,4 +158,31 @@ export function mapOpaClientError(
     return err('UNKNOWN_ERROR', message);
   }
   return err('UNKNOWN_ERROR', message, { details: { value: e } });
+}
+
+/**
+ * A policy OPA refused to compile: HTTP 400 carrying OPA's error list.
+ * Reported as INVALID_REGO with those errors, where it was UNKNOWN_ERROR.
+ */
+export function compileFailure(e: unknown): ToolEnvelope<never> | undefined {
+  if (!(e instanceof OpaHttpError) || e.status !== 400) return undefined;
+  const body = e.body as
+    { message?: unknown; errors?: Array<{ code?: unknown; message?: unknown }> } | undefined;
+  const errors = Array.isArray(body?.errors) ? body.errors : [];
+  if (!errors.some((x) => typeof x.code === 'string' && x.code.startsWith('rego_'))) {
+    return undefined;
+  }
+  const preV1 = mentionsPreV1(...errors.map((x) => x.message));
+  return err(
+    'INVALID_REGO',
+    typeof body?.message === 'string' ? body.message : 'OPA could not compile the policy.',
+    {
+      ...(preV1
+        ? {
+            hint: 'This looks like Rego v0, the syntax before OPA 1.0, which the server reads as v1. Convert it with rego_migrate_v1, or start the server with --v0-compatible.',
+          }
+        : {}),
+      details: { errors },
+    },
+  );
 }

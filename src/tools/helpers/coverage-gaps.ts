@@ -20,7 +20,8 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
+import { COMPILE_ERROR_TEXT } from '../evaluation/_shared.js';
 
 const RegoCoverageGapsInput = {
   paths: z
@@ -165,10 +166,25 @@ export function registerRegoCoverageGaps(server: McpServer, config: Config): voi
         const { testRecords, coverageReport } = parseTestAndCoverage(result.stdout);
 
         if (!coverageReport) {
+          // Policies that do not compile never reach the tests; rego_test
+          // reports that as INVALID_REGO too.
+          if (result.exitCode !== 0 && COMPILE_ERROR_TEXT.test(result.stderr)) {
+            return err(
+              'INVALID_REGO',
+              'opa test could not load the policies under the provided paths.',
+              {
+                hint:
+                  !v0Compatible && mentionsPreV1(result.stderr)
+                    ? PRE_V1_HINT
+                    : 'Fix the reported policy errors, then re-run.',
+                details: { stderr: result.stderr.trim() },
+              },
+            );
+          }
           if (result.exitCode !== 0) {
             return err(
               'EVAL_ERROR',
-              'opa test reported failures or a compile error; coverage is only emitted when all tests pass. Fix the failing tests or policy errors first.',
+              'opa test reported failures; coverage is only emitted when all tests pass. Fix the failing tests first.',
               { details: { stderr: result.stderr.trim() } },
             );
           }

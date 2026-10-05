@@ -5,7 +5,7 @@
  * `validatePath` to prevent reading or writing outside the
  * agreed-upon roots.
  */
-import { lstatSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 import { err } from './errors.js';
@@ -93,6 +93,24 @@ function realLocation(p: string): RealLocation {
 }
 
 /**
+ * A Windows drive path spelled the way Git Bash, Cygwin or WSL write it:
+ * `/c/Users/x`, `/cygdrive/c/Users/x`, `/mnt/c/Users/x`. Node on Windows reads
+ * `/c/Users/x` as `\c\Users\x` on the current drive, which is never what an
+ * agent running in one of those shells meant, so it was refused as outside
+ * the allowed roots. Returns the drive spelling (`C:\Users\x`), or the path
+ * unchanged off Windows, for any other shape, and when a real top-level folder
+ * of that name exists on the current drive.
+ */
+export function windowsDrivePath(inputPath: string): string {
+  if (!WINDOWS) return inputPath;
+  const m = /^\/(cygdrive\/|mnt\/)?([a-zA-Z])(?:\/(.*))?$/.exec(inputPath);
+  if (!m) return inputPath;
+  const top = m[1] !== undefined ? m[1].slice(0, -1) : m[2]!;
+  if (existsSync(resolve(`/${top}`))) return inputPath;
+  return `${m[2]!.toUpperCase()}:\\${(m[3] ?? '').replace(/\//g, '\\')}`;
+}
+
+/**
  * Resolve `inputPath` and confirm it is contained within at least one
  * `allowedRoots` entry. Returns the resolved absolute path on success.
  *
@@ -129,6 +147,7 @@ export function validatePath(
     };
   }
 
+  inputPath = windowsDrivePath(inputPath);
   const resolved = isAbsolute(inputPath) ? resolve(inputPath) : resolve(process.cwd(), inputPath);
   const resolvedRoots = allowedRoots.map((r) => resolve(r));
   const outsideHint =

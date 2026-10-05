@@ -15,26 +15,51 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../../config.js';
 import { ok } from '../../lib/errors.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
+import { REMEDIATION_HINTS } from './security-audit.js';
 
+// rego_check errors carry `code` and `message`; Regal violations, as
+// rego_lint returns them, carry `title` and `description` instead. Both are
+// taken as they come: requiring `code` and `message` refused rego_lint's own
+// output.
 const RegoSuggestFixInput = {
   diagnostics: z
     .array(
-      z.object({
-        code: z.string().describe('Diagnostic code (e.g. "rego_unsafe_var_error").'),
-        message: z.string().describe('Diagnostic message.'),
-        location: z
-          .object({
-            file: z.string().optional(),
-            row: z.number().optional(),
-            col: z.number().optional(),
-          })
-          .optional(),
-        title: z.string().optional().describe('Title (Regal violations).'),
-        category: z.string().optional().describe('Category (Regal violations).'),
-      }),
+      z
+        .object({
+          code: z
+            .string()
+            .optional()
+            .describe('Error code from rego_check, e.g. "rego_unsafe_var_error".'),
+          message: z.string().optional().describe('Error message from rego_check.'),
+          title: z
+            .string()
+            .optional()
+            .describe('Rule name of a rego_lint violation, e.g. "not-equals-in-loop".'),
+          description: z.string().optional().describe('Description of a rego_lint violation.'),
+          category: z.string().optional().describe('Category of a rego_lint violation.'),
+          level: z.string().optional().describe('Level of a rego_lint violation.'),
+          location: z
+            .object({
+              file: z.string().optional(),
+              row: z.number().optional(),
+              col: z.number().optional(),
+              text: z.string().optional(),
+            })
+            .optional(),
+          related_resources: z
+            .array(z.object({ description: z.string().optional(), ref: z.string().optional() }))
+            .optional()
+            .describe('Documentation links of a rego_lint violation.'),
+        })
+        .refine((d) => d.code !== undefined || d.title !== undefined, {
+          message:
+            'Each diagnostic needs a `code` (from rego_check) or a `title` (from rego_lint).',
+        }),
     )
     .min(1)
-    .describe('Diagnostics from rego_check or rego_lint.'),
+    .describe(
+      'Diagnostics as rego_check or rego_lint return them: `errors` or `violations`, unchanged.',
+    ),
 };
 
 interface FixSuggestion {
@@ -43,6 +68,8 @@ interface FixSuggestion {
   suggestion: string;
   confidence: 'high' | 'medium' | 'low';
   patch?: string;
+  /** The Regal rule's documentation, for a lint violation. */
+  docs?: string;
 }
 
 const KNOWN_FIXES: Array<{
@@ -106,7 +133,7 @@ const KNOWN_FIXES: Array<{
     match: (code) => code === 'directory-package-mismatch',
     suggest: () => ({
       suggestion:
-        'The Rego file lives in a directory that does not match its `package` declaration. Move the file or rename the package so they agree (e.g., `package foo.bar` belongs in `foo/bar/`).',
+        'The Rego file lives in a directory that does not match its `package` declaration (`package foo.bar` belongs in `foo/bar/`). If the layout is intentional, disable the rule (`disable: ["directory-package-mismatch"]`) rather than moving files that other tooling may expect where they are.',
       confidence: 'high',
     }),
   },
@@ -122,7 +149,7 @@ export function registerRegoSuggestFix(server: McpServer, config: Config): void 
     {
       title: 'Suggest fix for Rego diagnostics',
       description:
-        'Map common Rego compile errors and Regal lint findings to mechanical fix suggestions. Pass diagnostics from `rego_check` or `rego_lint`. Returns one suggestion per input diagnostic; confidence is `high` for well-known patterns, `medium` for partial matches, `low` for everything else.',
+        "Map common Rego compile errors and Regal lint findings to fix suggestions. Pass `errors` from `rego_check` or `violations` from `rego_lint` unchanged. Returns one suggestion per diagnostic; confidence is `high` for well-known patterns, `medium` where the answer is the rule's documentation (`docs`), `low` for everything else.",
       inputSchema: RegoSuggestFixInput,
       annotations: {
         readOnlyHint: true,
@@ -135,18 +162,34 @@ export function registerRegoSuggestFix(server: McpServer, config: Config): void 
       return withToolEnvelope<RegoSuggestFixOutput>(config, () => {
         const suggestions: FixSuggestion[] = diagnostics.map((diag) => {
           const code = diag.code || diag.title || '';
-          const matched = KNOWN_FIXES.find((f) => f.match(code, diag.message));
-          if (matched) {
-            const partial = matched.suggest(diag.message);
+          const message = diag.message || diag.description || '';
+          const docs = diag.related_resources?.find((r) => r.ref)?.ref;
+          const linked = docs !== undefined ? { docs } : {};
+          const matched = KNOWN_FIXES.find((f) => f.match(code, message));
+          if (matched) return { code, message, ...matched.suggest(message), ...linked };
+          // A Regal rule in the bugs category: the audit's remediation text.
+          const remediation = REMEDIATION_HINTS[code];
+          if (remediation !== undefined) {
             return {
               code,
-              message: diag.message,
-              ...partial,
+              message,
+              suggestion: remediation,
+              confidence: 'high' as const,
+              ...linked,
+            };
+          }
+          if (docs !== undefined) {
+            return {
+              code,
+              message,
+              suggestion: `Regal's documentation for \`${code}\` shows the problem and the fix: ${docs}. rego_fix corrects some rules automatically; run it with \`dryRun: true\` to see which.`,
+              confidence: 'medium' as const,
+              docs,
             };
           }
           return {
             code,
-            message: diag.message,
+            message,
             suggestion:
               'No automated suggestion available for this diagnostic. Read the message text and the location for context -- most Rego errors have an obvious mechanical fix once the trigger is identified.',
             confidence: 'low' as const,

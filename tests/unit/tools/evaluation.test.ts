@@ -189,6 +189,32 @@ describe('rego_eval', () => {
     expect(args[args.length - 1]).toBe('1 + 1');
   });
 
+  it('says whether the result is defined and returns what print() wrote', async () => {
+    // opa sends print() output to stderr; the query was undefined for this input.
+    mockRun.mockResolvedValueOnce(spawnSuccess('{}', 'x is 2\n'));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ defined?: boolean; printed?: string[] }>(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+      input: { x: 2 },
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data?.defined).toBe(false);
+    expect(env.data?.printed).toEqual(['x is 2']);
+
+    mockRun.mockResolvedValueOnce(
+      spawnSuccess(JSON.stringify({ result: [{ expressions: [{ value: false }] }] })),
+    );
+    const decided = await callTool<{ defined?: boolean; printed?: string[] }>(server, 'rego_eval', {
+      query: 'data.rbac.allow',
+      paths: [validRegoPath()],
+    });
+    // false is a value; only an empty result is undefined.
+    expect(decided.data?.defined).toBe(true);
+    expect(decided.data?.printed).toBeUndefined();
+  });
+
   it('says so when a data query comes back undefined with nothing loaded', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess('{}'));
     const server = makeServer();
@@ -304,6 +330,7 @@ describe('rego_eval batch', () => {
   interface BatchOut {
     batch: Array<{
       index: number;
+      defined?: boolean;
       result?: unknown[];
       partial?: unknown;
       error?: { code: string };
@@ -337,6 +364,7 @@ describe('rego_eval batch', () => {
     expect(env.data?.batch[1]!.result).toEqual(JSON.parse(resultFor(false)).result);
     // Undefined for that input: an empty result rather than a missing one.
     expect(env.data?.batch[2]!.result).toEqual([]);
+    expect(env.data?.batch.map((e) => e.defined)).toEqual([true, true, false]);
     expect(env.data?.errorCount).toBe(0);
     for (const call of mockRun.mock.calls) {
       expect(call[1].args).toContain('--stdin-input');
@@ -500,8 +528,51 @@ describe('rego_eval batch', () => {
       inputs: Array.from({ length: 12 }, (_, i) => ({ i })),
     });
     expect(env.ok).toBe(false);
-    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.code).toBe('INVALID_REGO');
     expect(mockRun.mock.calls.length).toBeLessThan(12);
+  });
+
+  it('reports a v0 policy as INVALID_REGO with the v0 hint, a runtime error as EVAL_ERROR', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '',
+        JSON.stringify({
+          errors: [
+            { code: 'rego_parse_error', message: '`if` keyword is required before rule body' },
+          ],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const v0 = await callTool(server, 'rego_eval', {
+      query: 'data.p.allow',
+      source: 'package p\n\nallow {\n\ttrue\n}\n',
+    });
+    expect(v0.error?.code).toBe('INVALID_REGO');
+    expect(v0.error?.hint).toMatch(/v0Compatible: true.*rego_migrate_v1/);
+
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '',
+        JSON.stringify({
+          errors: [
+            {
+              code: 'eval_conflict_error',
+              message: 'complete rules must not produce multiple outputs',
+            },
+          ],
+        }),
+      ),
+    );
+    const runtime = await callTool(server, 'rego_eval', {
+      query: 'data.p.allow',
+      source: 'package p',
+    });
+    expect(runtime.error?.code).toBe('EVAL_ERROR');
+    expect(runtime.error?.hint).toBeUndefined();
   });
 
   it('starts no more inputs after a timeout, and keeps the results it has', async () => {
@@ -1048,6 +1119,25 @@ describe('rego_test', () => {
     expect(env.error?.message).toContain('FAIL');
   });
 
+  it('returns INVALID_REGO in coverage mode when the policies do not compile', async () => {
+    // As without coverage: opa never reached the tests.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        '1 error occurred: policy.rego:3: rego_parse_error: unexpected eof token',
+        '',
+      ),
+    );
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool(server, 'rego_test', {
+      paths: [validRegoPath()],
+      coverage: true,
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_REGO');
+  });
+
   it('rejects threshold values outside 0-100', async () => {
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
@@ -1508,7 +1598,8 @@ describe('rego_bench', () => {
       query: 'data.x ==',
       paths: [validRegoPath()],
     });
-    expect(env.error?.code).toBe('EVAL_ERROR');
+    // A query that does not compile is INVALID_REGO, as rego_eval reports it.
+    expect(env.error?.code).toBe('INVALID_REGO');
     expect(JSON.stringify(env.error?.details)).toContain('rego_parse_error');
   });
 

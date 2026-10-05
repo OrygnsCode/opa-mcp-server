@@ -10,6 +10,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { RegalCli } from '../../lib/regal-cli.js';
+import { regalParseError, regalParseFailure } from '../../lib/regal-errors.js';
 import { err, ok } from '../../lib/errors.js';
 import {
   INLINE_TEMP_PATH_PATTERN,
@@ -142,6 +143,8 @@ export function registerRegoLint(server: McpServer, config: Config): void {
 
         const parsed = tryParseJson<RegoLintOutput>(result.stdout);
         if (!parsed) {
+          const parseFailure = regalParseFailure(result.stderr);
+          if (parseFailure) return regalParseError(parseFailure);
           return err('UNKNOWN_ERROR', 'regal lint produced no parseable JSON output.', {
             details: sanitizeInlinePathsDeep({
               stderr: result.stderr.trim(),

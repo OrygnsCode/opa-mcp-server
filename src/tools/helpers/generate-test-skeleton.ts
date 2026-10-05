@@ -119,7 +119,7 @@ function stubParts(
         : {
             reference: ruleRef,
             expected: 'null',
-            note: '# Value rule with a computed head: nothing could be inferred to assert, so this\n# is a todo_test_ that opa test skips. Fill in the expected value and rename it test_.',
+            note: '# Value rule with a computed head: nothing could be inferred to assert. Write the\n# expected value as a comparison.',
           };
     case 'boolean':
       return {
@@ -238,13 +238,14 @@ function shapeToRegoLiteral(shape: InputShape): string {
 }
 
 /**
- * A computed head gives the generator nothing to assert against, so its stub
- * is a `todo_test_` rule: opa test reports it as skipped rather than passing
- * a placeholder, and the name says what is left to do.
+ * Every stub is a `todo_test_` rule until someone fills it in. A placeholder
+ * input with a placeholder expectation can pass as written (an empty input
+ * against `set()` does for most deny rules), so a generated file reported a
+ * passing suite that tested nothing. opa test reports a `todo_test_` rule as
+ * skipped and exits non-zero, and the name says what is left to do.
  */
-function isTodo(shape: RuleKind): boolean {
-  return shape.kind === 'value' && shape.literal === undefined;
-}
+const TODO_NOTE =
+  '# todo_test_: opa test skips this and exits non-zero until you put a realistic input and\n# the expected value in it and rename it test_.';
 
 function makeTableSkeleton(packageName: string, rules: RuleStub[], inputShape: InputShape): string {
   const lines: string[] = [];
@@ -258,12 +259,13 @@ function makeTableSkeleton(packageName: string, rules: RuleStub[], inputShape: I
   const inputLiteral = shapeToRegoLiteral(inputShape);
   for (const { name, shape } of rules) {
     const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
-    const testName = `${isTodo(shape) ? 'todo_test_' : 'test_'}${safeName}`;
+    const testName = `todo_test_${safeName}`;
     const ruleRef = packageName ? `data.${packageName}.${name}` : `data.${name}`;
     const { reference, expected, note } = stubParts(ruleRef, shape);
     const casesVar = `${safeName}_cases`;
     lines.push(`# TODO: add test cases -- one object per scenario.`);
     lines.push(note);
+    lines.push(TODO_NOTE);
     lines.push(`${casesVar} := [`);
     lines.push(`\t{`);
     lines.push(`\t\t"description": "TODO: describe what this case tests",`);
@@ -295,11 +297,12 @@ function makeSkeleton(packageName: string, rules: RuleStub[], inputShape: InputS
   const inputLiteral = shapeToRegoLiteral(inputShape);
   for (const { name, shape } of rules) {
     const safeName = name.replace(/[^a-zA-Z0-9_]/g, '_');
-    const testName = `${isTodo(shape) ? 'todo_test_' : 'test_'}${safeName}`;
+    const testName = `todo_test_${safeName}`;
     const ruleRef = packageName ? `data.${packageName}.${name}` : `data.${name}`;
     const { reference, expected, note } = stubParts(ruleRef, shape);
     lines.push(`# TODO: replace the placeholder input and expected value with a realistic case.`);
     lines.push(note);
+    lines.push(TODO_NOTE);
     lines.push(`${testName} if {`);
     lines.push(`\tactual := ${reference} with input as ${inputLiteral}`);
     // A computed head has no typed placeholder; `!= null` type-checks for any
@@ -323,7 +326,7 @@ export function registerRegoGenerateTestSkeleton(server: McpServer, config: Conf
     {
       title: 'Generate Rego test skeleton',
       description:
-        'Generate a `*_test.rego` skeleton from a policy. Parses the AST, finds each non-test rule, and emits one stub test per rule. Existing `test_*` and `todo_test_*` rules are skipped automatically -- only production rules get stubs, and a value rule whose head is computed gets a `todo_test_` stub, which `opa test` reports as skipped until its expected value is filled in and it is renamed `test_`. The AST is walked to infer which `input.*` fields the policy accesses; the inferred shape is used as the placeholder `with input as {...}` in each stub, so the developer only needs to fill in realistic values rather than guess the structure. With `tableStyle: true`, each stub uses an `every tc in cases { ... }` loop so you can add multiple input/expected pairs without duplicating assertion code. The `inferredInputShape` field in the response shows the detected shape for reference.',
+        'Generate a `*_test.rego` skeleton from a policy. Parses the AST, finds each non-test rule, and emits one stub test per rule. Existing `test_*` and `todo_test_*` rules are skipped automatically -- only production rules get stubs. Every stub is a `todo_test_` rule, which `opa test` reports as skipped (and exits non-zero for) until a realistic input and the expected value are filled in and it is renamed `test_`: a placeholder input against a placeholder expectation would otherwise pass while testing nothing. The AST is walked to infer which `input.*` fields the policy accesses; the inferred shape is used as the placeholder `with input as {...}` in each stub, so the developer only needs to fill in realistic values rather than guess the structure. With `tableStyle: true`, each stub uses an `every tc in cases { ... }` loop so you can add multiple input/expected pairs without duplicating assertion code. The `inferredInputShape` field in the response shows the detected shape for reference.',
       inputSchema: RegoGenerateTestSkeletonInput,
       annotations: {
         readOnlyHint: true,

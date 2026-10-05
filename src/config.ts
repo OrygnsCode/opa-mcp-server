@@ -111,9 +111,10 @@ const ConfigSchema = z.object({
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   /**
-   * Maximum size in bytes for tool response payloads before truncation.
-   * Larger payloads are truncated with `truncated: true` and a hint to
-   * write to a file path the agent specifies.
+   * Maximum size in bytes of a serialized tool response. A larger one is
+   * marked `truncated: true`: a tool that can cut its least useful part does
+   * (an explain tool cuts its trace), and otherwise the data is replaced by a
+   * marker giving the size and how to narrow the call.
    */
   maxResponseBytes: z.coerce
     .number()

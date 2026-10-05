@@ -15,6 +15,17 @@ import { z } from 'zod';
 export const PRE_V1_ERRORS =
   /`(if|contains)` keyword is required|deprecated built-in function calls/;
 
+/** What to do about a policy that failed for being pre-1.0 Rego. */
+export const PRE_V1_HINT =
+  'This looks like Rego v0, the syntax before OPA 1.0. Pass `v0Compatible: true` to read it as v0, or convert it with rego_migrate_v1.';
+
+/** Whether any of these diagnostics (strings, or objects with a message) is a pre-1.0 failure. */
+export function mentionsPreV1(...diagnostics: unknown[]): boolean {
+  return diagnostics.some((d) =>
+    PRE_V1_ERRORS.test(typeof d === 'string' ? d : JSON.stringify(d ?? '')),
+  );
+}
+
 export const v0CompatibleField = z
   .boolean()
   .optional()

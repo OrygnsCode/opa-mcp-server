@@ -98,7 +98,7 @@ describe('rego_bench with a repeat count', () => {
     // built from stderr alone said nothing at all.
     const env = await bench({ query: 'data.b.allow ==' });
     expect(env.ok).toBe(false);
-    expect(env.error?.code).toBe('EVAL_ERROR');
+    expect(env.error?.code).toBe('INVALID_REGO');
     expect(JSON.stringify(env.error?.details)).toContain('rego_parse_error');
   }, 60_000);
 });

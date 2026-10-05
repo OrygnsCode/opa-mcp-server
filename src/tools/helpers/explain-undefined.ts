@@ -1,7 +1,8 @@
 /**
  * `rego_explain_undefined` -- determine why a Rego query produces no
- * value by combining a plain eval, a full-trace eval, and per-condition
- * AST analysis.
+ * value, falls back to its default, or (for a multi-value rule such as
+ * `deny contains msg if ...`) comes back empty, by combining a plain eval,
+ * a full-trace eval, and per-condition AST analysis.
  *
  * Three information sources are fused:
  *  1. Plain `opa eval` -- determines whether the result is defined at all.
@@ -27,6 +28,7 @@ import type { Config } from '../../config.js';
 import type { ToolEnvelope } from '../../types.js';
 import { err, ok } from '../../lib/errors.js';
 import { OpaCli } from '../../lib/opa-cli.js';
+import { declaredPackage, expandRegoPaths } from '../../lib/rego-files.js';
 import {
   mapSubprocessFailure,
   sanitizeInlinePath,
@@ -34,7 +36,8 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
+import { compileErrors } from '../evaluation/_shared.js';
 
 // ─── Input schema ───────────────────────────────────────────────────────────
 
@@ -53,7 +56,9 @@ const RegoExplainUndefinedInput = {
   paths: z
     .array(z.string())
     .optional()
-    .describe('Policy .rego file paths to load. Mutually exclusive with source.'),
+    .describe(
+      'Policy and data paths to load, as for rego_eval: .rego files, data files, or directories (walked for .rego files). Mutually exclusive with source.',
+    ),
   input: z.unknown().optional().describe('Input document (JSON value) for the query.'),
   inputPath: z.string().optional().describe('Path to an input JSON file.'),
   v0Compatible: v0CompatibleField,
@@ -71,6 +76,8 @@ interface AstLoc {
 interface AstHead {
   name?: string;
   ref?: Array<{ value?: unknown }>;
+  /** Set on a multi-value rule: `deny contains msg`, `obj[k] := v`. */
+  key?: unknown;
   value?: { value?: unknown };
 }
 
@@ -139,16 +146,20 @@ export interface RegoExplainUndefinedOutput {
    * Whether the query produced a value.
    *
    * `default` means it produced one only because a `default` rule supplied it:
-   * no other definition of the rule matched. The per-rule breakdown says why,
-   * which is the same question `undefined` asks.
+   * no other definition of the rule matched. `empty` means a multi-value rule
+   * (`deny contains msg if ...`) holds no element: none of its definitions
+   * matched. For both, the per-rule breakdown says why, which is the same
+   * question `undefined` asks.
    */
-  queryResult: 'undefined' | 'defined' | 'default';
-  /** Present when queryResult is "defined" or "default". */
+  queryResult: 'undefined' | 'defined' | 'default' | 'empty';
+  /** Present when queryResult is "defined", "default" or "empty". */
   value?: unknown;
   /** Human-readable explanation. */
   summary: string;
   /** Number of non-default rule definitions matched. */
   rulesFound: number;
+  /** Set when not every module could be parsed for the per-rule analysis. */
+  note?: string;
   /** Value from the default rule, if one was found. */
   defaultValue?: unknown;
   /** Per-rule breakdown. */
@@ -345,6 +356,15 @@ async function evalPrefixStandalone(
 }
 
 /** Structural equality, enough for the scalars and small literals a default holds. */
+/** An empty set, array or object: what a multi-value rule with no matching definition gives. */
+function isEmptyCollection(v: unknown): boolean {
+  if (Array.isArray(v)) return v.length === 0;
+  return typeof v === 'object' && v !== null && Object.keys(v).length === 0;
+}
+
+/** Most modules parsed for the per-rule analysis; each parse is an `opa` process. */
+const MAX_PARSED_MODULES = 200;
+
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
@@ -356,11 +376,14 @@ function buildSummary(
   rules: RuleAnalysis[],
   defaultValue: unknown,
   viaDefault: boolean,
+  empty = false,
 ): string {
   const lines: string[] = [];
   const state = viaDefault
     ? `falls back to its default value ${JSON.stringify(defaultValue)} because no other definition matched`
-    : 'is undefined';
+    : empty
+      ? 'is empty because no definition added an element'
+      : 'is undefined';
 
   if (rules.length === 0) {
     lines.push(`${query} ${state}: no matching rules found in the analysed source.`);
@@ -415,8 +438,11 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         'Handles both runtime failures (trace-based) and indexer elimination (standalone ' +
         'condition eval). A rule written with `default allow := false` always has a value, so ' +
         '`queryResult` reports `default` for it and the same per-rule breakdown follows: the ' +
-        'question "why is allow false" is the question this answers. Returns a structured ' +
-        'breakdown of which conditions blocked each rule plus a human-readable summary.',
+        'question "why is allow false" is the question this answers. A multi-value rule such as ' +
+        '`deny contains msg if ...` that holds no element reports `empty` with the same breakdown, ' +
+        'which answers "why was this not denied". Returns a structured breakdown of which ' +
+        'conditions blocked each rule plus a human-readable summary. `paths` may name ' +
+        'directories, which are searched for the modules that declare the queried package.',
       inputSchema: RegoExplainUndefinedInput,
       annotations: {
         readOnlyHint: false,
@@ -426,6 +452,15 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
     },
     async (args, { signal }) => {
       return withToolEnvelope<RegoExplainUndefinedOutput>(config, async () => {
+        // Evaluating both while analysing only the source explained a policy
+        // other than the one evaluated.
+        if (args.source !== undefined && args.paths?.length) {
+          return err(
+            'INVALID_INPUT',
+            '`source` and `paths` are mutually exclusive: pass the policy one way.',
+          );
+        }
+
         // ── Path validation ───────────────────────────────────────────────
         let resolvedPaths: string[] = [];
         if (args.paths?.length) {
@@ -459,10 +494,21 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
             tryParseJson<{ errors?: unknown }>(plainResult.stderr) ??
             tryParseJson(plainResult.stdout) ??
             plainResult.stderr;
-          return err('EVAL_ERROR', 'OPA evaluation failed.', {
-            details: { opaOutput: detail },
-            hint: 'Check for syntax errors or undefined references in the query or policy.',
-          });
+          const preV1 = !args.v0Compatible && mentionsPreV1(plainResult.stderr, plainResult.stdout);
+          // Not compiling is the caller's Rego to fix, as rego_eval reports it.
+          const compile = compileErrors((detail as { errors?: unknown } | undefined)?.errors);
+          return err(
+            compile ? 'INVALID_REGO' : 'EVAL_ERROR',
+            compile ? 'The policy or query does not compile.' : 'OPA evaluation failed.',
+            {
+              details: { opaOutput: detail },
+              hint: preV1
+                ? PRE_V1_HINT
+                : compile
+                  ? 'Check for syntax errors or undefined references in the query or policy.'
+                  : 'The policy failed while it ran; the error names the rule and line.',
+            },
+          );
         }
 
         const plainJson = tryParseJson<{ result?: unknown[] }>(plainResult.stdout);
@@ -474,6 +520,9 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
 
         // ── Step 2: parse AST(s) ──────────────────────────────────────────
         const asts: OpaAst[] = [];
+        /** The file each AST came from, index-aligned with asts; undefined for `source`. */
+        const astFiles: Array<string | undefined> = [];
+        let parseNote: string | undefined;
 
         if (args.source) {
           const pr = await opa.parse(
@@ -484,13 +533,26 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
           if (parseFailure) return parseFailure;
           if (pr.exitCode === 0) {
             const ast = tryParseJson<OpaAst>(pr.stdout);
-            if (ast) asts.push(ast);
+            if (ast) {
+              asts.push(ast);
+              astFiles.push(undefined);
+            }
           }
         } else if (resolvedPaths.length > 0) {
-          const regoFiles = resolvedPaths.filter((p) => p.endsWith('.rego'));
-          for (const filePath of regoFiles) {
+          // Directories are walked as opa walks them. Only modules declaring
+          // the queried package are parsed: each parse is an `opa` process.
+          const wanted = queryToPackageAndRule(args.query)?.packagePath;
+          let parsed = 0;
+          for (const filePath of await expandRegoPaths(resolvedPaths)) {
             try {
               const src = await readFile(filePath, 'utf8');
+              const declared = declaredPackage(src);
+              if (wanted !== undefined && declared !== undefined && declared !== wanted) continue;
+              if (parsed >= MAX_PARSED_MODULES) {
+                parseNote = `Analysed the first ${MAX_PARSED_MODULES} modules of the queried package; pass the module files to analyse others.`;
+                break;
+              }
+              parsed += 1;
               const pr = await opa.parse(
                 { source: src, includeLocations: true, v0Compatible: args.v0Compatible },
                 signal,
@@ -499,7 +561,11 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
               if (parseFailure) return parseFailure;
               if (pr.exitCode === 0) {
                 const ast = tryParseJson<OpaAst>(pr.stdout);
-                if (ast) asts.push(ast);
+                if (ast) {
+                  asts.push(ast);
+                  // Parsed from its text, so opa labels it inline; keep the real path.
+                  astFiles.push(filePath);
+                }
               }
             } catch {
               // Unreadable file; still usable for eval
@@ -513,8 +579,9 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         /** Package and imports of each matched rule, index-aligned with matchedRules. */
         const matchedPackages: string[] = [];
         const matchedImports: string[][] = [];
+        const matchedFiles: Array<string | undefined> = [];
 
-        for (const ast of asts) {
+        for (const [astIndex, ast] of asts.entries()) {
           const pkgPath = extractPackagePath(ast);
           if (queryParsed && pkgPath !== queryParsed.packagePath) continue;
           for (const rule of ast.rules ?? []) {
@@ -523,6 +590,7 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
               matchedRules.push(rule);
               matchedPackages.push(pkgPath);
               matchedImports.push(moduleImports(ast));
+              matchedFiles.push(astFiles[astIndex]);
             }
           }
         }
@@ -537,12 +605,23 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
           defaultRule !== undefined &&
           deepEqual(defaultRule.head?.value?.value, definedValue);
 
-        if (isDefined && !viaDefault) {
+        // A multi-value rule is defined even when no definition matched: it is
+        // the empty set. That is the "why was this not denied" question, so it
+        // gets the same breakdown.
+        const empty =
+          isDefined &&
+          !viaDefault &&
+          matchedRules.length > 0 &&
+          matchedRules.every((r) => r.default === true || r.head?.key !== undefined) &&
+          isEmptyCollection(definedValue);
+
+        if (isDefined && !viaDefault && !empty) {
           return ok<RegoExplainUndefinedOutput>({
             queryResult: 'defined',
             value: definedValue,
             summary: `${args.query} is defined with value: ${JSON.stringify(definedValue)}.`,
-            rulesFound: 0,
+            rulesFound: matchedRules.filter((r) => r.default !== true).length,
+            ...(parseNote !== undefined ? { note: parseNote } : {}),
             rules: [],
           });
         }
@@ -562,7 +641,7 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         for (let ruleIndex = 0; ruleIndex < matchedRules.length; ruleIndex++) {
           const rule = matchedRules[ruleIndex]!;
           const location = {
-            file: sanitizeInlinePath(rule.location?.file ?? ''),
+            file: matchedFiles[ruleIndex] ?? sanitizeInlinePath(rule.location?.file ?? ''),
             row: rule.location?.row ?? 0,
             col: rule.location?.col ?? 0,
           };
@@ -696,13 +775,14 @@ export function registerRegoExplainUndefined(server: McpServer, config: Config):
         }
 
         const nonDefaultRules = rules.filter((r) => !r.isDefault);
-        const summary = buildSummary(args.query, nonDefaultRules, defaultValue, viaDefault);
+        const summary = buildSummary(args.query, nonDefaultRules, defaultValue, viaDefault, empty);
 
         return ok<RegoExplainUndefinedOutput>({
-          queryResult: viaDefault ? 'default' : 'undefined',
-          ...(viaDefault ? { value: definedValue } : {}),
+          queryResult: viaDefault ? 'default' : empty ? 'empty' : 'undefined',
+          ...(viaDefault || empty ? { value: definedValue } : {}),
           summary,
           rulesFound: nonDefaultRules.length,
+          ...(parseNote !== undefined ? { note: parseNote } : {}),
           defaultValue,
           rules,
         });

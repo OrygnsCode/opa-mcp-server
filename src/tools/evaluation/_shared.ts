@@ -19,7 +19,7 @@ import {
   validatePaths,
 } from '../../lib/tool-helpers.js';
 import type { ToolEnvelope } from '../../types.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
 
 /** Common input fields shared across rego_eval and its variants. */
 export const SharedEvalInput = {
@@ -52,6 +52,12 @@ export const SharedEvalInput = {
 };
 
 export interface RegoEvalOutput {
+  /**
+   * Whether the query produced a value. Absent for a partial evaluation. An
+   * undefined result is not `false`: a rule with no `default` that matched
+   * nothing is undefined, which opa reports as an empty object.
+   */
+  defined?: boolean;
   result?: unknown[];
   /** The residual of a partial evaluation, in place of `result`. */
   partial?: unknown;
@@ -60,6 +66,8 @@ export interface RegoEvalOutput {
   explanation?: unknown[];
   profile?: unknown[];
   coverage?: unknown;
+  /** Lines the policy wrote with `print()`, which opa sends to stderr. */
+  printed?: string[];
   /**
    * Present when the query came back undefined, referred to `data`, and no
    * policy or data was loaded: the undefined result then says nothing about
@@ -146,6 +154,25 @@ function prepareEval(
   return { ok: true, evalInput };
 }
 
+/**
+ * Whether OPA's `errors` say the policy or query does not compile: every one
+ * carries a `rego_*` code (parse, type, safety). A failure while evaluating
+ * carries an `eval_*` code instead.
+ */
+export function compileErrors(errors: unknown): boolean {
+  return (
+    Array.isArray(errors) &&
+    errors.length > 0 &&
+    errors.every((e) => {
+      const code = (e as { code?: unknown } | null)?.code;
+      return typeof code === 'string' && code.startsWith('rego_');
+    })
+  );
+}
+
+/** Text from `opa test` or another command that names a `rego_*` compile error. */
+export const COMPILE_ERROR_TEXT = /\brego_[a-z_]+_error\b/;
+
 /** Call `opa eval` and turn its output into the structured envelope. */
 async function executeEval(
   opa: OpaCli,
@@ -165,11 +192,23 @@ async function executeEval(
   if (result.exitCode !== 0) {
     // The diagnostics name the temp file the inline source was written to;
     // the success path already hides it, and the failure path must too.
-    return err('EVAL_ERROR', 'opa eval exited with an error.', {
-      details: sanitizeInlinePathsDeep(
-        parsed ?? { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
-      ),
-    });
+    const details = sanitizeInlinePathsDeep(
+      parsed ?? { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
+    );
+    const errors = (parsed as { errors?: Array<{ code?: unknown; message?: unknown }> } | undefined)
+      ?.errors;
+    // A policy or query that does not compile is the caller's Rego to fix, as
+    // opa_exec and the conftest tools report it; EVAL_ERROR stays for a
+    // failure at evaluation time.
+    const compile = compileErrors(errors);
+    const preV1 =
+      !evalInput.v0Compatible &&
+      mentionsPreV1(...(errors ?? []).map((e) => e.message), result.stderr);
+    return err(
+      compile ? 'INVALID_REGO' : 'EVAL_ERROR',
+      compile ? 'The policy or query does not compile.' : 'opa eval exited with an error.',
+      { ...(preV1 ? { hint: PRE_V1_HINT } : {}), details },
+    );
   }
 
   if (parsed === undefined) {
@@ -190,6 +229,12 @@ async function executeEval(
   if (parsed.profile) {
     parsed.profile = sanitizeInlinePathsDeep(parsed.profile) as unknown[];
   }
+
+  // `print()` writes to stderr on a successful run; dropping it hid the one
+  // debugging aid Rego has.
+  const printed = result.stderr.split(/\r?\n/).filter((line) => line.trim() !== '');
+  if (printed.length > 0) parsed.printed = sanitizeInlinePathsDeep(printed) as string[];
+  if (!evalInput.partial) parsed.defined = (parsed.result?.length ?? 0) > 0;
 
   // A query run with nothing loaded is how a built-in or an expression gets
   // tried out. The same call naming a rule is almost always a forgotten
@@ -231,8 +276,12 @@ const BATCH_CONCURRENCY = 4;
 export interface RegoEvalBatchEntry {
   /** Position of this input in `inputs`. */
   index: number;
+  /** Whether the query produced a value for this input. Absent for a partial evaluation. */
+  defined?: boolean;
   /** OPA's result for this input. Empty when the query was undefined for it. */
   result?: unknown[];
+  /** Lines the policy wrote with `print()` for this input. */
+  printed?: string[];
   /** For a partial evaluation, the residual for this input, in place of `result`. */
   partial?: unknown;
   /**
@@ -260,7 +309,7 @@ export interface RegoEvalBatchOutput {
  * not load, which OPA reports with no code at all.
  */
 function failsBatch(error: { code: string; details?: unknown }): boolean {
-  if (error.code === 'CANCELLED' || error.code === 'OPA_BINARY_NOT_FOUND') return true;
+  if (['CANCELLED', 'OPA_BINARY_NOT_FOUND', 'INVALID_REGO'].includes(error.code)) return true;
   if (error.code !== 'EVAL_ERROR') return false;
   const errors = (error.details as { errors?: Array<{ code?: unknown }> } | undefined)?.errors;
   const runtime =
@@ -336,7 +385,8 @@ export async function runEvalBatch(
         entries[index] =
           data.partial !== undefined
             ? { index, partial: data.partial }
-            : { index, result: data.result ?? [] };
+            : { index, defined: data.defined ?? false, result: data.result ?? [] };
+        if (data.printed !== undefined) entries[index].printed = data.printed;
         hint ??= data.hint;
         continue;
       }

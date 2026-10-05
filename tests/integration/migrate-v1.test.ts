@@ -8,6 +8,7 @@
  * a real binary can show.
  */
 import { readFileSync } from 'node:fs';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
@@ -223,6 +224,53 @@ describe('rego_migrate_v1 edge cases', () => {
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
     expect(env.data?.valid).toBe(true);
     expect(env.data?.equivalence?.identical).toBe(true);
+  });
+
+  it('notes when the result imports future.keywords.not', async () => {
+    const source = lines(
+      'package fut',
+      '',
+      'import future.keywords.not',
+      '',
+      'default allow = false',
+      '',
+      'allow {',
+      '\tnot startswith(input.role, "guest")',
+      '}',
+    );
+    const env = await migrate({ source, inputs: [{ role: 'admin' }, {}] });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.migrated).toMatch(/import future\.keywords\.not/);
+    expect(env.data?.notes.join(' ')).toMatch(/`future\.keywords\.not`.*Probe each rule/);
+  });
+
+  it('says a policy that reads data was compared with none, and loads dataPaths', async () => {
+    const source = lines(
+      'package d',
+      '',
+      'default allow = false',
+      '',
+      'allow {',
+      '\tdata.roles[input.user] == "admin"',
+      '}',
+    );
+    const none = await migrate({ source, inputs: [{ user: 'alice' }] });
+    expect(none.ok, JSON.stringify(none.error)).toBe(true);
+    expect(none.data?.notes.join(' ')).toMatch(/reads `data` outside its own package/);
+
+    const dir = await mkdtemp(join(tmpdir(), 'orygn-migrate-data-'));
+    await writeFile(join(dir, 'roles.json'), JSON.stringify({ roles: { alice: 'admin' } }));
+    const server = makeServer();
+    registerAuthoringTools(server, { ...config, allowedPaths: [dir] });
+    const withData = await callTool<RegoMigrateV1Output>(server, 'rego_migrate_v1', {
+      source,
+      inputs: [{ user: 'alice' }],
+      queries: ['data.d.allow == true'],
+      dataPaths: [join(dir, 'roles.json')],
+    });
+    expect(withData.ok, JSON.stringify(withData.error)).toBe(true);
+    expect(withData.data?.notes.join(' ')).not.toMatch(/reads `data`/);
+    expect(withData.data?.equivalence?.identical).toBe(true);
   });
 
   it('renames a rule named through an escaped key', async () => {

@@ -10,7 +10,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { packageQuery, planV0Migration, renameRuleRefs } from '../../../src/lib/rego-migrate.js';
+import {
+  packageQuery,
+  planV0Migration,
+  readsExternalData,
+  renameRuleRefs,
+} from '../../../src/lib/rego-migrate.js';
 import { fixturePath } from '../tools/_helpers.js';
 
 const load = (name: string): { source: string; ast: unknown } => ({
@@ -129,5 +134,35 @@ describe('renameRuleRefs', () => {
 describe('packageQuery', () => {
   it('reads the package path in a form both Rego versions parse', () => {
     expect(packageQuery(load('legacy').ast)).toBe('data["legacy"]["admission"]');
+  });
+});
+
+describe('readsExternalData', () => {
+  const ref = (head: string, ...segments: string[]) => ({
+    type: 'ref',
+    value: [{ type: 'var', value: head }, ...segments.map((value) => ({ type: 'string', value }))],
+  });
+  const module = (body: unknown[]) => ({
+    package: {
+      path: [
+        { type: 'var', value: 'data' },
+        { type: 'string', value: 'd' },
+      ],
+    },
+    rules: [{ head: { name: 'allow' }, body: body.map((terms) => ({ terms })) }],
+  });
+
+  it('is true for a reference to data outside the package', () => {
+    expect(readsExternalData(module([ref('data', 'roles', 'alice')]))).toBe(true);
+  });
+
+  it('is false for the package itself and for input', () => {
+    expect(readsExternalData(module([ref('data', 'd', 'helper')]))).toBe(false);
+    expect(readsExternalData(module([ref('input', 'user')]))).toBe(false);
+  });
+
+  it('is true for an import of other data', () => {
+    const withImport = { ...module([]), imports: [{ path: ref('data', 'lib', 'names') }] };
+    expect(readsExternalData(withImport)).toBe(true);
   });
 });

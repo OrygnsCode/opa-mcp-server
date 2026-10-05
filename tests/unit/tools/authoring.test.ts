@@ -324,6 +324,31 @@ describe('rego_lint', () => {
     expect(env.data?.violations).toEqual(violations);
   });
 
+  it('maps a module regal cannot parse to INVALID_REGO with its file and row', async () => {
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(
+        1,
+        JSON.stringify({
+          errors: [
+            'error(s) encountered while linting: errors encountered when reading files to lint: failed to parse 2 module(s) - first error: 1 error occurred: <inline>:4: rego_parse_error: unexpected eof token\n\tallow if {',
+          ],
+        }),
+      ),
+    );
+    const server = makeServer();
+    registerAuthoringTools(server, baseConfig);
+    const env = await callTool(server, 'rego_lint', { source: 'package p\n\nallow if {\n' });
+    expect(env.error?.code).toBe('INVALID_REGO');
+    expect(env.error?.message).toBe(
+      'Regal could not parse <inline> at row 4: unexpected eof token. 1 more module(s) also failed to parse.',
+    );
+    expect(env.error?.details).toMatchObject({
+      file: '<inline>',
+      row: 4,
+      code: 'rego_parse_error',
+    });
+  });
+
   it('maps missing regal binary to REGAL_NOT_FOUND', async () => {
     mockRun.mockResolvedValueOnce(spawnUnreachable());
     const server = makeServer();

@@ -392,6 +392,9 @@ describe('rego_explain_undefined with a default rule', () => {
 
     expect(env.data?.queryResult).toBe('defined');
     expect(env.data?.value).toBe(true);
-    expect(env.data?.rulesFound).toBe(0);
+    // The two non-default definitions are counted, as on the other paths,
+    // but a defined result needs no per-rule breakdown.
+    expect(env.data?.rulesFound).toBe(2);
+    expect(env.data?.rules).toEqual([]);
   }, 60_000);
 });

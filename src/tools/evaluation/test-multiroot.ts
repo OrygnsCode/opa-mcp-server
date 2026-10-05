@@ -31,7 +31,8 @@ import {
   validatePaths,
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
-import { v0CompatibleField } from '../_rego-version.js';
+import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
+import { COMPILE_ERROR_TEXT } from './_shared.js';
 import type { SpawnResult } from '../../lib/subprocess.js';
 import type { ToolErrorCode } from '../../types.js';
 import type { CoverageReport, TestRecord } from './test.js';
@@ -327,10 +328,34 @@ async function discoverLeafTestRoots(
   return { roots: state.roots, tooMany: state.tooMany, ancestorSkipped: state.ancestorSkipped };
 }
 
+/**
+ * A root whose policies did not load or compile, so opa never reached its
+ * tests; rego_test reports the same as INVALID_REGO.
+ */
+function loadFailure(stderr: string, v0Compatible: boolean | undefined): RootOutcome {
+  return {
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    errored: 0,
+    total: 0,
+    results: [],
+    error: {
+      code: 'INVALID_REGO',
+      message: stderr.trim() || 'opa test could not load the policies in this root.',
+      hint:
+        !v0Compatible && mentionsPreV1(stderr)
+          ? PRE_V1_HINT
+          : 'Check for package conflicts, import errors, or syntax errors in this root.',
+    },
+  };
+}
+
 function processRootOutput(
   result: SpawnResult,
   coverageMode: boolean,
   threshold: number | undefined,
+  v0Compatible: boolean | undefined,
 ): RootOutcome {
   if (coverageMode) {
     const coverageData = lastJsonObject<CoverageReport>(
@@ -390,6 +415,9 @@ function processRootOutput(
         note: 'opa printed only the coverage report for this root: every test in it is a todo or was skipped, so the counts are zero.',
       };
     }
+    if (coverageData === undefined && COMPILE_ERROR_TEXT.test(stderrTrimmed)) {
+      return loadFailure(result.stderr, v0Compatible);
+    }
     return {
       passed: 0,
       failed: 0,
@@ -437,19 +465,7 @@ function processRootOutput(
       };
     }
     // Non-zero exit with no records: package conflict, import error, parse error, etc.
-    return {
-      passed: 0,
-      failed: 0,
-      skipped: 0,
-      errored: 0,
-      total: 0,
-      results: [],
-      error: {
-        code: 'EVAL_ERROR',
-        message: result.stderr.trim() || `opa test exited with code ${result.exitCode}.`,
-        hint: 'Check for package conflicts, import errors, or syntax errors in this root.',
-      },
-    };
+    return loadFailure(result.stderr, v0Compatible);
   }
 
   // `error` marks a test OPA could not evaluate; OPA sets it instead of
@@ -638,7 +654,7 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
           const failure = mapSubprocessFailure(result, 'opa');
           if (failure) return failure;
 
-          const outcome = processRootOutput(result, coverageMode, threshold);
+          const outcome = processRootOutput(result, coverageMode, threshold, v0Compatible);
           const rootResult: RootTestResult = {
             path: root.path,
             ...outcome,

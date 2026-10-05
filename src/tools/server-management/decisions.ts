@@ -21,7 +21,7 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
     {
       title: 'Query OPA decision',
       description:
-        'Evaluate a decision against the running OPA server. POSTs to the data path with `{input}` and returns whatever the rule produces. Use this to ask the server "given this input, what does data.X.allow say?"',
+        'Evaluate a decision against the running OPA server. POSTs to the data path with `{input}` and returns whatever the rule produces, plus `defined`: false when the path produced no value, which OPA reports by leaving `result` out. Undefined is not `false`; a caller that treats it as false or as allow decides on something the policy never said. Use this to ask the server "given this input, what does data.X.allow say?"',
       inputSchema: {
         path: z
           .string()
@@ -50,43 +50,46 @@ export function registerDecisionTools(server: McpServer, config: Config): void {
       },
     },
     async ({ path, segments, input, explain, metrics }, { signal }) => {
-      return withToolEnvelope<{ result?: unknown; explanation?: unknown; metrics?: unknown }>(
-        config,
-        async () => {
-          const target = segments ?? path;
-          if (target === undefined) {
-            return err('INVALID_INPUT', 'Supply either `path` or `segments`.');
-          }
-          if (path !== undefined && segments !== undefined) {
-            return err('INVALID_INPUT', 'Supply `path` or `segments`, not both.');
-          }
-          const parsed = parseOpaDataPath(target);
-          if (!parsed.ok) return parsed.error;
-          try {
-            const query: Record<string, string | boolean> = {};
-            if (explain) query['explain'] = explain;
-            if (metrics) query['metrics'] = true;
-            const data = await opa.request<{
-              result?: unknown;
-              explanation?: unknown;
-              metrics?: unknown;
-            }>({
-              method: 'POST',
-              path: parsed.apiPath,
-              body: input !== undefined ? { input: coerceJsonArg(input) } : {},
-              query,
-              signal,
-            });
-            return ok({
-              result: data.result,
-              explanation: data.explanation,
-              metrics: data.metrics,
-            });
-          } catch (e) {
-            return mapOpaClientError(e);
-          }
-        },
-      );
+      return withToolEnvelope<{
+        defined: boolean;
+        result?: unknown;
+        explanation?: unknown;
+        metrics?: unknown;
+      }>(config, async () => {
+        const target = segments ?? path;
+        if (target === undefined) {
+          return err('INVALID_INPUT', 'Supply either `path` or `segments`.');
+        }
+        if (path !== undefined && segments !== undefined) {
+          return err('INVALID_INPUT', 'Supply `path` or `segments`, not both.');
+        }
+        const parsed = parseOpaDataPath(target);
+        if (!parsed.ok) return parsed.error;
+        try {
+          const query: Record<string, string | boolean> = {};
+          if (explain) query['explain'] = explain;
+          if (metrics) query['metrics'] = true;
+          const data = await opa.request<{
+            result?: unknown;
+            explanation?: unknown;
+            metrics?: unknown;
+          }>({
+            method: 'POST',
+            path: parsed.apiPath,
+            body: input !== undefined ? { input: coerceJsonArg(input) } : {},
+            query,
+            signal,
+          });
+          return ok({
+            defined: data.result !== undefined,
+            result: data.result,
+            explanation: data.explanation,
+            metrics: data.metrics,
+          });
+        } catch (e) {
+          return mapOpaClientError(e);
+        }
+      });
     },
   );
 
