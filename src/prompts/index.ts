@@ -18,9 +18,10 @@ const policyAuthoringAssistantPrompt = (args: {
 }): string => {
   const description = args.description ?? '<not provided>';
   const packageName = args.package_name ?? '<choose a package, e.g. authz>';
-  return `You are a Rego policy authoring assistant.
+  return `You are writing an Open Policy Agent (OPA) Rego policy.
 
-Goal: produce a working policy for the user's described scenario.
+Goal: a policy that allows what it should and denies everything else,
+including input its author did not expect.
 
 User's description:
 ${description}
@@ -28,19 +29,28 @@ ${description}
 Suggested package: ${packageName}
 
 Workflow:
-1. Clarify the inputs and decision the policy needs to produce.
-   - What does \`input\` look like? (Ask the user if unclear.)
-   - What is the boolean or set-valued decision? (allow / deny / reasons)
-2. Draft the policy using \`rego.v1\` syntax. Keep it minimal.
-3. Call \`rego_format\` to canonicalise it.
-4. Call \`rego_check\` on the formatted source. If it returns errors,
-   call \`rego_suggest_fix\` with the diagnostics and incorporate the
-   suggestions.
-5. Call \`rego_lint\` and address \`error\` and \`warning\` level findings.
-6. Call \`rego_generate_test_skeleton\` and turn the stubs into real
-   tests with realistic inputs.
-7. Run \`rego_test\` and iterate until tests pass.
-8. Return the final policy + tests to the user.`;
+1. Pin down the input and the decision.
+   - What does \`input\` look like? Ask the user, or find an example.
+   - Where will it run? OPA 1.x and conftest take Rego v1; a Gatekeeper
+     ConstraintTemplate \`rego:\` field is Rego v0.
+   - Is the decision a boolean (\`allow\`) or a set (\`deny\`)?
+2. For every field a rule reads, decide what a missing, null or
+   wrong-typed value must do, and write the rule so that happens: start
+   from \`default allow := false\`, require the safe value (\`== true\`, an
+   allow-list) rather than testing for the bad one, and negate only rules
+   or functions of bound values, never an expression on a raw input field.
+3. \`rego_format\`, then \`rego_check\` with \`strict: true\` until it is
+   clean. For errors you do not recognise, \`rego_suggest_fix\` with the
+   diagnostics.
+4. \`rego_lint\`; fix the error and warning findings.
+5. Probe: one \`rego_eval\` call with an \`inputs\` batch: each field the
+   policy reads absent, null and of the wrong type, the other places the
+   same data can live, \`{}\`, one good input and one bad one. Anything
+   that should be denied and is not is a fail-open: fix it, probe again.
+6. Keep the probes as tests: a must-deny table and a must-allow table.
+   \`rego_generate_test_skeleton\` gives a starting point whose stubs stay
+   skipped until filled in. Run \`rego_test\` until \`allPassed\` is true.
+7. Return the policy and the tests, and say which probes you ran.`;
 };
 
 const policyReviewChecklistPrompt = (args: { source?: string }): string => {
@@ -58,23 +68,29 @@ ${safeSource}
 
 Apply this checklist, calling tools as needed:
 
-1. **Compiles cleanly.** Run \`rego_check\` with \`strict: true\`.
-2. **Lints cleanly.** Run \`rego_lint\`. Address every \`error\` and
-   \`warning\` finding. Note \`notice\` items but don't insist.
-3. **Has tests.** If no \`*_test.rego\` was provided, call
-   \`rego_generate_test_skeleton\` and propose tests.
-4. **Default-deny.** Confirm the principal decision (e.g. \`allow\`) has
-   a \`default := false\` (or equivalent). If not, flag it.
-5. **No HTTP_SEND.** Search the source for \`http.send\`. If present,
-   confirm it's truly necessary; it's a major performance and security
-   concern in a policy hot path.
-6. **Annotations.** Check that exported rules have docstrings. If
-   missing, suggest minimal \`# METADATA\` annotations.
-7. **Shape of input.** Use \`rego_infer_input_schema\` to enumerate input
-   refs the policy reads; confirm the documented input contract
-   matches.
+1. **Compiles.** \`rego_check\` with \`strict: true\`.
+2. **Lints.** \`rego_lint\`. Address error and warning findings.
+3. **Defaults.** The main decision has \`default allow := false\` or is a
+   deny set, and there is no \`default allow := true\`.
+4. **Fail-open probe, the decisive step.** One \`rego_eval\` call with an
+   \`inputs\` batch: every field the policy reads absent, null and of the
+   wrong type (\`"true"\`, \`"false"\`, \`0\`, a string where a list
+   belongs, \`[]\`, \`{}\`), case variants, the other places the same data
+   can live (init containers, controller templates, module resources), and
+   \`{}\` as the whole input. Report every input that is allowed but
+   should be denied, with the input itself.
+5. **Negation.** A \`not\` applied to an expression on a raw input field,
+   such as \`not startswith(input.image, "registry/")\`, is true when the
+   field is a number or null, so the rule matches input it never checked.
+   Flag it and rewrite it to negate a helper rule over a bound value.
+6. **Tests.** Tests exist, include must-deny cases for the probes above
+   and not only the happy path, and \`rego_test\` reports
+   \`allPassed: true\`.
+7. **http.send.** If present: is it needed, does it set a timeout, and
+   what does the decision do when the call fails?
 
-Return a concise review with: pass/fail per item, recommended diffs.`;
+Return a concise review: pass or fail per item, each fail-open with the
+input that gets through, and recommended diffs.`;
 };
 
 const decisionDebuggingWorkflowPrompt = (args: {
@@ -93,8 +109,11 @@ Workflow:
    - The actual returned decision (vs. the expected one).
 2. Reproduce the decision with \`rego_eval\` (no flags). Confirm it
    matches the reported outcome.
-3. Re-run with \`rego_explain_decision\` to get a structured trace.
-   Identify which rules were evaluated and which fired.
+3. Re-run with \`rego_explain_decision\` for the trace. Its \`Fail\`
+   lines name the condition that stopped each rule, with the values
+   involved. For an \`allow\` that is false or undefined, or a deny set
+   that is empty, \`rego_explain_undefined\` names the blocking condition
+   of every rule definition.
 4. The cause is one of:
    a. **Input mismatch** -- the policy expected a different input shape.
       Use \`rego_infer_input_schema\` to list the refs the policy reads

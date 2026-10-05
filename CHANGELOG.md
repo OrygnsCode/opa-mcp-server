@@ -17,6 +17,109 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Responses are compact JSON. Indentation roughly tripled the size of
+  nested payloads such as traces and ASTs.
+- An argument a tool does not declare is refused, with the key named, by
+  the SDK's own validation. Unknown keys used to be dropped, so a
+  misspelled option such as `stirct` was ignored without a word.
+- `rego_explain_decision` returns the trace as readable lines: location,
+  nesting, operation, the expression in Rego syntax and the values of the
+  variables it names. The `Fail` lines name the condition that stopped a
+  rule. The raw events it returned put one pod against a 60-line admission
+  policy past 300 KB, so the response was a bare truncation marker; the
+  same case is now about 15 KB. `rego_eval_with_explain` still returns raw
+  events, and over the response cap drops their variable values, then
+  trailing events, before the result.
+- `conftest_test` reports `passed: false` with `nothingEvaluated: true`,
+  and the namespaces that do hold rules, when no rule was evaluated, as
+  with a wrong `namespace`. conftest itself exits 0 there.
+- `rego_generate_test_skeleton` writes every stub as a `todo_test_` rule,
+  which `opa test` reports as skipped, and exits non-zero for, until it is
+  filled in and renamed `test_`. A placeholder input checked against a
+  placeholder expectation passed while testing nothing.
+- A policy or query that does not compile is `INVALID_REGO`, where it was
+  `EVAL_ERROR`, in `rego_eval` and its variants, `rego_explain_undefined`,
+  `rego_bench`, `rego_coverage_gaps`, `rego_test` with `coverage`, and each
+  root of `rego_test_multiroot`. `EVAL_ERROR` is left for a policy that
+  fails while it runs. A module Regal cannot parse is `INVALID_REGO` in
+  `rego_lint`, with the file and row, where it was `UNKNOWN_ERROR`, and so
+  is a policy an OPA server refuses to compile in `opa_put_policy`, with
+  OPA's errors.
+- `opa_put_policy` reads the policy id first, so `replaced` says whether
+  one existed; it was always `true`. This adds one request.
+- `rego_suggest_fix` takes `rego_lint`'s `violations` as they are, and
+  links the rule's documentation where it has no fix of its own.
+- `rego_infer_input_schema` follows how a policy reads input: loop
+  variables, rules whose value is an input path, function parameters,
+  `object.get` keys and functions called in template strings. It used to
+  collect only references spelled out from `input`, so a policy that reads
+  `c.image` after `some c in input.request.object.spec.containers` came
+  back without `image`. A key the policy computes is left open
+  (`additionalProperties`, `items`), and a type is set only where the
+  policy shows it.
+- The server instructions and the three prompts start from probing: a
+  policy is not done until `rego_eval` has run it on inputs in which each
+  field it reads is missing, null or of the wrong type.
+
+### Added
+
+- `rego_eval` results carry `defined`, and `printed` with `print()`
+  output, which OPA writes to stderr and the tool dropped.
+- `rego_test` returns `allPassed`, true only when at least one test ran and
+  none failed, errored or was skipped.
+- `opa_query_decision` returns `defined: false` when the path produced no
+  value, which OPA reports by leaving `result` out.
+- `rego_policy_diff` takes `inputs`, up to 50 documents compared in one
+  call, and reports `definedA` and `definedB`.
+- `rego_migrate_v1` takes `dataPaths` for its comparison, and notes when
+  the policy reads `data` outside its own package and none was given, since
+  both sides then ran without it.
+- `rego_check`, `rego_eval`, `rego_test` and `rego_explain_undefined` point
+  at `v0Compatible` or `rego_migrate_v1` when a failure looks like pre-1.0
+  Rego.
+- `rego_security_audit` links each finding's rule documentation, and lists
+  the modules it could not parse in `unparseable`.
+
+### Fixed
+
+- `rego_explain_undefined` called a multi-value rule with no element, such
+  as an empty `deny`, defined, and analysed nothing; it reports `empty`
+  with the per-rule breakdown. It found no rules when `paths` named a
+  directory, and given `source` and `paths` together it evaluated both but
+  analysed only `source`. Directories are now searched for the modules of
+  the queried package, and `source` with `paths` is refused.
+- `rego_security_audit` stopped at the first module Regal could not parse;
+  it leaves such modules out and audits the rest. Its remediation for
+  `impossible-not` said the opposite of what the rule means.
+- On Windows, Git Bash style paths such as `/c/Users/...` resolved to
+  `C:\c\Users\...`. They map to the drive.
+- The `opa://patterns` resource. If you copied a pattern, compare it with
+  the current one:
+  - The Kubernetes admission pattern checked only `spec.containers`, so an
+    init or ephemeral container that was privileged or had no memory limit
+    was admitted, and it compared `namespace` directly, so input without
+    one skipped the privileged check.
+  - The ABAC pattern allowed on a bare `input.resource.shared`, which holds
+    for `"false"`, `0` and `null`.
+  - The Terraform pattern checks public bucket ACLs in place of inline
+    encryption, which version 4 of the AWS provider moved to its own
+    resource. It skips deletes, and fails on an `acl` or `policy` known
+    only after apply instead of passing it unchecked.
+  - The RBAC pattern's `deny_reasons` came back empty for a user without
+    an `id`, since `sprintf` with an undefined argument produces nothing.
+- The style guide resource had several facts wrong: `type` and `time` are
+  valid rule names, `every` arrived in OPA 0.38, OPA 1.0 was released on
+  2024-12-20, the OPA style guide does describe an optional `_` prefix for
+  package-internal rules, and `opa test -v ./...` fails. Its links point at
+  openpolicyagent.org.
+- The example Claude Code hook ran only after `Write`, and printed
+  `opa check` errors to stdout with exit code 1, which Claude Code does not
+  show the model. It runs after `Edit` too, and exits 2 with the error on
+  stderr.
+- The README listed five of the nine rules `rego_fix` fixes.
+
 ## [0.8.0] - 2026-09-28
 
 ### Added

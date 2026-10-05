@@ -40,10 +40,11 @@ allow if {
 # Why was it denied? -- useful for audit logs.
 deny_reasons contains reason if {
     not allow
-    input.user
+    user := input.user
+    # object.get: sprintf with an undefined argument drops the whole rule.
     reason := sprintf(
         "user %q has roles %v, none grant %q",
-        [input.user.id, input.user.roles, input.action],
+        [object.get(user, "id", "<no id>"), object.get(user, "roles", []), object.get(input, "action", "<no action>")],
     )
 }
 
@@ -126,7 +127,7 @@ allow if {
 # A user can read shared resources at their organization.
 allow if {
     input.action == "read"
-    input.resource.shared
+    input.resource.shared == true
     input.resource.org_id == input.user.org_id
     not hidden_from_other_org
 }
@@ -175,6 +176,9 @@ test_admin_blocked_from_secret_in_other_org if {
   \`eval_conflict_error\` and evaluation fails. Express a denial as a
   condition the permissive rules must pass, as \`hidden_from_other_org\`
   does above.
+- A bare reference such as \`input.resource.shared\` holds for every
+  value except \`false\`, including \`"false"\`, \`0\` and \`null\`. Compare
+  booleans with \`== true\`.
 - Don't compute attributes inside the policy; compute them at the
   boundary and pass via \`input\`.
 
@@ -182,70 +186,98 @@ test_admin_blocked_from_secret_in_other_org if {
 
 ## 3. Kubernetes admission control
 
-**When to use:** validate or mutate Kubernetes resources at admission
-time. Run as a Gatekeeper, OPA-as-a-webhook, or Kyverno-equivalent
-policy layer.
+**When to use:** validate resources at admission time with OPA itself as
+the validating webhook, which receives the AdmissionReview in
+\`input.request\`. Gatekeeper templates differ: see the pitfalls.
 
 \`\`\`rego
 package k8s.admission
 
 import rego.v1
 
-# Reject pods without resource limits.
-deny contains msg if {
+# Every container of the pod: init and ephemeral containers run too.
+containers contains c if {
     input.request.kind.kind == "Pod"
-    container := input.request.object.spec.containers[_]
-    not container.resources.limits.memory
+    some field in ["containers", "initContainers", "ephemeralContainers"]
+    some c in object.get(input.request.object.spec, field, [])
+}
+
+# A message reads its values with defaults: sprintf with an undefined
+# argument drops the whole deny.
+pod_name := object.get(input.request.object, ["metadata", "name"], "<unnamed>")
+
+container_name(c) := object.get(c, "name", "<unnamed>")
+
+# Reject containers without a memory limit.
+deny contains msg if {
+    some c in containers
+    not c.resources.limits.memory
     msg := sprintf(
-        "Pod %q container %q is missing resources.limits.memory",
-        [input.request.object.metadata.name, container.name],
+        "pod %q container %q is missing resources.limits.memory",
+        [pod_name, container_name(c)],
     )
 }
 
-# Reject privileged containers in production.
+# Reject privileged containers outside kube-system. Anything but an explicit
+# false counts as privileged, and a request without a namespace is checked.
 deny contains msg if {
-    input.request.kind.kind == "Pod"
-    input.request.namespace != "kube-system"
-    container := input.request.object.spec.containers[_]
-    container.securityContext.privileged == true
+    object.get(input.request, "namespace", "") != "kube-system"
+    some c in containers
+    object.get(c, ["securityContext", "privileged"], false) != false
     msg := sprintf(
         "privileged containers are not allowed: %q in %q",
-        [container.name, input.request.object.metadata.name],
+        [container_name(c), pod_name],
     )
 }
 \`\`\`
 
 **Pitfalls:**
-- Use \`input.request.object\` for the resource being admitted; the
-  envelope shape comes from Kubernetes, not your control.
-- For mutations, return a JSON Patch via the \`patch\` field. Test
-  patches with the actual admission webhook in dry-run mode before
-  enforcing.
-- Iteration order is undefined; never rely on \`containers[0]\` to mean
-  anything specific.
+- Check \`initContainers\` and \`ephemeralContainers\` as well as
+  \`containers\`. Ephemeral containers arrive through the
+  \`pods/ephemeralcontainers\` subresource, so register the webhook for
+  it.
+- Pods created by Deployments and other controllers are admitted as
+  Pods, so a Pod check stops them when the pods are created. Check the
+  controllers' \`spec.template.spec\` too to reject them at apply time,
+  and in CI, where the controller manifest is all there is.
+- A comparison against an optional field, such as
+  \`input.request.namespace != "kube-system"\`, is undefined when the
+  field is missing, and the whole deny goes silent. Give the field a
+  default with \`object.get\`.
+- Gatekeeper templates read \`input.review.object\` and
+  \`input.parameters\`, define \`violation[{"msg": msg}]\`, and are
+  Rego v0 unless the template opts in to v1.
 
 ---
 
 ## 4. Infrastructure-as-Code gates (Terraform)
 
 **When to use:** validate Terraform plans before apply. Catch overly
-permissive IAM, public S3 buckets, missing encryption.
+permissive IAM, public S3 buckets, missing encryption. Evaluate the
+JSON plan (\`terraform show -json plan.out\`), which holds the final
+values after variables and modules are resolved.
 
 \`\`\`rego
 package terraform
 
 import rego.v1
 
-# Reject S3 buckets without server-side encryption.
+# Resources that will exist after apply: created, updated or replaced.
+# resource_changes is flat, so it includes resources inside modules. A
+# delete has no \`after\` and is left out.
+changes contains rc if {
+    some rc in input.resource_changes
+    some action in rc.change.actions
+    action in {"create", "update"}
+}
+
+# Reject S3 bucket ACLs that make the bucket public. Since version 4 of
+# the AWS provider the ACL is usually its own aws_s3_bucket_acl resource.
 deny contains msg if {
-    resource := input.resource_changes[_]
-    resource.type == "aws_s3_bucket"
-    after := resource.change.after
-    not after.server_side_encryption_configuration
-    msg := sprintf(
-        "S3 bucket %q has no server-side encryption configured",
-        [resource.address],
-    )
+    some rc in changes
+    rc.type in {"aws_s3_bucket", "aws_s3_bucket_acl"}
+    rc.change.after.acl in {"public-read", "public-read-write", "authenticated-read"}
+    msg := sprintf("%s: ACL %q makes the bucket public", [rc.address, rc.change.after.acl])
 }
 
 # Reject IAM policies with action "*" on resource "*".
@@ -263,26 +295,41 @@ statements(policy) := to_set(policy.Statement) if is_array(policy.Statement)
 statements(policy) := {policy.Statement} if is_object(policy.Statement)
 
 deny contains msg if {
-    resource := input.resource_changes[_]
-    resource.type == "aws_iam_policy"
-    policy := json.unmarshal(resource.change.after.policy)
+    some rc in changes
+    rc.type == "aws_iam_policy"
+    policy := json.unmarshal(rc.change.after.policy)
     some statement in statements(policy)
     statement.Effect == "Allow"
     "*" in to_set(statement.Action)
     "*" in to_set(statement.Resource)
-    msg := sprintf("IAM policy %q grants Allow * on *", [resource.address])
+    msg := sprintf("IAM policy %q grants Allow * on *", [rc.address])
+}
+
+# A value Terraform computes during apply is not in the plan, so the
+# rules above cannot see it. Fail rather than pass it unchecked.
+deny contains msg if {
+    some rc in changes
+    some attribute in ["acl", "policy"]
+    rc.change.after_unknown[attribute] == true
+    msg := sprintf("%s: %s is only known after apply and cannot be checked", [rc.address, attribute])
 }
 \`\`\`
 
 **Pitfalls:**
-- Terraform plan JSON is verbose and version-specific. Pin the
-  \`terraform plan -json\` schema you target.
-- \`resource_changes[_].change.after\` may be \`null\` for destroys --
-  guard against it.
+- \`planned_values.root_module.resources\` holds only root-module
+  resources; module resources are nested under \`child_modules\`.
+  \`resource_changes\` is flat and holds them all.
+- \`change.actions\` is \`["create"]\`, \`["update"]\`, \`["delete"]\`,
+  \`["no-op"]\`, \`["read"]\`, or for a replacement \`["delete",
+  "create"]\` or \`["create", "delete"]\`. Testing for a create or an
+  update in it covers all of them.
 - IAM policy documents are string-or-array in several places. Match
-  both, or a policy that grants everything slips through.
-- For wide-radius changes, use \`opa exec --decision\` against a plan
-  file in CI, not the live API.
+  both, or a policy that grants everything slips through. A statement
+  with \`NotAction\` grants every action except those listed.
+- In CI, run \`opa exec --fail --decision\` on a rule that is defined
+  only when nothing is denied (\`ok if count(deny) == 0\`).
+  \`--fail-defined\` and \`--fail-non-empty\` on \`deny\` pass a
+  misspelled decision name.
 
 ---
 
@@ -347,6 +394,10 @@ user_can_write(user, path) if {
 - Path-prefix matching is easy; full pattern matching is not. For
   parameterized routes, decode at the gateway and pass structured
   fields.
+- Matching a raw path string by prefix lets \`/public/../admin\`,
+  \`/public/%2e%2e/admin\` and \`//admin\` through. Decode once, split
+  into segments, and reject empty, \`.\` and \`..\` segments and any that
+  still contain \`%\`.
 
 ---
 
@@ -403,5 +454,4 @@ For more patterns, see:
 
 - OPA Playground: https://play.openpolicyagent.org/
 - Awesome OPA: https://github.com/anderseknert/awesome-opa
-- Styra DAS pattern library: https://docs.styra.com/das/policies
 `;

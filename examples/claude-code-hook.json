@@ -1,15 +1,15 @@
 {
   "_comment": "Merge the 'hooks' block below into your .claude/settings.json.",
-  "_usage": "After any .rego file is written, opa check runs automatically. Syntax errors surface immediately without a manual tool call.",
-  "_prereq": "opa must be on PATH, or set OPA_BINARY and replace 'opa' in the command below with the absolute path.",
+  "_usage": "After Claude writes or edits a .rego file, opa check runs on it. On a failure the hook exits 2, which hands opa's error back to Claude to fix without a manual tool call.",
+  "_prereq": "python3 and opa must be on PATH; otherwise replace 'opa' in the command below with the absolute path to the binary.",
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"import sys,json,subprocess; d=json.load(sys.stdin); fp=(d.get('tool_input') or {}).get('file_path',''); sys.exit(0) if not fp.endswith('.rego') else None; r=subprocess.run(['opa','check',fp],capture_output=True,text=True); print(r.stderr or r.stdout,end='') if r.returncode else None; sys.exit(r.returncode)\""
+            "command": "python3 -c \"import sys,json,subprocess; d=json.load(sys.stdin); fp=(d.get('tool_input') or {}).get('file_path',''); sys.exit(0) if not fp.endswith('.rego') else None; r=subprocess.run(['opa','check',fp],capture_output=True,text=True); sys.stderr.write(r.stderr or r.stdout) if r.returncode else None; sys.exit(2 if r.returncode else 0)\""
           }
         ]
       }

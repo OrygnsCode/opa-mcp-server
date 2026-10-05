@@ -1,27 +1,37 @@
 /**
- * Curated Rego style guide. Adapted from the Styra reference plus the
- * OPA team's own conventions, condensed for LLM consumption.
+ * Curated Rego style guide, condensed from the Rego style guide in the
+ * OPA documentation for LLM consumption.
  */
 export const STYLE_GUIDE = `# Rego style guide
 
 A condensed reference for writing idiomatic, maintainable Rego. Adapted
-from the Styra style guide and the OPA project's conventions.
+from the Rego style guide in the OPA documentation.
 
-## Always import \`rego.v1\`
+## Write Rego v1
 
-Every \`.rego\` file should start with the v1 import. It enables the
-modern syntax (\`if\`, \`contains\`, \`every\`) and disables the older
-implicit-membership operator that's a frequent source of bugs.
+OPA 1.0 (released 2024-12-20) made v1 the default: \`if\` before every
+rule body, \`contains\` for multi-value rules, and the \`in\`, \`every\`
+and \`some ... in\` keywords without an import. \`import rego.v1\` is
+accepted and changes nothing on OPA 1.x; it is only needed to write v1
+syntax for OPA 0.59 to 0.69.
 
-\`\`\`rego
-package authz
+Two places are not v1 by default: a Gatekeeper ConstraintTemplate's
+\`rego:\` field is Rego v0, and so are policies written for OPA before
+1.0. Convert those with \`opa fmt --v0-v1\` (or \`rego_migrate_v1\`).
 
-import rego.v1
-\`\`\`
+## Write rules that fail closed
 
-OPA 1.0 (released January 2025) treats this as the default, but
-including it explicitly makes intent clear and keeps the file portable
-to older OPA installations.
+- Decide what a missing, \`null\` or wrong-typed field must do before
+  writing the rule. A deny rule that reads a missing field is undefined,
+  and an undefined deny means allowed. Give the field its fail-closed
+  default with \`object.get\`, or require the safe value positively.
+- Require the safe value instead of testing for the dangerous one:
+  \`privileged != false\`, not \`privileged == true\`; \`is_admin == true\`,
+  not a bare \`input.user.is_admin\`, which holds for \`"false"\` and \`0\`.
+- Negate a rule, or a function of an already-bound value
+  (\`not trusted(c)\`), never an expression on a raw input field:
+  \`not startswith(input.x, "y")\` is true when \`input.x\` is a number
+  or null, so the rule matches input it never checked.
 
 ## Package layout mirrors directory layout
 
@@ -50,11 +60,13 @@ same package or a \`<package>_test\` package.
 - Boolean rules: read like predicates -- \`allow\`, \`is_admin\`,
   \`should_log\`. Avoid \`is_not_blocked\` (double negative).
 - Set/object rules: read like nouns -- \`grants\`, \`roles\`, \`reasons\`.
-- Helper rules: \`_\` prefix is *not* a convention; just give them names
-  that explain what they return.
+- Helper rules intended for use inside the package only: optionally
+  prefix them with \`_\` (\`_is_developer\`). The style guide calls this a
+  common convention, and Regal's language server uses it.
 
-Names that conflict with reserved words (\`type\`, \`time\`, \`input\`) won't
-parse. Names matching builtins (\`http\`, \`json\`) shadow them.
+A rule cannot be named \`input\`. A rule or variable named after a
+builtin (\`count\`, \`contains\`) hides it in that scope; Regal flags both
+(\`rule-shadows-builtin\`, \`var-shadows-builtin\`).
 
 ## Default deny
 
@@ -87,7 +99,7 @@ admin_users := {u | some u in input.users; u.role == "admin"}
 \`\`\`
 
 When you need to assert that a property holds for every element, use
-\`every\` (introduced in OPA 0.41):
+\`every\` (introduced in OPA 0.38):
 
 \`\`\`rego
 allow if {
@@ -175,12 +187,15 @@ test_viewer_cannot_delete if {
 }
 \`\`\`
 
-Run with \`opa test -v ./...\` for verbose output. Add \`--coverage\` to
-verify which lines were exercised.
+Run with \`opa test -v --fail-on-empty .\`; without \`--fail-on-empty\` a
+directory with no tests passes. Add \`--coverage\` to see which lines
+were exercised. Coverage shows what no test reaches, not that the policy
+denies what it should: tests that only cover the happy path reach 100%
+on a policy that lets missing fields through.
 
 ## References
 
-- Official Rego style guide: https://docs.styra.com/regal/rego-style-guide
-- OPA documentation: https://www.openpolicyagent.org/docs/latest/
-- Regal linter rules: https://docs.styra.com/regal/rules
+- Rego style guide: https://www.openpolicyagent.org/docs/style-guide
+- OPA documentation: https://www.openpolicyagent.org/docs/
+- Regal linter rules: https://www.openpolicyagent.org/projects/regal/rules
 `;

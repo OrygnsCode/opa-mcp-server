@@ -54,20 +54,23 @@ async function check(source: string, name: string): Promise<{ ok: boolean; messa
 
 /** Evaluate the terraform example against a plan and return the denials. */
 async function denialsFor(policyDocument: unknown): Promise<string[]> {
+  return planDenials([
+    {
+      address: 'aws_iam_policy.admin',
+      type: 'aws_iam_policy',
+      change: { actions: ['create'], after: { policy: JSON.stringify(policyDocument) } },
+    },
+  ]);
+}
+
+/** The terraform example's denials for a plan with these resource changes. */
+async function planDenials(resourceChanges: unknown[]): Promise<string[]> {
   const terraform = regoBlocks(PATTERNS).find((b) => b.includes('package terraform'));
   expect(terraform, 'the terraform example must be present').toBeDefined();
   const policyFile = join(workDir, 'terraform.rego');
   await writeFile(policyFile, terraform!);
 
-  const plan = {
-    resource_changes: [
-      {
-        address: 'aws_iam_policy.admin',
-        type: 'aws_iam_policy',
-        change: { after: { policy: JSON.stringify(policyDocument) } },
-      },
-    ],
-  };
+  const plan = { resource_changes: resourceChanges };
   const inputFile = join(workDir, 'plan.json');
   await writeFile(inputFile, JSON.stringify(plan));
 
@@ -226,6 +229,16 @@ describe('the ABAC example denies rather than failing to evaluate', () => {
     ).resolves.toBe(true);
   }, 30_000);
 
+  it('does not take the string "false" for a shared resource', async () => {
+    await expect(
+      evalAllow({
+        action: 'read',
+        user: { id: 'u2', org_id: 'o1', roles: [] },
+        resource: { owner_id: 'u1', org_id: 'o1', shared: 'false' },
+      }),
+    ).resolves.toBe(false);
+  }, 30_000);
+
   it('still allows a shared resource within the organization', async () => {
     await expect(
       evalAllow({
@@ -234,5 +247,81 @@ describe('the ABAC example denies rather than failing to evaluate', () => {
         resource: { owner_id: 'u1', org_id: 'o1', shared: true },
       }),
     ).resolves.toBe(true);
+  }, 30_000);
+});
+
+describe('the Terraform example reads the plan the way Terraform writes it', () => {
+  const bucketAcl = (address: string, actions: string[], after: unknown, afterUnknown = {}) => ({
+    address,
+    type: 'aws_s3_bucket_acl',
+    change: { actions, after, after_unknown: afterUnknown },
+  });
+
+  it('denies a public ACL set on a bucket inside a module', async () => {
+    const denials = await planDenials([
+      {
+        ...bucketAcl('module.storage.aws_s3_bucket_acl.logs', ['create'], { acl: 'public-read' }),
+        module_address: 'module.storage',
+      },
+    ]);
+    expect(denials).toEqual([
+      'module.storage.aws_s3_bucket_acl.logs: ACL "public-read" makes the bucket public',
+    ]);
+  }, 30_000);
+
+  it('does not deny a resource being deleted, and denies one being replaced', async () => {
+    expect(await planDenials([bucketAcl('aws_s3_bucket_acl.old', ['delete'], null)])).toEqual([]);
+    const replaced = await planDenials([
+      bucketAcl('aws_s3_bucket_acl.logs', ['create', 'delete'], { acl: 'public-read-write' }),
+    ]);
+    expect(replaced).toHaveLength(1);
+  }, 30_000);
+
+  it('fails a value it can only learn after apply rather than passing it', async () => {
+    const denials = await planDenials([
+      bucketAcl('aws_s3_bucket_acl.logs', ['create'], {}, { acl: true }),
+    ]);
+    expect(denials).toEqual([
+      'aws_s3_bucket_acl.logs: acl is only known after apply and cannot be checked',
+    ]);
+  }, 30_000);
+});
+
+describe('the Kubernetes example checks every container and every request', () => {
+  const evalDeny = (input: unknown) =>
+    evaluate('k8s.admission', 'data.k8s.admission.deny', input) as Promise<string[]>;
+  const pod = (spec: unknown, extra: Record<string, unknown> = {}) => ({
+    request: {
+      kind: { kind: 'Pod' },
+      namespace: 'apps',
+      object: { metadata: { name: 'web' }, spec },
+      ...extra,
+    },
+  });
+  const limited = { name: 'app', resources: { limits: { memory: '128Mi' } } };
+
+  it('denies a privileged init container', async () => {
+    const denials = await evalDeny(
+      pod({
+        containers: [limited],
+        initContainers: [{ ...limited, name: 'init', securityContext: { privileged: true } }],
+      }),
+    );
+    expect(denials).toEqual(['privileged containers are not allowed: "init" in "web"']);
+  }, 30_000);
+
+  it('still denies when the request has no namespace or the pod no name', async () => {
+    const input = pod({ containers: [{ ...limited, securityContext: { privileged: true } }] });
+    delete (input.request as Record<string, unknown>)['namespace'];
+    delete (input.request.object as Record<string, unknown>)['metadata'];
+    expect(await evalDeny(input)).toEqual([
+      'privileged containers are not allowed: "app" in "<unnamed>"',
+    ]);
+  }, 30_000);
+
+  it('exempts kube-system and allows a good pod', async () => {
+    const privileged = { containers: [{ ...limited, securityContext: { privileged: true } }] };
+    expect(await evalDeny(pod(privileged, { namespace: 'kube-system' }))).toEqual([]);
+    expect(await evalDeny(pod({ containers: [limited] }))).toEqual([]);
   }, 30_000);
 });
