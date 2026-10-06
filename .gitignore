@@ -15,8 +15,9 @@ coverage/
 .nyc_output/
 *.lcov
 
-# Test cache
+# Test cache, and vitest 5's output folder (attachments, blob and reporter files)
 .vitest-cache/
+.vitest/
 
 # Environment variables
 .env

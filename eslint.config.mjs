@@ -9,6 +9,7 @@ export default [
     ignores: [
       'dist/**',
       'coverage/**',
+      '.vitest/**',
       'node_modules/**',
       '*.config.mjs',
       '*.config.ts',
