@@ -22,9 +22,18 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
-> **Status:** v0.8.0. Tool surface, error codes, and
+> **Status:** v0.9.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.9.0:** a tool refuses an argument it does not declare,
+> and the error names it; it used to be dropped. A policy or query that does
+> not compile is `INVALID_REGO` in every tool that runs opa, where several
+> returned `EVAL_ERROR`. `rego_explain_decision` returns the trace as
+> readable lines, not OPA's raw events. `conftest_test` reports a run that
+> evaluated no rule as `passed: false`, and `rego_generate_test_skeleton`
+> writes `todo_test_` stubs, which `opa test` skips until they are filled in.
+> Responses are compact JSON.
 
 > **Upgrading to 0.8.0:** `opa_exec` loads `dataPaths` as `opa eval --data`
 > does, so a directory that also holds test fixtures, or JSON and YAML that
