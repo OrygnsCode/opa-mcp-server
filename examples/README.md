@@ -60,7 +60,8 @@ you want Claude to know about.
    open the existing one.
 2. Merge the `"hooks"` key from `claude-code-hook.json` into it.
 3. Ensure `python3` and `opa` are on `PATH` (or replace `'opa'` in the
-   command string with the absolute path).
+   command string with the absolute path). On Windows, where `python3` is
+   often only the Microsoft Store placeholder, write `python` instead.
 
 After that, every time Claude Code writes or edits a `.rego` file the hook
 runs `opa check`. On an error it exits 2, which is how a PostToolUse hook

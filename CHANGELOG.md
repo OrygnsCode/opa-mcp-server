@@ -17,6 +17,27 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-06
+
+### Added
+
+- `rego_eval` results carry `defined`, and `printed` with `print()`
+  output, which OPA writes to stderr and the tool dropped.
+- `rego_test` returns `allPassed`, true only when at least one test ran and
+  none failed, errored or was skipped.
+- `opa_query_decision` returns `defined: false` when the path produced no
+  value, which OPA reports by leaving `result` out.
+- `rego_policy_diff` takes `inputs`, up to 50 documents compared in one
+  call, and reports `definedA` and `definedB`.
+- `rego_migrate_v1` takes `dataPaths` for its comparison, and notes when
+  the policy reads `data` outside its own package and none was given, since
+  both sides then ran without it.
+- `rego_check`, `rego_eval`, `rego_test` and `rego_explain_undefined` point
+  at `v0Compatible` or `rego_migrate_v1` when a failure looks like pre-1.0
+  Rego.
+- `rego_security_audit` links each finding's rule documentation, and lists
+  the modules it could not parse in `unparseable`.
+
 ### Changed
 
 - Responses are compact JSON. Indentation roughly tripled the size of
@@ -63,25 +84,6 @@ not part of the public surface and may change in minor releases.
   policy is not done until `rego_eval` has run it on inputs in which each
   field it reads is missing, null or of the wrong type.
 
-### Added
-
-- `rego_eval` results carry `defined`, and `printed` with `print()`
-  output, which OPA writes to stderr and the tool dropped.
-- `rego_test` returns `allPassed`, true only when at least one test ran and
-  none failed, errored or was skipped.
-- `opa_query_decision` returns `defined: false` when the path produced no
-  value, which OPA reports by leaving `result` out.
-- `rego_policy_diff` takes `inputs`, up to 50 documents compared in one
-  call, and reports `definedA` and `definedB`.
-- `rego_migrate_v1` takes `dataPaths` for its comparison, and notes when
-  the policy reads `data` outside its own package and none was given, since
-  both sides then ran without it.
-- `rego_check`, `rego_eval`, `rego_test` and `rego_explain_undefined` point
-  at `v0Compatible` or `rego_migrate_v1` when a failure looks like pre-1.0
-  Rego.
-- `rego_security_audit` links each finding's rule documentation, and lists
-  the modules it could not parse in `unparseable`.
-
 ### Fixed
 
 - `rego_explain_undefined` called a multi-value rule with no element, such
@@ -119,6 +121,16 @@ not part of the public surface and may change in minor releases.
   show the model. It runs after `Edit` too, and exits 2 with the error on
   stderr.
 - The README listed five of the nine rules `rego_fix` fixes.
+
+### Security
+
+- The lockfile, which the Docker image and the `.mcpb` bundle are built from,
+  takes `proxy-addr` 2.0.8 (GHSA-jqcg-44mw-7w3h, critical), `ip-address` 10.7.3
+  (GHSA-2vr4-cq9g-pvrc, GHSA-j6r3-76f7-8jcv, GHSA-h3mg-xc3c-68pw) and `fast-uri`
+  3.1.8 (GHSA-hrr3-gc8f-f4qj). All three come in through the MCP SDK, now 1.32.1:
+  the first two belong to its HTTP transport, which the stdio server does not
+  use, and `fast-uri` to its JSON Schema validator. A fresh npm install already
+  resolved fixed versions.
 
 ## [0.8.0] - 2026-09-28
 
@@ -1859,7 +1871,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.5.0...v0.6.0
