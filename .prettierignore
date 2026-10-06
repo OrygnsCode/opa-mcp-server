@@ -5,6 +5,7 @@ node_modules
 *.min.css
 package-lock.json
 .vitest-cache
+.vitest
 CHANGELOG.md
 
 # Fixtures are fixed test data — formatting changes break tests
