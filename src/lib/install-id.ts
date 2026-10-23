@@ -5,8 +5,9 @@
  * ~/.orygn/opa-mcp/install-id alongside a plain-English comment
  * explaining what the file is. Subsequent runs read it back.
  *
- * Returns null if the home directory is unwritable (read-only
- * containers, CI) -- the ping still fires without a UUID in that case.
+ * Returns null if the home directory is unwritable -- the ping still
+ * fires without a UUID in that case. Containers and CI jobs never get
+ * here: they send a label instead (see telemetry.ts).
  */
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
