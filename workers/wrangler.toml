@@ -2,6 +2,30 @@ name = "opa-mcp-telemetry"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
-[[kv_namespaces]]
-binding = "TELEMETRY"
-id = "f244ae5b067e4e9d884b5f06917ba0cd"
+[[d1_databases]]
+binding = "DB"
+database_name = "opa-mcp-telemetry"
+database_id = "a9a0a715-4298-422c-8cab-9efc3697558d"
+migrations_dir = "migrations"
+
+# Caps how many pings one address can have recorded per minute, well above
+# anything a real client sends.
+[[ratelimits]]
+name = "PING_LIMIT"
+namespace_id = "2001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+# Daily pruning of ping_log.
+[triggers]
+crons = ["17 3 * * *"]
+
+# Keeps what the Worker logs itself (failures) for a few days. Per-request
+# logs are off.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
