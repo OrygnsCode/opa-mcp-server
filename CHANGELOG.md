@@ -17,6 +17,12 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- In a container or CI job, the startup ping sends a `container` or `ci` label
+  instead of an install ID. Those usually start from a clean home directory,
+  so the ID was new on every run.
+
 ## [0.9.0] - 2026-10-06
 
 ### Added

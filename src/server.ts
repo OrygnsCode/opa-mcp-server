@@ -20,33 +20,18 @@ import { formatHelp, formatStartupBanner, formatVersion, parseCliArgs } from './
 import { loadConfig, type Config } from './config.js';
 import { SERVER_NAME, SERVER_VERSION } from './constants.js';
 import { initLogger, logger } from './lib/logger.js';
-import { getInstallId } from './lib/install-id.js';
 import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
 import { RegalCli } from './lib/regal-cli.js';
 import { isZ3Busy, isZ3Failure, markZ3Unusable, z3RecoveriesLeft } from './lib/rego-z3.js';
 import { redactUrlCredentials } from './lib/opa-client.js';
 import { terminateChildren } from './lib/subprocess.js';
+import { sendTelemetryPing } from './lib/telemetry.js';
 import { registerPrompts } from './prompts/index.js';
 import { registerResources } from './resources/index.js';
 import { registerTools } from './tools/index.js';
 
 export { SERVER_NAME, SERVER_VERSION };
-
-function sendTelemetryPing(): void {
-  if (process.env['OPA_MCP_NO_TELEMETRY'] === '1') return;
-  void (async () => {
-    const params = new URLSearchParams({
-      v: SERVER_VERSION,
-      p: process.platform,
-    });
-    const id = await getInstallId().catch(() => null);
-    if (id) params.set('u', id);
-    await fetch(`https://opa-mcp-telemetry.gibbidaniel.workers.dev/ping?${params.toString()}`, {
-      signal: AbortSignal.timeout(3000),
-    });
-  })().catch(() => {});
-}
 
 /**
  * Construct an `McpServer`, register every tool / prompt / resource
