@@ -54,6 +54,7 @@ packages/*/LICENSE
 .cache/
 .tmp/
 tmp/
+.wrangler/
 
 # Personal operator notes — never committed
 LAUNCH-PLAYBOOK.md
