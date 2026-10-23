@@ -17,11 +17,21 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-23
+
 ### Changed
 
 - In a container or CI job, the startup ping sends a `container` or `ci` label
   instead of an install ID. Those usually start from a clean home directory,
   so the ID was new on every run.
+
+### Security
+
+- The lockfile, which the Docker image and the `.mcpb` bundle are built from,
+  takes `hono` 4.13.13 (GHSA-5r4p-p66f-jhc7) and `ip-address` 10.7.4
+  (GHSA-rxp7-6hxx-x8q5). Both come in through the MCP SDK's HTTP server and
+  auth code, which the stdio server never loads. A fresh npm install already
+  resolved fixed versions.
 
 ## [0.9.0] - 2026-10-06
 
@@ -1877,7 +1887,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.6.0...v0.7.0
