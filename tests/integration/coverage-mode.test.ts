@@ -1,10 +1,12 @@
 /**
  * Integration tests for `opa test --coverage`, run against the real OPA binary.
  *
- * Coverage mode behaves differently from an ordinary run in two ways that no
+ * Coverage mode behaves differently from an ordinary run in ways that no
  * mocked subprocess would reveal: OPA emits the coverage report alone, with no
- * per-test records, and a suite holding a `todo_` test exits non-zero with an
- * empty stderr even though nothing failed.
+ * per-test records, it prints no report at all for a run with a failing test,
+ * and a suite holding a `todo_` test exits non-zero with an empty stderr even
+ * though nothing failed. The tools run the suite once for the records and
+ * once for the report.
  */
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -68,8 +70,18 @@ import data.cov
 test_admin if cov.allow with input as {"role": "admin"}
 `;
 
+type TestEnv = {
+  allPassed?: boolean;
+  passed: number;
+  failed: number;
+  skipped: number;
+  total: number;
+  coveragePct?: number;
+  coverage?: unknown;
+};
+
 describe('rego_test in coverage mode', () => {
-  it('returns the coverage report when the suite holds a skipped test', async () => {
+  it('returns the counts and the coverage report when the suite holds a skipped test', async () => {
     // OPA exits non-zero here with an empty stderr, while the report it was
     // asked for sits on stdout. That was reported as "One or more tests
     // failed", which was wrong twice: nothing failed, and the report was
@@ -77,37 +89,62 @@ describe('rego_test in coverage mode', () => {
     const dir = await suite('todo', `${PASSING}\ntodo_test_later if true\n`);
     const server = makeServer();
     registerEvaluationTools(server, config);
-    const env = await callTool<{ coveragePct?: number }>(server, 'rego_test', {
+    const env = await callTool<TestEnv>(server, 'rego_test', {
       paths: [dir],
       coverage: true,
     });
 
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ passed: 1, skipped: 1, total: 2, allPassed: false });
     expect(env.data?.coveragePct).toBeGreaterThan(0);
   }, 60_000);
 
-  it('reports a passing suite with no skipped test as before', async () => {
+  it('returns the counts and the coverage report for a passing suite', async () => {
+    // OPA's coverage output carries no test records; reading the counts from
+    // it reported every suite as zero tests.
     const dir = await suite('clean', PASSING);
     const server = makeServer();
     registerEvaluationTools(server, config);
-    const env = await callTool<{ coveragePct?: number }>(server, 'rego_test', {
+    const env = await callTool<TestEnv>(server, 'rego_test', {
       paths: [dir],
       coverage: true,
     });
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ passed: 1, failed: 0, total: 1, allPassed: true });
     expect(env.data?.coveragePct).toBeGreaterThan(0);
   }, 60_000);
 
-  it('still reports a genuinely failing suite as failing', async () => {
+  it('reports a failing suite as failing, with counts, and no coverage', async () => {
+    // OPA prints no coverage report for a run with a failing test.
     const dir = await suite(
       'failing',
-      `package cov_test\n\nimport rego.v1\n\nimport data.cov\n\ntest_no if not cov.allow with input as {"role": "admin"}\n`,
+      `${PASSING}\ntest_no if not cov.allow with input as {"role": "admin"}\n`,
     );
     const server = makeServer();
     registerEvaluationTools(server, config);
-    const env = await callTool(server, 'rego_test', { paths: [dir], coverage: true });
-    expect(env.ok).toBe(false);
-    expect(env.error?.code).toBe('EVAL_ERROR');
+    const env = await callTool<TestEnv>(server, 'rego_test', { paths: [dir], coverage: true });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ passed: 1, failed: 1, total: 2, allPassed: false });
+    expect(env.data?.coverage).toBeUndefined();
+    expect(env.warnings?.[0]).toMatch(/Coverage was not measured/);
+  }, 60_000);
+});
+
+describe('rego_test_multiroot in coverage mode', () => {
+  it('returns real counts, with coverage, for a root holding a todo test', async () => {
+    const dir = await suite('multiroot-todo', `${PASSING}\ntodo_test_later if true\n`);
+    const server = makeServer();
+    registerEvaluationTools(server, config);
+    const env = await callTool<{ roots: Array<TestEnv & { note?: string }>; totalPassed: number }>(
+      server,
+      'rego_test_multiroot',
+      { roots: [{ path: dir }], coverage: true },
+    );
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data?.roots[0]).toMatchObject({ passed: 1, skipped: 1, total: 2 });
+    expect(env.data?.roots[0]?.coveragePct).toBeGreaterThan(0);
+    expect(env.data?.roots[0]?.note).toBeUndefined();
+    expect(env.data?.totalPassed).toBe(1);
   }, 60_000);
 });
 

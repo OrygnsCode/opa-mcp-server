@@ -32,7 +32,6 @@ import {
   withToolEnvelope,
 } from '../../lib/tool-helpers.js';
 import { mentionsPreV1, PRE_V1_HINT, v0CompatibleField } from '../_rego-version.js';
-import { COMPILE_ERROR_TEXT } from './_shared.js';
 import type { SpawnResult } from '../../lib/subprocess.js';
 import type { ToolErrorCode } from '../../types.js';
 import type { CoverageReport, TestRecord } from './test.js';
@@ -78,7 +77,7 @@ export interface RootTestResult {
   coverage?: CoverageReport;
   coveragePct?: number;
   thresholdMet?: boolean;
-  /** Set when opa printed a coverage report but no test records for the root. */
+  /** Why the root has no coverage when coverage was asked for. */
   note?: string;
   error?: { code: ToolErrorCode; message: string; hint?: string };
 }
@@ -115,7 +114,7 @@ interface RootOutcome {
   coverage?: CoverageReport;
   coveragePct?: number;
   thresholdMet?: boolean;
-  /** Set when opa printed a coverage report but no test records for the root. */
+  /** Why the root has no coverage when coverage was asked for. */
   note?: string;
   error?: { code: ToolErrorCode; message: string; hint?: string };
 }
@@ -194,7 +193,7 @@ const RegoTestMultirootInput = {
     .boolean()
     .optional()
     .describe(
-      'Include per-line coverage data per root. Switches output to coverage-report mode: test record counts are not available, but `coverage`, `coveragePct`, and `overallCoveragePct` fields are populated.',
+      'Add per-line coverage (`coverage`, `coveragePct`, and `overallCoveragePct` across roots) to the test results. Each root runs twice, once for the results and once for coverage. A root where a test fails or errors gets no coverage, and a `note` saying so: opa reports none for such a run.',
     ),
   runPattern: z
     .string()
@@ -208,7 +207,7 @@ const RegoTestMultirootInput = {
     .max(100)
     .optional()
     .describe(
-      'Minimum coverage percentage required per root (0-100). Roots below threshold have `thresholdMet: false` in their result. Implicitly enables coverage-report output mode.',
+      'Minimum coverage percentage required per root (0-100). A root whose tests pass below it gets `thresholdMet: false` and a COVERAGE_BELOW_THRESHOLD error. Implies `coverage`.',
     ),
   varValues: z
     .boolean()
@@ -351,90 +350,51 @@ function loadFailure(stderr: string, v0Compatible: boolean | undefined): RootOut
   };
 }
 
-function processRootOutput(
-  result: SpawnResult,
-  coverageMode: boolean,
-  threshold: number | undefined,
-  v0Compatible: boolean | undefined,
-): RootOutcome {
-  if (coverageMode) {
-    const coverageData = lastJsonObject<CoverageReport>(
-      result.stdout,
-      (v) => typeof (v as { coverage?: unknown }).coverage === 'number',
-    );
-    if (result.exitCode === 0) {
-      return {
-        passed: 0,
-        failed: 0,
-        skipped: 0,
-        errored: 0,
-        total: 0,
-        results: [],
-        coverage: coverageData,
-        coveragePct: coverageData?.coverage,
-        thresholdMet: threshold !== undefined ? true : undefined,
-      };
-    }
+const COVERAGE_SKIPPED =
+  'Coverage was not measured: opa reports coverage only for a run in which no test fails or errors.';
 
-    const stderrTrimmed = result.stderr.trim();
-    const thresholdMatch = /got\s+([\d.]+)\s+instead\s+of\s+([\d.]+)/i.exec(stderrTrimmed);
-    if (thresholdMatch) {
-      const actualCoverage = parseFloat(thresholdMatch[1]!);
-      const requiredThreshold = parseFloat(thresholdMatch[2]!);
-      return {
-        passed: 0,
-        failed: 0,
-        skipped: 0,
-        errored: 0,
-        total: 0,
-        results: [],
-        coveragePct: actualCoverage,
-        thresholdMet: false,
-        error: {
-          code: 'COVERAGE_BELOW_THRESHOLD',
-          message: stderrTrimmed,
-          hint: `Increase test coverage to at least ${requiredThreshold}%. Currently at ${actualCoverage}%.`,
-        },
-      };
-    }
+/**
+ * Read a root's `opa test --coverage` run, made after its results run passed.
+ * The same reading as rego_test: a report on stdout with exit 0, or with an
+ * empty stderr (a `todo_` test exits non-zero); a threshold miss on stderr;
+ * anything else is a coverage run that failed where the results run passed.
+ */
+function readCoverage(run: SpawnResult, threshold: number | undefined): Partial<RootOutcome> {
+  const report = lastJsonObject<CoverageReport>(
+    run.stdout,
+    (v) => typeof (v as { coverage?: unknown }).coverage === 'number',
+  );
+  const stderr = run.stderr.trim();
 
-    // A root holding a `todo_` test exits non-zero in coverage mode with an
-    // empty stderr and the report on stdout. rego_test stopped calling that a
-    // failure; this copy of the ladder had not.
-    if (coverageData !== undefined && stderrTrimmed.length === 0) {
-      return {
-        passed: 0,
-        failed: 0,
-        skipped: 0,
-        errored: 0,
-        total: 0,
-        results: [],
-        coverage: coverageData,
-        coveragePct: coverageData.coverage,
-        thresholdMet: threshold !== undefined ? true : undefined,
-        note: 'opa printed only the coverage report for this root: every test in it is a todo or was skipped, so the counts are zero.',
-      };
-    }
-    if (coverageData === undefined && COMPILE_ERROR_TEXT.test(stderrTrimmed)) {
-      return loadFailure(result.stderr, v0Compatible);
-    }
+  const below = /got\s+([\d.]+)\s+instead\s+of\s+([\d.]+)/i.exec(stderr);
+  if (below) {
+    const actualCoverage = parseFloat(below[1]!);
+    const requiredThreshold = parseFloat(below[2]!);
     return {
-      passed: 0,
-      failed: 0,
-      skipped: 0,
-      errored: 0,
-      total: 0,
-      results: [],
-      ...(coverageData !== undefined ? { coveragePct: coverageData.coverage } : {}),
+      coveragePct: actualCoverage,
+      thresholdMet: false,
       error: {
-        code: 'EVAL_ERROR',
-        message: stderrTrimmed || 'One or more tests failed.',
-        hint: 'Fix failing tests then re-run. Use verbose: true for trace output.',
+        code: 'COVERAGE_BELOW_THRESHOLD',
+        message: stderr,
+        hint: `Increase test coverage to at least ${requiredThreshold}%. Currently at ${actualCoverage}%.`,
       },
     };
   }
 
-  // Normal mode -- parse test record array from stdout.
+  if (report !== undefined && (run.exitCode === 0 || stderr.length === 0)) {
+    return {
+      coverage: report,
+      coveragePct: report.coverage,
+      ...(threshold !== undefined ? { thresholdMet: true } : {}),
+    };
+  }
+
+  const reason = stderr.split(/\r?\n/)[0] || `exit code ${run.exitCode}`;
+  return { note: `Coverage was not measured: the coverage run did not complete (${reason}).` };
+}
+
+/** Read a root's results run: the test-record array opa prints without coverage. */
+function processRootOutput(result: SpawnResult, v0Compatible: boolean | undefined): RootOutcome {
   let records: TestRecord[] = [];
   const arrayParsed = tryParseJson<TestRecord[]>(result.stdout);
   if (Array.isArray(arrayParsed)) {
@@ -629,15 +589,7 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
           const paths = [root.path, ...root.include];
 
           const result = await opa.test(
-            {
-              paths,
-              verbose,
-              coverage: coverageMode,
-              runPattern,
-              varValues,
-              threshold,
-              v0Compatible,
-            },
+            { paths, verbose, runPattern, varValues, v0Compatible },
             signal,
           );
 
@@ -654,7 +606,29 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
           const failure = mapSubprocessFailure(result, 'opa');
           if (failure) return failure;
 
-          const outcome = processRootOutput(result, coverageMode, threshold, v0Compatible);
+          let outcome = processRootOutput(result, v0Compatible);
+
+          // opa's coverage output has no test records in it, so coverage comes
+          // from a second run, and only for a root whose tests all passed or
+          // were skipped: opa prints no report for a run with a failure.
+          if (coverageMode && outcome.error === undefined) {
+            if (outcome.failed > 0 || outcome.errored > 0) {
+              outcome = { ...outcome, note: COVERAGE_SKIPPED };
+            } else {
+              const coverageRun = await opa.test(
+                { paths, coverage: true, runPattern, threshold, v0Compatible },
+                signal,
+              );
+              if (coverageRun.aborted) {
+                abortedAt = i;
+                break;
+              }
+              const coverageFailure = mapSubprocessFailure(coverageRun, 'opa');
+              if (coverageFailure) return coverageFailure;
+              outcome = { ...outcome, ...readCoverage(coverageRun, threshold) };
+            }
+          }
+
           const rootResult: RootTestResult = {
             path: root.path,
             ...outcome,
@@ -670,16 +644,16 @@ export function registerRegoTestMultiroot(server: McpServer, config: Config): vo
           );
         }
 
-        // Aggregate totals across all roots.
-        const totalPassed = rootResults.reduce((s, r) => s + (r.error ? 0 : r.passed), 0);
-        const totalFailed = rootResults.reduce((s, r) => s + (r.error ? 0 : r.failed), 0);
-        const totalSkipped = rootResults.reduce((s, r) => s + (r.error ? 0 : r.skipped), 0);
-        const totalErrored = rootResults.reduce((s, r) => s + (r.error ? 0 : r.errored), 0);
-        const totalTests = rootResults.reduce((s, r) => s + (r.error ? 0 : r.total), 0);
+        // Aggregate totals across all roots. A root whose policies did not load
+        // ran no tests and carries zeros; one that missed the coverage threshold
+        // ran them, and they count.
+        const totalPassed = rootResults.reduce((s, r) => s + r.passed, 0);
+        const totalFailed = rootResults.reduce((s, r) => s + r.failed, 0);
+        const totalSkipped = rootResults.reduce((s, r) => s + r.skipped, 0);
+        const totalErrored = rootResults.reduce((s, r) => s + r.errored, 0);
+        const totalTests = rootResults.reduce((s, r) => s + r.total, 0);
         const rootsWithErrors = rootResults.filter((r) => r.error !== undefined).length;
-        const rootsWithFailures = rootResults.filter(
-          (r) => r.error === undefined && r.failed > 0,
-        ).length;
+        const rootsWithFailures = rootResults.filter((r) => r.failed > 0).length;
 
         const output: MultiRootTestOutput = {
           mode,
