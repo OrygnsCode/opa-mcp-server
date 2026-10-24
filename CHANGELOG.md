@@ -17,6 +17,17 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- `rego_test` and `rego_test_multiroot` with `coverage` or `threshold` report
+  the real passed, failed and skipped counts next to the coverage report. They
+  reported zero tests, since opa's coverage output has no test records in it,
+  and `rego_test_multiroot` put the zeros down to todo tests. The suite now
+  runs once for the results and once more for coverage.
+- With coverage on, a failing test is reported as a failure with counts, as it
+  is without coverage, instead of as `EVAL_ERROR`. opa prints no coverage for
+  such a run, so the result carries a warning saying so.
+
 ## [0.9.1] - 2026-10-23
 
 ### Changed

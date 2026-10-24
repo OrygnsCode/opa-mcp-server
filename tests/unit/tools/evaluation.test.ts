@@ -1008,36 +1008,51 @@ describe('rego_test', () => {
 
   // ─── coverage mode ────────────────────────────────────────────────────
 
-  it('returns coverage JSON when coverage:true and all tests pass', async () => {
-    // Real OPA output with --coverage: a JSON object, NOT a test-record array.
+  // opa's coverage output is a report with no test records in it, so coverage
+  // mode runs the suite twice: once for the results, once for the report.
+  const passingRecords = JSON.stringify([
+    { name: 'test_a', duration: 1 },
+    { name: 'test_b', duration: 1 },
+  ]);
+  type CoverageEnv = {
+    allPassed?: boolean;
+    passed: number;
+    failed: number;
+    skipped: number;
+    total: number;
+    repetitions?: number;
+    coveragePct?: number;
+    coverage?: unknown;
+    thresholdMet?: boolean;
+  };
+
+  it('adds the coverage report to the real test counts when all tests pass', async () => {
     const coverageJson = JSON.stringify({
       files: { 'policy.rego': { covered_lines: 8, not_covered_lines: 2, coverage: 80 } },
       covered_lines: 8,
       not_covered_lines: 2,
       coverage: 80,
     });
-    mockRun.mockResolvedValueOnce(spawnSuccess(coverageJson));
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(passingRecords))
+      .mockResolvedValueOnce(spawnSuccess(coverageJson));
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool<{ coveragePct?: number; coverage?: unknown }>(server, 'rego_test', {
+    const env = await callTool<CoverageEnv>(server, 'rego_test', {
       paths: [validRegoPath()],
       coverage: true,
     });
-    expect(env.ok).toBe(true);
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ allPassed: true, passed: 2, failed: 0, total: 2 });
     expect(env.data?.coveragePct).toBe(80);
     expect(env.data?.coverage).toBeDefined();
-    // OPA does not emit test records in coverage mode -- counts are zero.
-    const typedData = env.data as { passed: number; total: number } | undefined;
-    expect(typedData?.passed).toBe(0);
-    expect(typedData?.total).toBe(0);
-    // --coverage flag must be present in argv
-    expect(mockRun.mock.calls[0]![1].args).toContain('--coverage');
+    expect(env.warnings).toBeUndefined();
+    expect(mockRun).toHaveBeenCalledTimes(2);
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--coverage');
+    expect(mockRun.mock.calls[1]![1].args).toContain('--coverage');
   });
 
-  it('reads the last of the reports opa prints for coverage with count > 1', async () => {
-    // opa prints one coverage document per run; the concatenation is not
-    // one JSON document, and the single parse left coverage undefined with
-    // the threshold reported as met.
+  it('repeats only the results run with count > 1, and reads the last coverage report', async () => {
     const first = JSON.stringify({
       files: {},
       covered_lines: 1,
@@ -1050,52 +1065,60 @@ describe('rego_test', () => {
       not_covered_lines: 1,
       coverage: 90,
     });
-    mockRun.mockResolvedValueOnce(spawnSuccess(first + '\n' + last + '\n'));
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(passingRecords + '\n' + passingRecords + '\n'))
+      .mockResolvedValueOnce(spawnSuccess(first + '\n' + last + '\n'));
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool<{ coveragePct?: number; thresholdMet?: boolean }>(
-      server,
-      'rego_test',
-      {
-        paths: [validRegoPath()],
-        coverage: true,
-        threshold: 50,
-        count: 2,
-      },
-    );
+    const env = await callTool<CoverageEnv>(server, 'rego_test', {
+      paths: [validRegoPath()],
+      coverage: true,
+      threshold: 50,
+      count: 2,
+    });
     expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ passed: 2, total: 2, repetitions: 2 });
     expect(env.data?.coveragePct).toBe(90);
     expect(env.data?.thresholdMet).toBe(true);
+    expect(mockRun.mock.calls[0]![1].args).toContain('--count');
+    expect(mockRun.mock.calls[1]![1].args).not.toContain('--count');
   });
 
-  it('passes --threshold to OPA and reports thresholdMet:true when threshold is met', async () => {
+  it('passes --threshold on the coverage run and reports thresholdMet:true when met', async () => {
     const coverageJson = JSON.stringify({ coverage: 90, covered_lines: 9, not_covered_lines: 1 });
-    mockRun.mockResolvedValueOnce(spawnSuccess(coverageJson));
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(passingRecords))
+      .mockResolvedValueOnce(spawnSuccess(coverageJson));
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool<{ coveragePct?: number; thresholdMet?: boolean }>(
-      server,
-      'rego_test',
-      { paths: [validRegoPath()], threshold: 80 },
-    );
+    const env = await callTool<CoverageEnv>(server, 'rego_test', {
+      paths: [validRegoPath()],
+      threshold: 80,
+    });
     expect(env.ok).toBe(true);
     expect(env.data?.thresholdMet).toBe(true);
     expect(env.data?.coveragePct).toBe(90);
+    expect(env.data?.passed).toBe(2);
 
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).toContain('--threshold');
-    expect(args[args.indexOf('--threshold') + 1]).toBe('80');
-    // threshold implicitly enables coverage mode
-    expect(args).toContain('--coverage');
+    const results = mockRun.mock.calls[0]![1].args;
+    expect(results).not.toContain('--threshold');
+    expect(results).not.toContain('--coverage');
+    const coverage = mockRun.mock.calls[1]![1].args;
+    expect(coverage).toContain('--threshold');
+    expect(coverage[coverage.indexOf('--threshold') + 1]).toBe('80');
+    // threshold implies coverage
+    expect(coverage).toContain('--coverage');
   });
 
-  it('returns COVERAGE_BELOW_THRESHOLD when OPA reports threshold not met', async () => {
+  it('returns COVERAGE_BELOW_THRESHOLD when the tests pass and OPA reports the threshold not met', async () => {
     // OPA emits this exact message on stderr (exit 2), stdout is empty.
     const thresholdMsg = 'Code coverage threshold not met: got 75.00 instead of 90.00';
-    mockRun.mockResolvedValueOnce(spawnFailure(2, thresholdMsg, ''));
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(passingRecords))
+      .mockResolvedValueOnce(spawnFailure(2, thresholdMsg, ''));
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool<{ details?: { actualCoverage?: number } }>(server, 'rego_test', {
+    const env = await callTool(server, 'rego_test', {
       paths: [validRegoPath()],
       threshold: 90,
     });
@@ -1104,23 +1127,70 @@ describe('rego_test', () => {
     expect(env.error?.details).toMatchObject({ actualCoverage: 75, requiredThreshold: 90 });
   });
 
-  it('returns EVAL_ERROR when tests fail in coverage mode', async () => {
-    // OPA exits 1 with test failure on stderr; stdout is empty.
-    const failMsg = 'data.example_test.test_denied: FAIL (0s)';
-    mockRun.mockResolvedValueOnce(spawnFailure(1, failMsg, ''));
+  it('reports a failing test as a failure in coverage mode, and skips the coverage run', async () => {
+    // opa prints no coverage report for a run with a failing test, so there is
+    // nothing a second run could add. The failure is reported as it is without
+    // coverage, not as a broken tool.
+    const records = JSON.stringify([
+      { name: 'test_a', duration: 1 },
+      { name: 'test_denied', fail: true, duration: 1 },
+    ]);
+    mockRun.mockResolvedValueOnce(spawnFailure(2, '', records));
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
-    const env = await callTool(server, 'rego_test', {
+    const env = await callTool<CoverageEnv>(server, 'rego_test', {
       paths: [validRegoPath()],
       threshold: 80,
     });
-    expect(env.ok).toBe(false);
-    expect(env.error?.code).toBe('EVAL_ERROR');
-    expect(env.error?.message).toContain('FAIL');
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ allPassed: false, passed: 1, failed: 1, total: 2 });
+    expect(env.data?.coverage).toBeUndefined();
+    expect(env.data?.thresholdMet).toBeUndefined();
+    expect(env.warnings?.[0]).toMatch(/Coverage was not measured/);
+    expect(mockRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the counts and the report for a suite holding a todo test', async () => {
+    // A `todo_` test exits non-zero in coverage mode with an empty stderr and
+    // the report on stdout.
+    const records = JSON.stringify([
+      { name: 'test_a', duration: 1 },
+      { name: 'todo_test_later', skip: true, duration: 0 },
+    ]);
+    mockRun
+      .mockResolvedValueOnce(spawnFailure(2, '', records))
+      .mockResolvedValueOnce(spawnFailure(2, '', JSON.stringify({ coverage: 66.7 })));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<CoverageEnv>(server, 'rego_test', {
+      paths: [validRegoPath()],
+      coverage: true,
+    });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(env.data).toMatchObject({ allPassed: false, passed: 1, skipped: 1, total: 2 });
+    expect(env.data?.coveragePct).toBe(66.7);
+  });
+
+  it('keeps the results and warns when the coverage run fails after the results run passed', async () => {
+    // A test that does not pass every time can pass the first run and fail
+    // the second. The results stand; the coverage is reported missing.
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(passingRecords))
+      .mockResolvedValueOnce(spawnFailure(1, 'data.example_test.test_b: FAIL (0s)', ''));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<CoverageEnv>(server, 'rego_test', {
+      paths: [validRegoPath()],
+      coverage: true,
+    });
+    expect(env.ok).toBe(true);
+    expect(env.data).toMatchObject({ allPassed: true, passed: 2 });
+    expect(env.data?.coverage).toBeUndefined();
+    expect(env.warnings?.[0]).toContain('test_b: FAIL');
   });
 
   it('returns INVALID_REGO in coverage mode when the policies do not compile', async () => {
-    // As without coverage: opa never reached the tests.
+    // As without coverage: opa never reached the tests, and no coverage run is made.
     mockRun.mockResolvedValueOnce(
       spawnFailure(
         1,
@@ -1136,6 +1206,7 @@ describe('rego_test', () => {
     });
     expect(env.ok).toBe(false);
     expect(env.error?.code).toBe('INVALID_REGO');
+    expect(mockRun).toHaveBeenCalledTimes(1);
   });
 
   it('rejects threshold values outside 0-100', async () => {
@@ -1235,9 +1306,12 @@ describe('rego_test', () => {
     expect(env.data?.results[0]?.fail).toBe(true);
   });
 
-  it('places --var-values before --threshold in argv', async () => {
-    // Ordering matters: the test() handler must emit --var-values before --threshold.
-    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify({ coverage: 90 })));
+  it('keeps tracing flags on the results run and the threshold on the coverage run', async () => {
+    // Coverage overrides tracing in opa, so --var-values belongs to the run
+    // that produces the records.
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])))
+      .mockResolvedValueOnce(spawnSuccess(JSON.stringify({ coverage: 90 })));
     const server = makeServer();
     registerEvaluationTools(server, baseConfig);
     await callTool(server, 'rego_test', {
@@ -1245,12 +1319,12 @@ describe('rego_test', () => {
       varValues: true,
       threshold: 80,
     });
-    const args = mockRun.mock.calls[0]![1].args;
-    const varValuesIdx = args.indexOf('--var-values');
-    const thresholdIdx = args.indexOf('--threshold');
-    expect(varValuesIdx).toBeGreaterThan(-1);
-    expect(thresholdIdx).toBeGreaterThan(-1);
-    expect(varValuesIdx).toBeLessThan(thresholdIdx);
+    const results = mockRun.mock.calls[0]![1].args;
+    expect(results).toContain('--var-values');
+    expect(results).not.toContain('--threshold');
+    const coverage = mockRun.mock.calls[1]![1].args;
+    expect(coverage).toContain('--threshold');
+    expect(coverage).not.toContain('--var-values');
   });
 
   // ─── new params: ignorePatterns, bundle, count, timeout ───────────────

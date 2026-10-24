@@ -244,9 +244,13 @@ describe('rego_test_multiroot (explicit mode)', () => {
     expect(env.data?.roots[0]!.name).toBe('auth-service');
   });
 
-  it('handles coverage mode -- computes per-root coveragePct and overallCoveragePct', async () => {
+  // opa's coverage output has no test records in it, so each root in coverage
+  // mode makes two runs: the results, then the coverage report.
+  it('handles coverage mode -- real per-root counts, coveragePct and overallCoveragePct', async () => {
     mockRun
+      .mockResolvedValueOnce(spawnSuccess(testRecordsPass()))
       .mockResolvedValueOnce(spawnSuccess(coverageJson(80)))
+      .mockResolvedValueOnce(spawnSuccess(testRecordsPass('data.other')))
       .mockResolvedValueOnce(spawnSuccess(coverageJson(90)));
 
     const server = makeServer();
@@ -258,18 +262,25 @@ describe('rego_test_multiroot (explicit mode)', () => {
     });
 
     expect(env.ok).toBe(true);
-    expect(env.data?.roots[0]!.coveragePct).toBe(80);
-    expect(env.data?.roots[1]!.coveragePct).toBe(90);
+    expect(env.data?.roots[0]).toMatchObject({ passed: 1, total: 1, coveragePct: 80 });
+    expect(env.data?.roots[1]).toMatchObject({ passed: 1, total: 1, coveragePct: 90 });
+    expect(env.data?.totalPassed).toBe(2);
     // Mean of 80 and 90 = 85.
     expect(env.data?.overallCoveragePct).toBe(85);
-    // Coverage mode -- opa args contain --coverage.
-    const args = mockRun.mock.calls[0]![1].args;
-    expect(args).toContain('--coverage');
+    expect(mockRun.mock.calls[0]![1].args).not.toContain('--coverage');
+    expect(mockRun.mock.calls[1]![1].args).toContain('--coverage');
   });
 
-  it('keeps the report of a root that exits non-zero with an empty stderr, as a todo test does', async () => {
+  it('keeps the counts and report of a root holding a todo test', async () => {
+    // A `todo_` test exits non-zero, with an empty stderr, in both runs.
+    const withTodo = JSON.stringify([
+      { package: 'data.other', name: 'test_allow', duration: 1 },
+      { package: 'data.other', name: 'todo_test_later', skip: true, duration: 0 },
+    ]);
     mockRun
+      .mockResolvedValueOnce(spawnSuccess(testRecordsPass()))
       .mockResolvedValueOnce(spawnSuccess(coverageJson(80)))
+      .mockResolvedValueOnce({ ...spawnSuccess(withTodo), exitCode: 2 })
       .mockResolvedValueOnce({ ...spawnSuccess(coverageJson(90)), exitCode: 2 });
 
     const server = makeServer();
@@ -280,15 +291,18 @@ describe('rego_test_multiroot (explicit mode)', () => {
     });
 
     expect(env.ok).toBe(true);
-    expect(env.data?.roots[1]!.coveragePct).toBe(90);
+    expect(env.data?.roots[1]).toMatchObject({ passed: 1, skipped: 1, total: 2, coveragePct: 90 });
     expect(env.data?.roots[1]!.error).toBeUndefined();
+    expect(env.data?.roots[1]!.note).toBeUndefined();
     expect(env.data?.overallCoveragePct).toBe(85);
   });
 
-  it('records thresholdMet: false on a root that misses the threshold', async () => {
+  it('records thresholdMet: false on a root that misses the threshold, and still counts its tests', async () => {
     const thresholdMsg = 'Code coverage threshold not met: got 70.00 instead of 80.00';
     mockRun
+      .mockResolvedValueOnce(spawnSuccess(testRecordsPass()))
       .mockResolvedValueOnce(spawnFailure(2, thresholdMsg, ''))
+      .mockResolvedValueOnce(spawnSuccess(testRecordsPass('data.other')))
       .mockResolvedValueOnce(spawnSuccess(coverageJson(90)));
 
     const server = makeServer();
@@ -303,18 +317,23 @@ describe('rego_test_multiroot (explicit mode)', () => {
     expect(env.data?.roots[0]!.error?.code).toBe('COVERAGE_BELOW_THRESHOLD');
     expect(env.data?.roots[0]!.thresholdMet).toBe(false);
     expect(env.data?.roots[0]!.coveragePct).toBe(70);
+    expect(env.data?.roots[0]!.passed).toBe(1);
     expect(env.data?.roots[1]!.thresholdMet).toBe(true);
     expect(env.data?.roots[1]!.coveragePct).toBe(90);
+    expect(env.data?.totalPassed).toBe(2);
+    expect(env.data?.rootsWithErrors).toBe(1);
     // overallCoveragePct only from roots that have coverage data.
     expect(env.data?.overallCoveragePct).toBeCloseTo(80, 1);
   });
 
   it('tells a root that does not compile from one whose tests fail, in coverage mode', async () => {
+    // Neither root gets a coverage run: one never reached its tests, and opa
+    // prints no coverage report for a run with a failing test.
     mockRun
       .mockResolvedValueOnce(
         spawnFailure(1, '1 error occurred: a.rego:3: rego_parse_error: unexpected eof token', ''),
       )
-      .mockResolvedValueOnce(spawnFailure(2, 'data.b_test.test_x: FAIL (1ms)', ''));
+      .mockResolvedValueOnce(spawnFailure(2, '', testRecordsFail('data.b')));
 
     const server = makeServer();
     registerRegoTestMultiroot(server, baseConfig);
@@ -326,7 +345,31 @@ describe('rego_test_multiroot (explicit mode)', () => {
 
     expect(env.ok).toBe(true);
     expect(env.data?.roots[0]!.error?.code).toBe('INVALID_REGO');
-    expect(env.data?.roots[1]!.error?.code).toBe('EVAL_ERROR');
+    expect(env.data?.roots[1]!.error).toBeUndefined();
+    expect(env.data?.roots[1]).toMatchObject({ failed: 1, total: 1 });
+    expect(env.data?.roots[1]!.note).toMatch(/Coverage was not measured/);
+    expect(env.data?.rootsWithFailures).toBe(1);
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the results of a root and notes it when its coverage run fails after the results run passed', async () => {
+    mockRun
+      .mockResolvedValueOnce(spawnSuccess(testRecordsPass()))
+      .mockResolvedValueOnce(spawnFailure(1, 'data.example.test_allow: FAIL (0s)', ''));
+
+    const server = makeServer();
+    registerRegoTestMultiroot(server, baseConfig);
+
+    const env = await callTool<MultiRootTestOutput>(server, 'rego_test_multiroot', {
+      roots: [{ path: root1() }],
+      coverage: true,
+    });
+
+    expect(env.ok).toBe(true);
+    expect(env.data?.roots[0]).toMatchObject({ passed: 1, total: 1 });
+    expect(env.data?.roots[0]!.coverage).toBeUndefined();
+    expect(env.data?.roots[0]!.note).toContain('test_allow: FAIL');
+    expect(env.data?.overallCoveragePct).toBeUndefined();
   });
 
   it('emits a warning and partial results when a subprocess returns aborted', async () => {
