@@ -17,6 +17,11 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Releases are no longer published to Smithery, which has stopped accepting
+  updates to listed servers. Install from npm, Docker or the GitHub release.
+
 ### Fixed
 
 - `rego_test` and `rego_test_multiroot` with `coverage` or `threshold` report

@@ -228,7 +228,6 @@ describe('npm pack - published tarball contents', () => {
     expect(files.some((p) => p === 'Dockerfile')).toBe(false);
     expect(files.some((p) => p === 'manifest.json')).toBe(false);
     expect(files.some((p) => p === 'server.json')).toBe(false);
-    expect(files.some((p) => p === 'smithery.yaml')).toBe(false);
     expect(files.some((p) => p === 'tsconfig.json')).toBe(false);
     expect(files.some((p) => p === 'eslint.config.mjs')).toBe(false);
     expect(files.some((p) => p === 'LAUNCH-PLAYBOOK.md')).toBe(false);

@@ -169,12 +169,6 @@ Or download `opa-mcp.mcpb` from the
 [latest release](https://github.com/OrygnsCode/opa-mcp-server/releases/latest)
 and double-click it.
 
-Alternatively, use the Smithery one-liner:
-
-```bash
-npx -y @smithery/cli install @orygn/opa-mcp --client claude
-```
-
 ### Claude Code (CLI)
 
 Register the server for the current project with `claude mcp add`:
