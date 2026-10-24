@@ -186,8 +186,8 @@ Releases are tag-driven. Pushing a `v*.*.*` tag triggers
    it does.
 3. Publishes `@orygn/opa-mcp` to npm with provenance.
 4. Builds and pushes a multi-arch Docker image to `orygn/opa-mcp`.
-5. Builds the `opa-mcp.mcpb` bundle, publishes it to Smithery, and attaches
-   it to the GitHub release with its sha256.
+5. Builds the `opa-mcp.mcpb` bundle and attaches it to the GitHub release
+   with its sha256.
 6. Publishes `server.json` to the MCP Registry.
 
 Maintainers cut releases: bump the version in `package.json`,
