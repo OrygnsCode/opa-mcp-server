@@ -3,7 +3,7 @@
   "name": "io.github.OrygnsCode/opa-mcp",
   "title": "OPA MCP",
   "description": "Author, validate, debug, and explain OPA Rego policies through any MCP-compatible client.",
-  "websiteUrl": "https://orygn.tech",
+  "websiteUrl": "https://orygn.tech/products/opa-mcp",
   "repository": {
     "url": "https://github.com/OrygnsCode/opa-mcp-server",
     "source": "github"
