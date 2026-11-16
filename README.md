@@ -176,18 +176,23 @@ and double-click it.
 
 ### Claude Code (CLI)
 
-Register the server for the current project with `claude mcp add`:
+From your project folder, register the server with `claude mcp add`:
 
 ```bash
-claude mcp add --env OPA_MCP_ALLOWED_PATHS=/path/to/your/policies \
-  opa -- npx -y @orygn/opa-mcp
+claude mcp add opa --scope project --env OPA_MCP_ALLOWED_PATHS=/path/to/your/policies -- npx -y @orygn/opa-mcp
 ```
 
-This writes the config into `.mcp.json` at your project root and is
-picked up automatically on every `claude` session in that directory.
-Add `--scope user` to register it globally instead.
+This writes `.mcp.json` in the project, so Claude Code in the terminal and
+the editor extensions both pick it up, and so does anyone else who opens the
+repository. Use `--scope user` instead to have it in every project. Keep the
+server name before `--env`, which takes every argument up to the next
+option.
 
-> Use an absolute path (on Windows, `C:\path\to\policies`). Add
+> Use an absolute path (on Windows, `C:\path\to\policies`). On Windows, run
+> the command in Command Prompt: Windows PowerShell drops the `--` and
+> `claude` then rejects `-y`. Without `--scope`, Claude Code keeps the server
+> private to you under the folder's path, and on Windows the VS Code
+> extension can miss it when the drive letter's case differs. Add
 > `--env REGAL_BINARY=...` and `--env CONFTEST_BINARY=...` for the lint and
 > Conftest tools, as for Claude Desktop above.
 

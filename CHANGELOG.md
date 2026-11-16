@@ -24,6 +24,13 @@ not part of the public surface and may change in minor releases.
   failed every tool call with `OPA_BINARY_NOT_FOUND`. The examples and the
   README install steps now set only `OPA_MCP_ALLOWED_PATHS`; the binary
   paths are documented as optional, for your own `opa`, Regal and Conftest.
+- The README's `claude mcp add` command put `--env` before the server name,
+  so Claude Code read the name as a second variable and rejected the
+  command. The name now comes first. The README now registers the server
+  with `--scope project`, which writes `.mcp.json`: the default scope keys
+  the server by the folder's path, and on Windows the VS Code extension
+  missed a server added from a terminal whose drive letter was a different
+  case.
 
 ## [0.9.2] - 2026-11-16
 
