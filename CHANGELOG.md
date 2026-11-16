@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-16
+
 ### Security
 
 - `opa_bundle_verify` reported an unsigned delta bundle, one holding a
@@ -28,6 +30,10 @@ not part of the public surface and may change in minor releases.
   now reads the archive OPA writes and fails a delta bundle with
   `details.reason` `delta_bundle`, whichever OPA runs it. `opa_bundle_build`
   with `verificationKey` fails the same way and removes its output.
+- The lockfile, which the Docker image and the `.mcpb` bundle are built from,
+  takes `hono` 4.13.18 and `@hono/node-server` 2.1.8, past five `hono` and
+  three `@hono/node-server` advisories. Both come in through the MCP SDK's
+  HTTP server, which the stdio server never loads.
 
 ### Changed
 
@@ -1929,7 +1935,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.7.0...v0.8.0
