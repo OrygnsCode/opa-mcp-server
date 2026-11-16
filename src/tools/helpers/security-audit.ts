@@ -131,6 +131,8 @@ export const REMEDIATION_HINTS: Record<string, string> = {
     'A variable is named after an OPA builtin, which hides the builtin in that rule body. Rename the variable.',
   'sprintf-arguments-mismatch':
     'The sprintf format string and the number of arguments do not match. This produces undefined output at runtime.',
+  'unconditional-with-conditions':
+    'One definition of the rule has no conditions, so it always applies: the conditional definitions either conflict with it or never change the result. Make the unconditional value the `default` instead.',
 };
 
 const DEFAULT_REMEDIATION =

@@ -25,7 +25,7 @@ const RegoCapabilitiesInput = {
     .string()
     .optional()
     .describe(
-      'A specific OPA capabilities version (e.g. "v1.21.0"). When neither flag is set, lists available versions.',
+      'A specific OPA capabilities version (e.g. "v1.22.4"). When neither flag is set, lists available versions.',
     ),
   names_only: z
     .boolean()
@@ -65,7 +65,7 @@ export function registerRegoCapabilities(server: McpServer, config: Config): voi
     {
       title: 'OPA capabilities',
       description:
-        'Return OPA capabilities -- the available builtins, future keywords, features, and WASM ABI versions. With `current: true`, returns the running OPA\'s capabilities. With `version: "v1.19.0"`, returns those of a specific version. With neither, lists available named versions. By default (`names_only: true`), returns only builtin names and count to stay within response size limits. Pass `builtins: [...]` for the full type signatures and documentation of a few named builtins; `names_only: false` returns every full record, which needs OPA_MCP_MAX_RESPONSE_BYTES raised above its default.',
+        'Return OPA capabilities -- the available builtins, future keywords, features, and WASM ABI versions. With `current: true`, returns the running OPA\'s capabilities. With `version: "v1.22.4"`, returns those of a specific version. With neither, lists available named versions. By default (`names_only: true`), returns only builtin names and count to stay within response size limits. Pass `builtins: [...]` for the full type signatures and documentation of a few named builtins; `names_only: false` returns every full record, which needs OPA_MCP_MAX_RESPONSE_BYTES raised above its default.',
       inputSchema: RegoCapabilitiesInput,
       annotations: {
         readOnlyHint: true,
