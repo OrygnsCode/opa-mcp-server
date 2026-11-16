@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Config } from '../../../src/config.js';
 import { OpaCli } from '../../../src/lib/opa-cli.js';
+import { tarGz, type TarEntry } from './_tar.js';
 
 vi.mock('../../../src/lib/subprocess.js', () => ({
   runBinary: vi.fn(),
@@ -620,8 +621,39 @@ describe('OpaCli', () => {
       });
       const result = await opa.bundleVerify({ bundle: '/abs/s', verificationKey: '/abs/k' });
       expect(result.exitCode).toBe(1);
+      expect(result.loaded).toBeUndefined();
       const out = mockRun.mock.calls[0]![1].args.at(-3)!;
       expect(existsSync(dirname(out))).toBe(false);
+    });
+
+    // What opa writes to -o is read before the temp directory goes.
+    const writesArchive = (entries: TarEntry[]) => async (_bin: string, o: { args: string[] }) => {
+      await writeFile(o.args[o.args.indexOf('-o') + 1]!, tarGz(entries));
+      return okSpawn;
+    };
+
+    it('reports a snapshot bundle from the archive opa wrote', async () => {
+      mockRun.mockImplementationOnce(writesArchive([{ name: '/data.json', data: '{}' }]));
+      const result = await opa.bundleVerify({ bundle: '/abs/s', verificationKey: '/abs/k' });
+      expect(result.loaded).toBe('snapshot');
+      expect(existsSync(dirname(mockRun.mock.calls[0]![1].args.at(-3)!))).toBe(false);
+    });
+
+    it('reports a delta bundle, which old opa loads unchecked and exits 0', async () => {
+      mockRun.mockImplementationOnce(
+        writesArchive([
+          { name: '/patch.json', data: '{"data":[{"op":"upsert","path":"/x","value":1}]}' },
+          { name: '/.manifest', data: '{}' },
+        ]),
+      );
+      const result = await opa.bundleVerify({ bundle: '/abs/s', verificationKey: '/abs/k' });
+      expect(result.exitCode).toBe(0);
+      expect(result.loaded).toBe('delta');
+    });
+
+    it('reports unreadable, not snapshot, when opa exits 0 and writes nothing', async () => {
+      const result = await opa.bundleVerify({ bundle: '/abs/s', verificationKey: '/abs/k' });
+      expect(result.loaded).toBe('unreadable');
     });
   });
 

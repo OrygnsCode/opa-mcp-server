@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Config } from '../config.js';
+import { loadedBundleType } from './bundle-archive.js';
 import { coerceJsonArg } from './json-coerce.js';
 import { rewriteLoadPaths } from './opa-paths.js';
 import { runBinary, type SpawnResult } from './subprocess.js';
@@ -357,6 +358,15 @@ export interface BundleVerifyInput {
   cwd?: string;
 }
 
+export interface BundleVerifyResult extends SpawnResult {
+  /**
+   * Set when opa exits 0: what the archive it wrote holds. A `delta` bundle
+   * was loaded without any signature check by OPA before 1.21.3, so only
+   * `snapshot` means the signature was verified. See `bundle-archive.ts`.
+   */
+  loaded?: 'snapshot' | 'delta' | 'unreadable';
+}
+
 /**
  * Wrapper around the local `opa` binary.
  *
@@ -673,19 +683,22 @@ export class OpaCli {
    * Build reads the key, checks the JWT against it, compares the scope claim,
    * then checks every file, then parses, and exits non-zero at the first
    * failure with the reason on stdout. The rebuilt archive goes to a private
-   * temp directory and is discarded: it is a side effect of the only
-   * verification path OPA offers, not a result.
+   * temp directory and is discarded once read for `loaded`: it is a side
+   * effect of the only verification path OPA offers, not a result.
    */
-  async bundleVerify(input: BundleVerifyInput, signal?: AbortSignal): Promise<SpawnResult> {
+  async bundleVerify(input: BundleVerifyInput, signal?: AbortSignal): Promise<BundleVerifyResult> {
     const tmpDir = await mkdtemp(join(tmpdir(), 'orygn-opa-mcp-verify-'));
     try {
+      const output = join(tmpDir, 'verified.tar.gz');
       const args = ['build', '--bundle', '--verification-key', input.verificationKey];
       if (input.verificationKeyId) args.push('--verification-key-id', input.verificationKeyId);
       if (input.signingAlg) args.push('--signing-alg', input.signingAlg);
       if (input.scope) args.push('--scope', input.scope);
       if (input.v0Compatible) args.push('--v0-compatible');
-      args.push('-o', join(tmpDir, 'verified.tar.gz'), '--', input.bundle);
-      return await this.run(args, undefined, signal, [], input.cwd);
+      args.push('-o', output, '--', input.bundle);
+      const result = await this.run(args, undefined, signal, [], input.cwd);
+      if (result.exitCode !== 0) return result;
+      return { ...result, loaded: await loadedBundleType(output) };
     } finally {
       await rm(tmpDir, { recursive: true, force: true });
     }
