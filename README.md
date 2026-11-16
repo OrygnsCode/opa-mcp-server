@@ -22,9 +22,15 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
-> **Status:** v0.9.1. Tool surface, error codes, and
+> **Status:** v0.9.2. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.9.2:** `opa_bundle_verify` refuses delta bundles, which
+> cannot be signed. The bundled OPA is now 1.22: a signed bundle holding
+> another file whose name ends in `signatures.json` no longer verifies until
+> it is signed again. If you supply your own binary via `OPA_BINARY` or
+> `PATH`, the OPA change applies only from OPA 1.22.
 
 > **Upgrading to 0.9.0:** a tool refuses an argument it does not declare,
 > and the error names it; it used to be dropped. A policy or query that does
