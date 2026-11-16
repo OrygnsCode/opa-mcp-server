@@ -17,6 +17,18 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Security
+
+- `opa_bundle_verify` reported an unsigned delta bundle, one holding a
+  `patch.json` of data operations, as `verified: true`. It verifies through
+  `opa build --verification-key`, and OPA before 1.21.3 skips the signature
+  check for delta bundles (GHSA-g2pf-6v5v-qcc8). That covers the OPA every
+  earlier release bundled, and any older `opa` found first on `PATH`. Anyone
+  able to swap a bundle could have had data patches pass as signed. The tool
+  now reads the archive OPA writes and fails a delta bundle with
+  `details.reason` `delta_bundle`, whichever OPA runs it. `opa_bundle_build`
+  with `verificationKey` fails the same way and removes its output.
+
 ### Changed
 
 - Releases are no longer published to Smithery, which has stopped accepting

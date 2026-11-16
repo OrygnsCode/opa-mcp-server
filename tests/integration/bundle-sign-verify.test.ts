@@ -651,3 +651,113 @@ describe('opa_bundle_verify against the real opa', () => {
     expect(await snapshot()).toBe(before);
   });
 });
+
+/**
+ * A delta bundle carries data patches and cannot be signed. OPA before 1.21.3
+ * loaded one under --verification-key without checking anything and exited 0
+ * (GHSA-g2pf-6v5v-qcc8); later versions refuse it. Every case here has to come
+ * out the same on both, which is what the tools' own check of OPA's output is
+ * for.
+ */
+describe('delta bundles against the real opa', () => {
+  const PATCH = '{"data":[{"op":"upsert","path":"/x","value":1}]}';
+
+  async function makeDelta(): Promise<string> {
+    const dir = join(workDir, `delta-${bundleCounter++}`);
+    await mkdir(dir);
+    await writeFile(join(dir, 'patch.json'), PATCH);
+    await writeFile(join(dir, '.manifest'), '{"roots":["x"]}');
+    return dir;
+  }
+
+  it('does not verify an unsigned delta bundle directory', async () => {
+    const env = await expectFailure(
+      { bundle: await makeDelta(), verificationKey: keys.rsaPublic },
+      'delta_bundle',
+    );
+    expect(env.error?.message).toMatch(/delta bundle/);
+  });
+
+  it('does not verify a delta bundle that carries a signatures file', async () => {
+    const dir = await makeDelta();
+    const signed = rawOpa(
+      [
+        'sign',
+        '--signing-key',
+        keys.rsaPrivate,
+        '--bundle',
+        basename(dir),
+        '--output-file-path',
+        basename(dir),
+      ],
+      dirname(dir),
+    );
+    expect(signed.status, signed.stdout).toBe(0);
+    expect(existsSync(join(dir, SIGNATURES))).toBe(true);
+    await expectFailure({ bundle: dir, verificationKey: keys.rsaPublic }, 'delta_bundle');
+  });
+
+  it('verifies a signed snapshot bundle holding a patch.json with no operations', async () => {
+    // OPA counts a bundle as delta only when the patch has operations, and
+    // does not write the file back out otherwise, so this is a snapshot.
+    const dir = await makeBundle();
+    await writeFile(join(dir, 'patch.json'), '{"data":[]}');
+    const signed = await sign({ bundle: dir, signingKey: keys.rsaPrivate });
+    expect(signed.ok, JSON.stringify(signed.error)).toBe(true);
+    const env = await verify({ bundle: dir, verificationKey: keys.rsaPublic });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+  });
+
+  it('does not verify a delta bundle archive', async () => {
+    const archive = join(workDir, `delta-${bundleCounter++}.tar.gz`);
+    const built = await build({ paths: [await makeDelta()], output: archive, bundle: true });
+    expect(built.ok, JSON.stringify(built.error)).toBe(true);
+    await expectFailure({ bundle: archive, verificationKey: keys.rsaPublic }, 'delta_bundle');
+  });
+
+  it('fails a build that re-verifies a delta bundle, and leaves no output', async () => {
+    const output = join(workDir, `rebuilt-${bundleCounter++}.tar.gz`);
+    const env = await build({
+      paths: [await makeDelta()],
+      output,
+      verificationKey: keys.rsaPublic,
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code, JSON.stringify(env.error)).toBe('INVALID_BUNDLE');
+    expect((env.error?.details as Details).reason).toBe('delta_bundle');
+    expect(existsSync(output)).toBe(false);
+  });
+
+  it('still rebuilds a signed snapshot archive under verificationKey', async () => {
+    const signed = join(workDir, `signed-snap-${bundleCounter++}.tar.gz`);
+    const first = await build({
+      paths: [await makeBundle()],
+      output: signed,
+      signingKey: keys.rsaPrivate,
+    });
+    expect(first.ok, JSON.stringify(first.error)).toBe(true);
+
+    const output = join(workDir, `rebuilt-${bundleCounter++}.tar.gz`);
+    const env = await build({ paths: [signed], output, verificationKey: keys.rsaPublic });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(existsSync(output)).toBe(true);
+  });
+});
+
+describe('signatures files against the real opa', () => {
+  it('reports a second .signatures.json as malformed signatures (OPA 1.22+)', async (ctx) => {
+    const version = /Version: (\d+)\.(\d+)/.exec(rawOpa(['version'], workDir).stdout);
+    if (!version || Number(version[1]) * 1000 + Number(version[2]) < 1022) {
+      ctx.skip();
+      return;
+    }
+    const dir = await makeSignedBundle();
+    await mkdir(join(dir, 'sub'));
+    await writeFile(join(dir, 'sub', SIGNATURES), await readFile(join(dir, SIGNATURES)));
+    const env = await expectFailure(
+      { bundle: dir, verificationKey: keys.rsaPublic },
+      'signatures_malformed',
+    );
+    expect(env.error?.message).toMatch(/more than one/);
+  });
+});

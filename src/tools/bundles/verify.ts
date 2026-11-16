@@ -15,7 +15,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
-import { classifyVerificationFailure } from '../../lib/bundle-signatures.js';
+import { classifyVerificationFailure, DELTA_BUNDLE_FAILURE } from '../../lib/bundle-signatures.js';
 import { err, ok } from '../../lib/errors.js';
 import { OpaCli, type BundleVerifyInput } from '../../lib/opa-cli.js';
 import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
@@ -76,7 +76,8 @@ export function registerOpaBundleVerify(server: McpServer, config: Config): void
         'OPA has no standalone verify command, so this runs `opa build --verification-key` into a private temp file that is discarded. ' +
         'A directory is verified by name from its parent, matching how `opa_bundle_sign` signs it. ' +
         'OPA reads the key, checks the JWT in `.signatures.json`, compares the scope claim, then checks every file: Rego files by digest before parsing, data files and `.manifest` by parsed value, so an unparseable data file fails before its digest is compared. ' +
-        'Failures return `INVALID_BUNDLE` with `details.reason` set to one of signature_invalid, scope_mismatch, file_modified, file_added, file_missing, file_unparseable, unsigned, signatures_malformed, not_a_bundle, bundle_load_error, or unknown when the message is not recognised; the raw output is in `details`. ' +
+        'Failures return `INVALID_BUNDLE` with `details.reason` set to one of signature_invalid, scope_mismatch, file_modified, file_added, file_missing, file_unparseable, unsigned, signatures_malformed, delta_bundle, not_a_bundle, bundle_load_error, or unknown when the message is not recognised; the raw output is in `details`. ' +
+        'A delta bundle (one with a `patch.json`) is never reported as verified: it cannot be signed, and OPA before 1.21.3 loaded one without checking anything. ' +
         'A key or algorithm OPA cannot use returns `INVALID_INPUT`. ' +
         'Pass `scope` exactly as the bundle was signed with. With a single key OPA does not check `verificationKeyId` against the signature keyid claim. ' +
         '`verified: true` is returned only when OPA loaded the bundle with its signature intact.',
@@ -138,6 +139,27 @@ export function registerOpaBundleVerify(server: McpServer, config: Config): void
             'INVALID_BUNDLE',
             `Bundle signature verification failed: ${failure.summary}.`,
             { hint: failure.hint, details },
+          );
+        }
+
+        // OPA before 1.21.3 loads a delta bundle without checking anything
+        // and exits 0, so a zero exit alone is not a verification.
+        if (result.loaded !== 'snapshot') {
+          const details = { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+          if (result.loaded === 'delta') {
+            return err(
+              'INVALID_BUNDLE',
+              `Bundle signature verification failed: ${DELTA_BUNDLE_FAILURE.summary}.`,
+              {
+                hint: DELTA_BUNDLE_FAILURE.hint,
+                details: { reason: DELTA_BUNDLE_FAILURE.reason, ...details },
+              },
+            );
+          }
+          return err(
+            'UNKNOWN_ERROR',
+            'opa exited 0, but the bundle it wrote back could not be read to confirm it is not an unsigned delta bundle, so it is not reported as verified.',
+            { details },
           );
         }
 

@@ -32,8 +32,24 @@ vi.mock('../../../src/lib/subprocess.js', () => ({
 import { runBinary } from '../../../src/lib/subprocess.js';
 
 import { registerBundleTools } from '../../../src/tools/bundles/index.js';
+import { tarGz, type TarEntry } from '../lib/_tar.js';
 
 const mockRun = vi.mocked(runBinary);
+
+const SNAPSHOT: TarEntry[] = [
+  { name: '/data.json', data: '{}' },
+  { name: '/policy.rego', data: 'package p\n' },
+];
+const DELTA: TarEntry[] = [
+  { name: '/patch.json', data: '{"data":[{"op":"upsert","path":"/x","value":1}]}' },
+  { name: '/.manifest', data: '{"roots":["x"]}' },
+];
+
+/** A successful opa run that writes `entries` where `-o` points, as opa build does. */
+const writesArchive = (entries: TarEntry[]) => async (_bin: string, o: { args: string[] }) => {
+  await writeFile(o.args[o.args.indexOf('-o') + 1]!, tarGz(entries));
+  return spawnSuccess('');
+};
 
 let workDir: string;
 let outputBundle: string;
@@ -185,25 +201,103 @@ describe('opa_bundle_build', () => {
       '-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n',
       'utf8',
     );
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    mockRun.mockImplementationOnce(writesArchive(SNAPSHOT));
     const server = makeServer();
     registerBundleTools(server, {
       ...baseConfig,
       allowedPaths: [...baseConfig.allowedPaths, workDir],
     });
-    await callTool(server, 'opa_bundle_build', {
+    const env = await callTool(server, 'opa_bundle_build', {
       paths: [fixturePath('policies', 'valid')],
       output: outputBundle,
       bundle: true,
       verificationKey: keyPath,
       verificationKeyId: 'my-key',
     });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
+    expect(existsSync(outputBundle)).toBe(true);
     const args = mockRun.mock.calls[0]![1].args;
     const vkIdx = args.indexOf('--verification-key');
     expect(vkIdx).toBeGreaterThan(-1);
     expect(args[vkIdx + 1]).toMatch(/pub\.pem$/);
     expect(args).toContain('--verification-key-id');
     expect(args[args.indexOf('--verification-key-id') + 1]).toBe('my-key');
+  });
+
+  describe('with verificationKey, a delta bundle', () => {
+    let keyPath: string;
+    const buildWithKey = () => {
+      const server = makeServer();
+      registerBundleTools(server, {
+        ...baseConfig,
+        allowedPaths: [...baseConfig.allowedPaths, workDir],
+      });
+      return callTool(server, 'opa_bundle_build', {
+        paths: [fixturePath('policies', 'valid')],
+        output: outputBundle,
+        verificationKey: keyPath,
+      });
+    };
+
+    beforeEach(async () => {
+      keyPath = join(workDir, 'delta-pub.pem');
+      await writeFile(keyPath, '-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n');
+    });
+
+    it('that old opa loads unchecked and exits 0 on is refused, and its archive removed', async () => {
+      mockRun.mockImplementationOnce(writesArchive(DELTA));
+      const env = await buildWithKey();
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe('INVALID_BUNDLE');
+      expect((env.error?.details as { reason?: string }).reason).toBe('delta_bundle');
+      expect(env.error?.message).toMatch(/delta bundle/);
+      expect(existsSync(outputBundle)).toBe(false);
+    });
+
+    it('that newer opa refuses is reported the same way, not as INVALID_REGO', async () => {
+      mockRun.mockResolvedValueOnce(
+        spawnFailure(
+          1,
+          '',
+          'error: load error: bundle d: delta bundles do not support signature verification',
+        ),
+      );
+      const env = await buildWithKey();
+      expect(env.error?.code).toBe('INVALID_BUNDLE');
+      expect((env.error?.details as { reason?: string }).reason).toBe('delta_bundle');
+    });
+
+    it('is not claimed verified when the archive opa wrote cannot be read', async () => {
+      mockRun.mockResolvedValueOnce(spawnSuccess(''));
+      const env = await buildWithKey();
+      expect(env.ok).toBe(false);
+      expect(env.error?.code).toBe('UNKNOWN_ERROR');
+      expect(existsSync(outputBundle)).toBe(false);
+    });
+  });
+
+  it('does not read the archive when nothing was to be verified', async () => {
+    // outputBundle holds placeholder bytes that are not an archive.
+    mockRun.mockResolvedValueOnce(
+      spawnFailure(1, '', 'error: load error: delta bundles do not support signature verification'),
+    );
+    const server = makeServer();
+    registerBundleTools(server, {
+      ...baseConfig,
+      allowedPaths: [...baseConfig.allowedPaths, workDir],
+    });
+    const failed = await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+    });
+    expect(failed.error?.code).toBe('INVALID_REGO');
+
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const built = await callTool(server, 'opa_bundle_build', {
+      paths: [fixturePath('policies', 'valid')],
+      output: outputBundle,
+    });
+    expect(built.ok, JSON.stringify(built.error)).toBe(true);
   });
 
   it('rejects a verificationKey outside allowed roots', async () => {
@@ -627,7 +721,7 @@ describe('opa_bundle_verify', () => {
   });
 
   it('verifies a directory by name from its parent through opa build, never opa eval', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    mockRun.mockImplementationOnce(writesArchive(SNAPSHOT));
     const env = await callTool<{ bundle: string; verified: boolean }>(
       serverWithWorkDir(),
       'opa_bundle_verify',
@@ -673,11 +767,12 @@ describe('opa_bundle_verify', () => {
   });
 
   it('removes its temp directory after a successful call', async () => {
-    mockRun.mockResolvedValueOnce(spawnSuccess(''));
-    await callTool(serverWithWorkDir(), 'opa_bundle_verify', {
+    mockRun.mockImplementationOnce(writesArchive(SNAPSHOT));
+    const env = await callTool(serverWithWorkDir(), 'opa_bundle_verify', {
       bundle: outputBundle,
       verificationKey: publicKey,
     });
+    expect(env.ok, JSON.stringify(env.error)).toBe(true);
     const args = mockRun.mock.calls[0]![1].args;
     const out = args[args.indexOf('-o') + 1]!;
     expect(existsSync(dirname(out))).toBe(false);
@@ -692,6 +787,31 @@ describe('opa_bundle_verify', () => {
     const args = mockRun.mock.calls[0]![1].args;
     const out = args[args.indexOf('-o') + 1]!;
     expect(existsSync(dirname(out))).toBe(false);
+  });
+
+  it('does not report a delta bundle as verified when opa exits 0 on it', async () => {
+    // OPA before 1.21.3 skipped verification for delta bundles entirely.
+    mockRun.mockImplementationOnce(writesArchive(DELTA));
+    const env = await callTool(serverWithWorkDir(), 'opa_bundle_verify', {
+      bundle: bundleDir,
+      verificationKey: publicKey,
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('INVALID_BUNDLE');
+    expect(env.error?.message).toMatch(/verification failed: the bundle is a delta bundle/);
+    expect((env.error?.details as { reason?: string }).reason).toBe('delta_bundle');
+    expect(env.error?.hint).toMatch(/snapshot/);
+  });
+
+  it('does not report verified when opa exits 0 but its archive cannot be read', async () => {
+    mockRun.mockResolvedValueOnce(spawnSuccess(''));
+    const env = await callTool(serverWithWorkDir(), 'opa_bundle_verify', {
+      bundle: bundleDir,
+      verificationKey: publicKey,
+    });
+    expect(env.ok).toBe(false);
+    expect(env.error?.code).toBe('UNKNOWN_ERROR');
+    expect(env.error?.message).toMatch(/not reported as verified/);
   });
 
   it('passes optional verificationKeyId, signingAlg, and scope through to opa', async () => {
@@ -722,7 +842,7 @@ describe('opa_bundle_verify', () => {
     expect(args).not.toContain('--v0-compatible');
   });
 
-  // Each message is what OPA 1.19 printed, on stdout, for that case.
+  // Each message is what OPA printed, on stdout, for that case: 1.19 unless noted.
   const FAILURES: Array<[string, string]> = [
     ['failed to verify JWT signature: crypto/rsa: verification error', 'signature_invalid'],
     ['scope mismatch', 'scope_mismatch'],
@@ -744,6 +864,12 @@ describe('opa_bundle_verify', () => {
       'bundle_load_error',
     ],
     ['bundle read failed: archive read failed: gzip: invalid header', 'not_a_bundle'],
+    // OPA 1.21.3 and 1.22.
+    ['delta bundles do not support signature verification', 'delta_bundle'],
+    [
+      'bundle contains multiple signatures files: "/a/.signatures.json" and "/.signatures.json"',
+      'signatures_malformed',
+    ],
     ['something this tool has never seen', 'unknown'],
   ];
   for (const [message, reason] of FAILURES) {

@@ -70,6 +70,7 @@ export function isKeyOrAlgorithmError(output: string): boolean {
 
 export type VerificationFailureReason =
   | 'key_invalid'
+  | 'delta_bundle'
   | 'not_a_bundle'
   | 'signature_invalid'
   | 'scope_mismatch'
@@ -89,7 +90,21 @@ export interface VerificationFailure {
 }
 
 /**
- * Each pattern is text OPA 1.19 prints, on stdout, for that failure.
+ * A delta bundle carries data patches and no signature, and OPA cannot sign
+ * one. OPA 1.21.3 and later refuse it when verification is asked for; earlier
+ * versions loaded it unchecked and exited 0, which the tools catch from the
+ * archive OPA wrote (`bundle-archive.ts`). Both report this.
+ */
+export const DELTA_BUNDLE_FAILURE: VerificationFailure = {
+  reason: 'delta_bundle',
+  summary: 'the bundle is a delta bundle, which carries no signature to verify',
+  hint: 'A delta bundle (a patch.json of data operations) cannot be signed, so it cannot be verified. Verify the snapshot bundle it applies to.',
+};
+
+/**
+ * Each pattern is text OPA prints, on stdout, for that failure: as of 1.19,
+ * except the delta bundle and multiple signatures files messages, which 1.21.3
+ * and 1.22 added.
  *
  * The order follows what OPA does while loading a signed bundle: it reads the
  * key and algorithm, checks the JWT against the key, compares the scope claim,
@@ -107,6 +122,10 @@ const FAILURE_RULES: ReadonlyArray<VerificationFailure & { pattern: RegExp }> = 
     pattern: KEY_OR_ALGORITHM_ERROR,
     summary: 'the verification key or algorithm could not be used',
     hint: 'verificationKey must be a PEM public key, and signingAlg one OPA supports. For an HMAC-signed bundle pass signingAlg (HS256, HS384 or HS512) so the file is read as the secret rather than as PEM.',
+  },
+  {
+    ...DELTA_BUNDLE_FAILURE,
+    pattern: /delta bundles do not support signature verification/i,
   },
   {
     reason: 'not_a_bundle',
@@ -140,6 +159,11 @@ const FAILURE_RULES: ReadonlyArray<VerificationFailure & { pattern: RegExp }> = 
     pattern: /not included in bundle signature/i,
     summary: 'the bundle contains a file the signature does not cover',
     hint: 'A directory signature names files under the directory name given to opa, so this is also what a directory reports when verified under a different name than it was signed with. Moving it elsewhere under the same name is fine; renaming it is not. For an artifact that survives renaming, build a signed archive with opa_bundle_build.',
+  },
+  {
+    reason: 'signatures_malformed',
+    pattern: /multiple signatures files/i,
+    summary: 'the bundle holds more than one .signatures.json',
   },
   {
     reason: 'unsigned',

@@ -2,11 +2,14 @@
  * `opa_bundle_build` -- build a deployable bundle from policy + data
  * paths via `opa build`.
  */
+import { rm, stat } from 'node:fs/promises';
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
+import { loadedBundleType } from '../../lib/bundle-archive.js';
+import { classifyVerificationFailure, DELTA_BUNDLE_FAILURE } from '../../lib/bundle-signatures.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { mapSubprocessFailure, validatePaths, withToolEnvelope } from '../../lib/tool-helpers.js';
@@ -72,7 +75,7 @@ const OpaBundleBuildInput = {
     .string()
     .optional()
     .describe(
-      'Path to a PEM public key (or HMAC secret file) used to re-verify an existing signed bundle during the build (`--verification-key`). Implies `bundle: true`, which OPA requires for verification.',
+      'Path to a PEM public key (or HMAC secret file) used to re-verify an existing signed bundle during the build (`--verification-key`). Implies `bundle: true`, which OPA requires for verification. A delta bundle (one with a `patch.json`) cannot be signed, so it fails as `INVALID_BUNDLE` with `details.reason` delta_bundle and leaves no output.',
     ),
   verificationKeyId: z
     .string()
@@ -178,13 +181,46 @@ export function registerOpaBundleBuild(server: McpServer, config: Config): void 
         const subprocessFailure = mapSubprocessFailure(result, 'opa');
         if (subprocessFailure) return subprocessFailure;
 
+        const details = { stderr: result.stderr.trim(), stdout: result.stdout.trim() };
+        const deltaBundle = (removed: boolean) =>
+          err(
+            'INVALID_BUNDLE',
+            `Bundle signature verification failed: ${DELTA_BUNDLE_FAILURE.summary}.${removed ? ' The archive opa wrote was removed.' : ''}`,
+            {
+              hint: DELTA_BUNDLE_FAILURE.hint,
+              details: { reason: DELTA_BUNDLE_FAILURE.reason, ...details },
+            },
+          );
+
         if (result.exitCode !== 0) {
-          return err('INVALID_REGO', 'opa build failed.', {
-            details: { stderr: result.stderr.trim(), stdout: result.stdout.trim() },
-          });
+          // OPA 1.21.3 and later refuse a delta bundle when asked to verify.
+          if (
+            resolvedVerificationKey &&
+            classifyVerificationFailure(`${result.stdout}\n${result.stderr}`).reason ===
+              'delta_bundle'
+          ) {
+            return deltaBundle(false);
+          }
+          return err('INVALID_REGO', 'opa build failed.', { details });
         }
 
-        const { stat } = await import('node:fs/promises');
+        // Earlier versions load a delta bundle without checking anything and
+        // exit 0, so with verificationKey a zero exit alone is not a
+        // verification. An archive that was not verified is not left behind
+        // looking like one that was.
+        if (resolvedVerificationKey) {
+          const loaded = await loadedBundleType(outputPath);
+          if (loaded !== 'snapshot') {
+            await rm(outputPath, { force: true }).catch(() => undefined);
+            if (loaded === 'delta') return deltaBundle(true);
+            return err(
+              'UNKNOWN_ERROR',
+              'opa build exited 0, but the bundle it wrote could not be read to confirm it is not an unsigned delta bundle, so the archive was removed rather than reported as verified.',
+              { details },
+            );
+          }
+        }
+
         const fileStat = await stat(outputPath);
         return ok<OpaBundleBuildOutput>({
           output: outputPath,
