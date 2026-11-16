@@ -31,6 +31,20 @@ not part of the public surface and may change in minor releases.
 
 ### Changed
 
+- The bundled OPA is now 1.22.4, from 1.21.0. It fixes three regressions
+  1.21.0 shipped with: a reference tested against a set literal never matched
+  the literal's non-constant elements, so `input.x in {"a", input.y}` held for
+  an `x` of `"a"` but left the rule undefined when `x` equalled `y`;
+  `some ... in` inside a comprehension nested in an object or set literal
+  failed with `rego_unsafe_var_error`; and iterating a collection known to be
+  empty, such as `some x in []`, was a type error. `import rego.v2` is
+  accepted, and `rego_capabilities` lists it as the `rego_v2_import` feature.
+  Bundle signing and verification find the signatures file by its exact name,
+  `.signatures.json`, so a bundle signed by an earlier OPA that holds another
+  file ending in `signatures.json` no longer verifies until it is signed
+  again. Nothing changes when `OPA_BINARY` or `PATH` supplies the binary.
+- The Docker image ships Regal 0.43.0, from 0.42.0. `rego_security_audit` has
+  a remediation hint for its new `unconditional-with-conditions` rule.
 - Releases are no longer published to Smithery, which has stopped accepting
   updates to listed servers. Install from npm, Docker or the GitHub release.
 

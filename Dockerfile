@@ -31,20 +31,22 @@ RUN npm prune --omit=dev
 # Pinned versions. Bumped via Dependabot or manual PR.
 FROM alpine:3.24 AS binaries
 
-ARG OPA_VERSION=1.21.0
-ARG REGAL_VERSION=0.42.0
+ARG OPA_VERSION=1.22.4
+ARG REGAL_VERSION=0.43.0
 ARG TARGETARCH
 
 RUN apk add --no-cache curl ca-certificates
 
-# OPA static binary (linux_amd64 / linux_arm64_static), checked against the
-# digest published beside the release. Bump the digests with the version.
+# OPA binary, checked against the digest published beside the release. Bump
+# the digests with the version. The plain linux builds are statically linked,
+# so they run on this musl base; the `_static` copies OPA also publishes are
+# the same build under a deprecated name.
 RUN set -eux; \
     case "${TARGETARCH}" in \
-      amd64) OPA_ASSET="opa_linux_amd64_static"; \
-             OPA_SHA256="5eef70644868bb04d0556bcc795ee42f2ab379e73f51d1bfa30f83e1305bc9b9" ;; \
-      arm64) OPA_ASSET="opa_linux_arm64_static"; \
-             OPA_SHA256="0ec34027c15b4d969c21d01ed570fe14fbebd508a08157043ab09f9a0dccbee6" ;; \
+      amd64) OPA_ASSET="opa_linux_amd64"; \
+             OPA_SHA256="b76461cf4db0f77946ef557d727a1da5d7a22ba930844678c9be0bebd2c9d0f6" ;; \
+      arm64) OPA_ASSET="opa_linux_arm64"; \
+             OPA_SHA256="ea958fca8a657e4ce04df74c9b1c30220b368ddcf75fb3aa50bf306d55775dbf" ;; \
       *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /usr/local/bin/opa \
@@ -57,9 +59,9 @@ RUN set -eux; \
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) REGAL_ASSET="regal_Linux_x86_64"; \
-             REGAL_SHA256="2ebd3c93e4b325b735dbc4851a033e4d7830e88a79c47c8d087ea75c061cec67" ;; \
+             REGAL_SHA256="5e7d030064e307d54e6ffa3d85b8d9052d3d40b7afa10262c86c886f8a76559d" ;; \
       arm64) REGAL_ASSET="regal_Linux_arm64"; \
-             REGAL_SHA256="13a2ba4a049fa8f3f64ed602a56bad1378eec253d36a977799ff51e694e47c77" ;; \
+             REGAL_SHA256="d4fd44a191d5b12a5ab980f56d7eddfed0718129c43d1ede5e8dbc9d217fdcb8" ;; \
       *) echo "Unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /usr/local/bin/regal \

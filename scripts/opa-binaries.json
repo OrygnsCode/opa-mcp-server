@@ -1,6 +1,6 @@
 {
   "_comment": "Pinned manifest of the OPA binaries bundled as platform-specific optional dependencies. Versions and sha256 hashes are taken from OPA's official GitHub release assets and verified at fetch time. To bump OPA: change opaVersion, refresh every sha256 from the release's .sha256 files, and re-run the cross-platform CI matrix. Binaries themselves are never committed (fetched in CI at publish time); only this manifest and the package.json scaffolds live in git.",
-  "opaVersion": "1.21.0",
+  "opaVersion": "1.22.4",
   "baseUrl": "https://github.com/open-policy-agent/opa/releases/download",
   "license": "scripts/opa-LICENSE",
   "packages": {
@@ -8,17 +8,17 @@
       "dir": "packages/opa-mcp-linux-x64",
       "os": "linux",
       "cpu": "x64",
-      "asset": "opa_linux_amd64_static",
+      "asset": "opa_linux_amd64",
       "binary": "opa",
-      "sha256": "5eef70644868bb04d0556bcc795ee42f2ab379e73f51d1bfa30f83e1305bc9b9"
+      "sha256": "b76461cf4db0f77946ef557d727a1da5d7a22ba930844678c9be0bebd2c9d0f6"
     },
     "@orygn/opa-mcp-linux-arm64": {
       "dir": "packages/opa-mcp-linux-arm64",
       "os": "linux",
       "cpu": "arm64",
-      "asset": "opa_linux_arm64_static",
+      "asset": "opa_linux_arm64",
       "binary": "opa",
-      "sha256": "0ec34027c15b4d969c21d01ed570fe14fbebd508a08157043ab09f9a0dccbee6"
+      "sha256": "ea958fca8a657e4ce04df74c9b1c30220b368ddcf75fb3aa50bf306d55775dbf"
     },
     "@orygn/opa-mcp-darwin-x64": {
       "dir": "packages/opa-mcp-darwin-x64",
@@ -26,15 +26,15 @@
       "cpu": "x64",
       "asset": "opa_darwin_amd64",
       "binary": "opa",
-      "sha256": "0ceb96979d259b3ee31711a6b316a592b8ffcfdd4209cc37600ed85a6cd4a55c"
+      "sha256": "b49637ad3606644ca7052611daf9672aa436428f5dc0e22c7cc28ba8c64c8cd7"
     },
     "@orygn/opa-mcp-darwin-arm64": {
       "dir": "packages/opa-mcp-darwin-arm64",
       "os": "darwin",
       "cpu": "arm64",
-      "asset": "opa_darwin_arm64_static",
+      "asset": "opa_darwin_arm64",
       "binary": "opa",
-      "sha256": "f1e4da6467a2adb2846bb23eec6ea00d8c3a04786f9270bb11003d22dfd827a5"
+      "sha256": "e6dfa065844e3a1553d665ccc4a2c0a25d1ca3925f6ed8fbaf0fa1ec2060d2a5"
     },
     "@orygn/opa-mcp-win32-x64": {
       "dir": "packages/opa-mcp-win32-x64",
@@ -42,7 +42,7 @@
       "cpu": "x64",
       "asset": "opa_windows_amd64.exe",
       "binary": "opa.exe",
-      "sha256": "1e0e9639673615fa3a6d4974b07e335e44827e377ce7c7bffbb1a6605a26479b"
+      "sha256": "4cd179b95041aa50c44241324da3becf35d0b28dca92bf10a07f32d002724d5e"
     }
   }
 }
