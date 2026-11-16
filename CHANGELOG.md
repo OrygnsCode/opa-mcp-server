@@ -17,6 +17,14 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The example client configs set `OPA_BINARY` to a placeholder path, which
+  takes precedence over the bundled `opa`, so a config copied unchanged
+  failed every tool call with `OPA_BINARY_NOT_FOUND`. The examples and the
+  README install steps now set only `OPA_MCP_ALLOWED_PATHS`; the binary
+  paths are documented as optional, for your own `opa`, Regal and Conftest.
+
 ## [0.9.2] - 2026-11-16
 
 ### Security

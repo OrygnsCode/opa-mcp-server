@@ -157,9 +157,6 @@ Edit `claude_desktop_config.json` directly (or copy from
       "command": "npx",
       "args": ["-y", "@orygn/opa-mcp"],
       "env": {
-        "OPA_BINARY": "/usr/local/bin/opa",
-        "REGAL_BINARY": "/usr/local/bin/regal",
-        "OPA_URL": "http://localhost:8181",
         "OPA_MCP_ALLOWED_PATHS": "/path/to/your/policies"
       }
     }
@@ -167,9 +164,11 @@ Edit `claude_desktop_config.json` directly (or copy from
 }
 ```
 
-> Replace the `/usr/local/bin/...` paths with your real ones. See the
-> [first-time install gotcha](#-first-time-install-gotcha-read-this-if-you-used-npx-or-the-global-install)
-> below. Windows users substitute `C:\\path\\to\\opa.exe`.
+> `OPA_MCP_ALLOWED_PATHS` is the directory (or comma-separated list) that
+> holds your policies; on Windows write it as `C:\\path\\to\\policies`. OPA
+> itself is bundled. The lint and Conftest tools also need `regal` and
+> `conftest`: add `REGAL_BINARY` and `CONFTEST_BINARY` with their absolute
+> paths (see [Configuration](#configuration)).
 
 Or download `opa-mcp.mcpb` from the
 [latest release](https://github.com/OrygnsCode/opa-mcp-server/releases/latest)
@@ -180,10 +179,7 @@ and double-click it.
 Register the server for the current project with `claude mcp add`:
 
 ```bash
-claude mcp add \
-  --env OPA_BINARY=/usr/local/bin/opa \
-  --env REGAL_BINARY=/usr/local/bin/regal \
-  --env OPA_MCP_ALLOWED_PATHS=/path/to/your/policies \
+claude mcp add --env OPA_MCP_ALLOWED_PATHS=/path/to/your/policies \
   opa -- npx -y @orygn/opa-mcp
 ```
 
@@ -191,8 +187,9 @@ This writes the config into `.mcp.json` at your project root and is
 picked up automatically on every `claude` session in that directory.
 Add `--scope user` to register it globally instead.
 
-> Replace the paths with your real absolute paths (same caveat as
-> Claude Desktop above). On Windows use `C:\path\to\opa.exe` syntax.
+> Use an absolute path (on Windows, `C:\path\to\policies`). Add
+> `--env REGAL_BINARY=...` and `--env CONFTEST_BINARY=...` for the lint and
+> Conftest tools, as for Claude Desktop above.
 
 **Persistent context and auto-checks for policy repos.**
 If you work in an OPA policy repo regularly, two extra files remove
@@ -255,9 +252,7 @@ ships `regal` but not `conftest`, so their tools need a `PATH` entry or an
 explicit path either way.
 
 **Fix:** add `OPA_BINARY` and `REGAL_BINARY` env entries to your client
-config with the absolute path to each binary. The example configs under
-[`examples/`](./examples) ship with placeholder paths you replace.
-Find the real paths with:
+config with the absolute path to each binary. Find the real paths with:
 
 ```bash
 which opa && which regal                                    # macOS / Linux
@@ -283,7 +278,7 @@ variable is optional; defaults are sensible for a local OPA on
 | ------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPA_URL`                      | `http://localhost:8181`      | Base URL of an OPA REST endpoint, used by `opa_*` tools.                                                                                                                                                                                                                                     |
 | `OPA_TOKEN`                    | _(unset)_                    | Bearer token for OPA, if your instance requires auth. Treated as a secret. Never echoed in logs or tool responses.                                                                                                                                                                           |
-| `OPA_BINARY`                   | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools.                                                                                                                                                                                                                                               |
+| `OPA_BINARY`                   | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools. Unset: `opa` on `PATH`, else the bundled copy.                                                                                                                                                                                                |
 | `REGAL_BINARY`                 | `regal` (on `PATH`)          | Path to the `regal` linter. Required by `rego_lint`, `rego_fix`, and `rego_security_audit`.                                                                                                                                                                                                  |
 | `CONFTEST_BINARY`              | `conftest` (on `PATH`)       | Path to the `conftest` binary. Only required by `conftest_*` tools. Returns `CONFTEST_NOT_FOUND` if absent.                                                                                                                                                                                  |
 | `OPA_MCP_ALLOWED_PATHS`        | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.**                                                                                                                                    |
