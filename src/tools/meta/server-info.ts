@@ -7,6 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { Config } from '../../config.js';
 import { SERVER_NAME, SERVER_VERSION } from '../../constants.js';
+import { allowedRoots, type AllowedPathsSource } from '../../lib/client-roots.js';
 import { ok } from '../../lib/errors.js';
 import { ConftestCli } from '../../lib/conftest-cli.js';
 import { OpaCli } from '../../lib/opa-cli.js';
@@ -21,6 +22,10 @@ export interface McpServerInfoOutput {
   conftestVersion: string | null;
   transport: 'stdio';
   node: string;
+  /** Directories file tools may read and write. Empty when file tools are disabled. */
+  allowedPaths: string[];
+  /** `env` for OPA_MCP_ALLOWED_PATHS, `client-roots` for the client's MCP roots, `none` when there are none. */
+  allowedPathsSource: AllowedPathsSource;
 }
 
 export function registerMcpServerInfo(server: McpServer, config: Config): void {
@@ -33,7 +38,7 @@ export function registerMcpServerInfo(server: McpServer, config: Config): void {
     {
       title: 'MCP server info',
       description:
-        'Return the name, version, and runtime details of this opa-mcp server instance. Use this when you need to confirm which version of opa-mcp is running, or to verify that the OPA, Regal, and Conftest binaries are reachable.',
+        "Return the name, version, and runtime details of this opa-mcp server instance. Use this when you need to confirm which version of opa-mcp is running, to verify that the OPA, Regal, and Conftest binaries are reachable, or to see which directories file tools may use (allowedPaths) and whether they come from OPA_MCP_ALLOWED_PATHS or the client's roots.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -50,6 +55,7 @@ export function registerMcpServerInfo(server: McpServer, config: Config): void {
           conftest.version(signal).catch(() => null),
         ]);
 
+        const roots = allowedRoots(config);
         return ok<McpServerInfoOutput>({
           name: SERVER_NAME,
           version: SERVER_VERSION,
@@ -58,6 +64,8 @@ export function registerMcpServerInfo(server: McpServer, config: Config): void {
           conftestVersion,
           transport: 'stdio',
           node: process.version,
+          allowedPaths: roots.paths,
+          allowedPathsSource: roots.source,
         });
       });
     },

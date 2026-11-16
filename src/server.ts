@@ -19,6 +19,7 @@ import { formatHelp, formatStartupBanner, formatVersion, parseCliArgs } from './
 
 import { loadConfig, type Config } from './config.js';
 import { SERVER_NAME, SERVER_VERSION } from './constants.js';
+import { attachClientRoots } from './lib/client-roots.js';
 import { initLogger, logger } from './lib/logger.js';
 import { ConftestCli } from './lib/conftest-cli.js';
 import { OpaCli } from './lib/opa-cli.js';
@@ -39,6 +40,10 @@ export { SERVER_NAME, SERVER_VERSION };
  * fully-loaded server without standing up a stdio transport.
  */
 export function buildServer(config: Config): McpServer {
+  // Each server gets its own copy: the client's roots are tracked per config
+  // object (see lib/client-roots.ts), and two servers built from one config
+  // must not share them.
+  config = { ...config };
   initLogger(config.logFile, config.logLevel);
 
   logger.info('starting orygn-opa-mcp', {
@@ -52,10 +57,11 @@ export function buildServer(config: Config): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
-        'Tools for writing, testing and debugging Open Policy Agent (OPA) Rego policies. A policy is not done until it has been probed: call rego_eval with an `inputs` batch in which each field the policy reads is absent, null or of the wrong type, and check that nothing that should be denied is allowed; then keep those inputs as rego_test cases. rego_check, rego_lint and rego_security_audit find compile and lint problems, not rules that let a request through. rego_* tools run the local opa binary (OPA_BINARY); rego_lint, rego_security_audit and rego_fix also need regal (REGAL_BINARY); no OPA server is needed. opa_* server tools talk to a running OPA at OPA_URL (OPA_TOKEN for bearer auth). conftest_* tools run conftest (CONFTEST_BINARY) on Kubernetes, Terraform, Helm and Dockerfile configs; a conftest run that evaluated no rule is reported as not passed. File paths must be inside OPA_MCP_ALLOWED_PATHS; inline `source` works without it. rego_explain_undefined says why a rule has no value, fell back to its default, or (for a set such as deny) matched nothing; rego_explain_decision traces a decision as readable lines. rego_migrate_v1 converts pre-1.0 Rego; tools that load Rego take v0Compatible for code not converted yet. rego_verify proves properties of simple equality rules and answers inconclusive for most real policies, which says nothing about safety. If a tool returns OPA_BINARY_NOT_FOUND, REGAL_NOT_FOUND or CONFTEST_NOT_FOUND, tell the user which binary is missing; mcp_server_info shows which are reachable.',
+        'Tools for writing, testing and debugging Open Policy Agent (OPA) Rego policies. A policy is not done until it has been probed: call rego_eval with an `inputs` batch in which each field the policy reads is absent, null or of the wrong type, and check that nothing that should be denied is allowed; then keep those inputs as rego_test cases. rego_check, rego_lint and rego_security_audit find compile and lint problems, not rules that let a request through. rego_* tools run the local opa binary (OPA_BINARY); rego_lint, rego_security_audit and rego_fix also need regal (REGAL_BINARY); no OPA server is needed. opa_* server tools talk to a running OPA at OPA_URL (OPA_TOKEN for bearer auth). conftest_* tools run conftest (CONFTEST_BINARY) on Kubernetes, Terraform, Helm and Dockerfile configs; a conftest run that evaluated no rule is reported as not passed. File paths must be inside OPA_MCP_ALLOWED_PATHS or, when it is not set, inside the folders the client shares as MCP roots; inline `source` works without either. rego_explain_undefined says why a rule has no value, fell back to its default, or (for a set such as deny) matched nothing; rego_explain_decision traces a decision as readable lines. rego_migrate_v1 converts pre-1.0 Rego; tools that load Rego take v0Compatible for code not converted yet. rego_verify proves properties of simple equality rules and answers inconclusive for most real policies, which says nothing about safety. If a tool returns OPA_BINARY_NOT_FOUND, REGAL_NOT_FOUND or CONFTEST_NOT_FOUND, tell the user which binary is missing; mcp_server_info shows which are reachable.',
     },
   );
 
+  attachClientRoots(server, config);
   registerTools(server, config);
   registerPrompts(server, config);
   registerResources(server, config);
