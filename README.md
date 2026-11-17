@@ -22,9 +22,15 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
-> **Status:** v0.9.2. Tool surface, error codes, and
+> **Status:** v0.10.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.10.0:** with `OPA_MCP_ALLOWED_PATHS` unset, file tools now
+> use the folders your client shares as MCP roots instead of staying off;
+> set `OPA_MCP_NO_CLIENT_ROOTS=1` to keep them off. `rego_test` with
+> `verbose` or `explain: "fails"` now traces failing tests only; use
+> `explain: "full"` for every test.
 
 > **Upgrading to 0.9.2:** `opa_bundle_verify` refuses delta bundles, which
 > cannot be signed. The bundled OPA is now 1.22: a signed bundle holding
