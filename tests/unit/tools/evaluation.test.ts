@@ -1431,6 +1431,156 @@ describe('rego_test', () => {
     expect(mockRun.mock.calls[0]![1].args).not.toContain('--explain');
   });
 
+  // In JSON mode -v, --var-values and --explain fails trace passing tests
+  // too; a passing four-test suite came back at 3 MB. OPA 1.22 gives an
+  // errored test no trace in these modes and a skipped one none at all.
+  const tracedRecords = () => [
+    { name: 'test_pass', duration: 1, trace: [{ op: 'Enter' }] },
+    { name: 'test_fail', fail: true, duration: 1, trace: [{ op: 'Fail' }] },
+    { name: 'test_error', error: { code: 'eval_conflict_error' }, duration: 1 },
+    { name: 'todo_test_later', skip: true, duration: 0 },
+  ];
+  const traceOf = (results: Array<{ name?: string; trace?: unknown }> | undefined, name: string) =>
+    results?.find((r) => r.name === name)?.trace;
+
+  for (const input of [{ explain: 'fails' }, { verbose: true }, { varValues: true }] as const) {
+    it(`keeps traces only where a test failed (${JSON.stringify(input)})`, async () => {
+      mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(tracedRecords())));
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool<{ results: Array<{ name?: string; trace?: unknown }> }>(
+        server,
+        'rego_test',
+        { paths: [validRegoPath()], ...input },
+      );
+      expect(env.ok).toBe(true);
+      expect(traceOf(env.data?.results, 'test_pass')).toBeUndefined();
+      expect(traceOf(env.data?.results, 'todo_test_later')).toBeUndefined();
+      expect(traceOf(env.data?.results, 'test_fail')).toEqual([{ op: 'Fail' }]);
+      expect(env.data?.results.find((r) => r.name === 'test_error')).toBeDefined();
+    });
+  }
+
+  for (const explain of ['full', 'debug', 'notes'] as const) {
+    it(`keeps the traces of passing tests when explain is ${explain}`, async () => {
+      const records = [
+        ...tracedRecords(),
+        { name: 'test_error_traced', error: { code: 'x' }, duration: 1, trace: [{ op: 'Err' }] },
+      ];
+      mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(records)));
+      const server = makeServer();
+      registerEvaluationTools(server, baseConfig);
+      const env = await callTool<{ results: Array<{ name?: string; trace?: unknown }> }>(
+        server,
+        'rego_test',
+        { paths: [validRegoPath()], explain },
+      );
+      expect(traceOf(env.data?.results, 'test_pass')).toEqual([{ op: 'Enter' }]);
+      expect(traceOf(env.data?.results, 'test_fail')).toEqual([{ op: 'Fail' }]);
+      expect(traceOf(env.data?.results, 'test_error_traced')).toEqual([{ op: 'Err' }]);
+    });
+  }
+
+  it('with count, keeps the trace of the run in which a flaky test failed', async () => {
+    // opa test --count N prints one array per repetition, back to back.
+    const run1 = [{ name: 'test_flaky', duration: 1, trace: [{ op: 'passing-run' }] }];
+    const run2 = [{ name: 'test_flaky', fail: true, duration: 2, trace: [{ op: 'failing-run' }] }];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(run1) + JSON.stringify(run2)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      repetitions?: number;
+      results: Array<{ name?: string; fail?: boolean; trace?: unknown }>;
+    }>(server, 'rego_test', { paths: [validRegoPath()], verbose: true, count: 2 });
+    expect(env.data?.repetitions).toBe(2);
+    expect(env.data?.results[0]?.fail).toBe(true);
+    expect(env.data?.results[0]?.trace).toEqual([{ op: 'failing-run' }]);
+  });
+
+  it('drops traces before the counts when the answer is over the cap', async () => {
+    // Three failing tests, each with a 60 KB trace: one fits under the
+    // 100 KB cap, two do not.
+    const big = (op: string) => Array.from({ length: 600 }, () => ({ op, node: 'x'.repeat(90) }));
+    const records = [
+      { name: 'test_ok', duration: 1, trace: big('pass') },
+      { name: 'test_one', fail: true, duration: 1, trace: big('one') },
+      { name: 'test_two', fail: true, duration: 1, trace: big('two') },
+      { name: 'test_three', fail: true, duration: 1, trace: big('three') },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      passed: number;
+      failed: number;
+      total: number;
+      tracesOmitted?: number;
+      results: Array<{ name?: string; fail?: boolean; trace?: unknown }>;
+    }>(server, 'rego_test', { paths: [validRegoPath()], explain: 'full' });
+    expect(env.ok).toBe(true);
+    expect(env.truncated).toBe(true);
+    expect(env.data?.passed).toBe(1);
+    expect(env.data?.failed).toBe(3);
+    expect(env.data?.total).toBe(4);
+    expect(env.data?.results.map((r) => r.name)).toEqual([
+      'test_ok',
+      'test_one',
+      'test_two',
+      'test_three',
+    ]);
+    expect(env.data?.results.every((r) => r.name === 'test_ok' || r.fail === true)).toBe(true);
+    expect(traceOf(env.data?.results, 'test_ok')).toBeUndefined();
+    expect(traceOf(env.data?.results, 'test_one')).toHaveLength(600);
+    expect(traceOf(env.data?.results, 'test_two')).toBeUndefined();
+    expect(traceOf(env.data?.results, 'test_three')).toBeUndefined();
+    expect(env.data?.tracesOmitted).toBe(3);
+    // What reaches the client is under the cap.
+    expect(Buffer.byteLength(JSON.stringify(env))).toBeLessThanOrEqual(baseConfig.maxResponseBytes);
+  });
+
+  it('counts the traces of old-style parameterized records in their groups too', async () => {
+    // Older OPA named each case in the record; those records also sit in
+    // parameterizedGroups, so dropping their traces must be counted there.
+    const big = Array.from({ length: 700 }, () => ({ op: 'case', node: 'x'.repeat(90) }));
+    const records = [
+      { name: 'test_x[{"a":1}]', fail: true, duration: 1, trace: big },
+      { name: 'test_x[{"a":2}]', duration: 1 },
+    ];
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{
+      tracesOmitted?: number;
+      results: Array<{ trace?: unknown }>;
+      parameterizedGroups?: Record<string, Array<{ trace?: unknown }>>;
+    }>(server, 'rego_test', { paths: [validRegoPath()], explain: 'full' });
+    expect(env.truncated).toBe(true);
+    const groupTraces = Object.values(env.data?.parameterizedGroups ?? {})
+      .flat()
+      .filter((r) => r.trace !== undefined).length;
+    const resultTraces = (env.data?.results ?? []).filter((r) => r.trace !== undefined).length;
+    // One 63 KB trace fits under the cap; its second copy in the group does not.
+    expect(resultTraces).toBe(1);
+    expect(groupTraces).toBe(0);
+    expect(env.data?.tracesOmitted).toBe(1);
+    expect(Buffer.byteLength(JSON.stringify(env))).toBeLessThanOrEqual(baseConfig.maxResponseBytes);
+  });
+
+  it('leaves an over-cap answer with no traces to the generic truncation', async () => {
+    const records = Array.from({ length: 2500 }, (_, i) => ({
+      name: `test_${'n'.repeat(40)}_${i}`,
+      duration: 1,
+    }));
+    mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify(records)));
+    const server = makeServer();
+    registerEvaluationTools(server, baseConfig);
+    const env = await callTool<{ __truncated?: boolean }>(server, 'rego_test', {
+      paths: [validRegoPath()],
+    });
+    expect(env.truncated).toBe(true);
+    expect(env.data?.__truncated).toBe(true);
+  });
+
   it('passes --v1-compatible when v1Compatible is true', async () => {
     mockRun.mockResolvedValueOnce(spawnSuccess(JSON.stringify([{ name: 'test_a', duration: 1 }])));
     const server = makeServer();

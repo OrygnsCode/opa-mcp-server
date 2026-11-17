@@ -35,6 +35,15 @@ not part of the public surface and may change in minor releases.
 
 ### Fixed
 
+- `rego_test` with `verbose`, `varValues` or `explain: "fails"` returned
+  OPA's trace for passing tests too, so a small suite could go over the
+  response cap and come back as a truncation notice with no counts: four
+  passing tests of a 70-line policy measured 3 MB. Traces now stay only on
+  failing tests (`explain: "full"` still traces every test), and an answer
+  over the cap drops traces, failing tests' last, before the rest;
+  `tracesOmitted` says how many. With `count`, a test that failed in a later
+  repetition carried the trace of the run it passed. The `verbose` and
+  `varValues` descriptions now say what each does.
 - The example client configs set `OPA_BINARY` to a placeholder path, which
   takes precedence over the bundled `opa`, so a config copied unchanged
   failed every tool call with `OPA_BINARY_NOT_FOUND`. The examples and the

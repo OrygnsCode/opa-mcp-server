@@ -15,6 +15,7 @@ import type { Config } from '../../config.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { err, ok } from '../../lib/errors.js';
 import { parseJsonValues } from '../../lib/json-stream.js';
+import type { Shrink } from '../../lib/output.js';
 import type { SpawnResult } from '../../lib/subprocess.js';
 import {
   mapSubprocessFailure,
@@ -33,7 +34,12 @@ const RegoTestInput = {
     .describe(
       'Test directories or files. `opa test` looks for `*_test.rego` siblings of source files.',
     ),
-  verbose: z.boolean().optional().describe('Emit per-test pass/fail details.'),
+  verbose: z
+    .boolean()
+    .optional()
+    .describe(
+      'Add the evaluation trace (`opa test -v`) to each failing test. Pass/fail for every test is reported without it. A trace runs to hundreds of KB for a test that loops over a few dozen inputs; use `explain: "full"` only when passing tests need tracing too.',
+    ),
   coverage: z
     .boolean()
     .optional()
@@ -56,7 +62,7 @@ const RegoTestInput = {
     .boolean()
     .optional()
     .describe(
-      'Include local variable bindings in trace output (`--var-values`). When a table-driven test using `every tc in cases { ... }` fails, the trace shows which `tc` triggered the failure. Has no effect unless `verbose: true` is also set (OPA only emits trace entries in verbose mode).',
+      'Add local variable bindings to the trace (`--var-values`). This turns tracing on by itself, as `verbose` does, so failing tests get a trace. When a table-driven test using `every tc in cases { ... }` fails, the trace shows which `tc` triggered the failure.',
     ),
   ignorePatterns: z
     .array(z.string())
@@ -88,7 +94,7 @@ const RegoTestInput = {
     .enum(['fails', 'full', 'notes', 'debug'])
     .optional()
     .describe(
-      "Add a query-explanation trace to test records (`--explain`). `fails` traces only failing tests, `full` traces everything, `notes` surfaces `trace()` notes, `debug` is most verbose. Populates each record's `trace` field; pair with `verbose: true` for the human-readable trace output too.",
+      'Add a query-explanation trace to test records (`--explain`). `fails` traces failing tests only, `full` traces every test, `notes` surfaces `trace()` notes, `debug` is most verbose. Populates the `trace` field of the records it covers.',
     ),
   v1Compatible: z
     .boolean()
@@ -178,6 +184,12 @@ export interface RegoTestOutput {
   /** Per-test records. */
   results: TestRecord[];
   /**
+   * How many records, in `results` and `parameterizedGroups`, had their
+   * `trace` removed to keep the response under OPA_MCP_MAX_RESPONSE_BYTES.
+   * Present only when traces were dropped; the counts and outcomes are kept.
+   */
+  tracesOmitted?: number;
+  /**
    * Per-file coverage report. Present when `coverage: true` or `threshold` is
    * set, no test failed or errored, and the threshold, if any, was met.
    */
@@ -237,63 +249,119 @@ export function registerRegoTest(server: McpServer, config: Config): void {
       },
       { signal },
     ) => {
-      return withToolEnvelope<RegoTestOutput>(config, async () => {
-        if (v0Compatible && v1Compatible) {
-          return err(
-            'INVALID_INPUT',
-            '`v0Compatible` and `v1Compatible` ask for opposite Rego versions; set one.',
+      return withToolEnvelope<RegoTestOutput>(
+        config,
+        async () => {
+          if (v0Compatible && v1Compatible) {
+            return err(
+              'INVALID_INPUT',
+              '`v0Compatible` and `v1Compatible` ask for opposite Rego versions; set one.',
+            );
+          }
+          const validation = validatePaths(paths, config, { mustExist: true });
+          if (!validation.ok) return validation.error;
+
+          if (count !== undefined && count < 1) {
+            return err('INVALID_INPUT', '`count` must be at least 1.');
+          }
+
+          const selection = {
+            paths: validation.resolved,
+            runPattern,
+            ignorePatterns,
+            bundle,
+            timeout,
+            v1Compatible,
+            v0Compatible,
+          };
+
+          const result = await opa.test(
+            { ...selection, verbose, varValues, count, explain },
+            signal,
           );
-        }
-        const validation = validatePaths(paths, config, { mustExist: true });
-        if (!validation.ok) return validation.error;
 
-        if (count !== undefined && count < 1) {
-          return err('INVALID_INPUT', '`count` must be at least 1.');
-        }
+          const subprocessFailure = mapSubprocessFailure(result, 'opa');
+          if (subprocessFailure) return subprocessFailure;
 
-        const selection = {
-          paths: validation.resolved,
-          runPattern,
-          ignorePatterns,
-          bundle,
-          timeout,
-          v1Compatible,
-          v0Compatible,
-        };
+          const tested = handleTestRecordsMode(
+            result.stdout,
+            result.stderr,
+            result.exitCode,
+            runPattern,
+            v0Compatible,
+            explain === 'full' || explain === 'debug' || explain === 'notes',
+          );
 
-        const result = await opa.test({ ...selection, verbose, varValues, count, explain }, signal);
+          // opa's coverage output is a report with no test records in it, so the
+          // counts above come from a run of their own and coverage from a second
+          // one. Reading counts from the coverage run reported every suite as
+          // zero tests.
+          if (coverage !== true && threshold === undefined) return tested;
+          if (!tested.ok || tested.data === undefined) return tested;
+          if (tested.data.failed > 0 || tested.data.errored > 0) {
+            return ok(tested.data, [COVERAGE_SKIPPED]);
+          }
 
-        const subprocessFailure = mapSubprocessFailure(result, 'opa');
-        if (subprocessFailure) return subprocessFailure;
+          // One repetition is enough for coverage, and tracing does not apply to it.
+          const coverageRun = await opa.test({ ...selection, coverage: true, threshold }, signal);
+          const coverageFailure = mapSubprocessFailure(coverageRun, 'opa');
+          if (coverageFailure) return coverageFailure;
 
-        const tested = handleTestRecordsMode(
-          result.stdout,
-          result.stderr,
-          result.exitCode,
-          runPattern,
-          v0Compatible,
-        );
-
-        // opa's coverage output is a report with no test records in it, so the
-        // counts above come from a run of their own and coverage from a second
-        // one. Reading counts from the coverage run reported every suite as
-        // zero tests.
-        if (coverage !== true && threshold === undefined) return tested;
-        if (!tested.ok || tested.data === undefined) return tested;
-        if (tested.data.failed > 0 || tested.data.errored > 0) {
-          return ok(tested.data, [COVERAGE_SKIPPED]);
-        }
-
-        // One repetition is enough for coverage, and tracing does not apply to it.
-        const coverageRun = await opa.test({ ...selection, coverage: true, threshold }, signal);
-        const coverageFailure = mapSubprocessFailure(coverageRun, 'opa');
-        if (coverageFailure) return coverageFailure;
-
-        return withCoverage(tested.data, coverageRun, threshold);
-      });
+          return withCoverage(tested.data, coverageRun, threshold);
+        },
+        { shrink: shrinkTraces },
+      );
     },
   );
 }
+
+/** A record without its trace. */
+function withoutTrace(record: TestRecord): TestRecord {
+  if (record.trace === undefined) return record;
+  const { trace: _trace, ...rest } = record;
+  return rest;
+}
+
+/**
+ * Over the response cap, give up traces before anything else: the counts and
+ * which tests failed matter more than how one of them evaluated. Every trace
+ * comes off, then those of failing and erroring tests go back in order while
+ * they fit. Returns undefined when even the bare records do not fit, which
+ * leaves the generic truncation to the caller.
+ */
+export const shrinkTraces: Shrink<RegoTestOutput> = (data, fits) => {
+  // Older OPA named parameterized cases in the record itself, and those
+  // records sit in `parameterizedGroups` as well; their traces count too.
+  const groupTraced = Object.values(data.parameterizedGroups ?? {})
+    .flat()
+    .filter((r) => r.trace !== undefined).length;
+  const traced = data.results.filter((r) => r.trace !== undefined).length + groupTraced;
+  if (traced === 0) return undefined;
+  const results = data.results.map(withoutTrace);
+  const groups =
+    data.parameterizedGroups === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(data.parameterizedGroups).map(([k, v]) => [k, v.map(withoutTrace)]),
+        );
+  const candidate: RegoTestOutput = {
+    ...data,
+    results,
+    ...(groups !== undefined ? { parameterizedGroups: groups } : {}),
+    tracesOmitted: traced,
+  };
+  if (!fits(candidate)) return undefined;
+  data.results.forEach((original, i) => {
+    if (original.trace === undefined || !(original.fail === true || isErrored(original))) return;
+    results[i] = original;
+    candidate.tracesOmitted = (candidate.tracesOmitted ?? 0) - 1;
+    if (!fits(candidate)) {
+      results[i] = withoutTrace(original);
+      candidate.tracesOmitted += 1;
+    }
+  });
+  return candidate;
+};
 
 /** opa never reached the tests: the policies under the paths did not load or compile. */
 function loadFailure(stderr: string, v0Compatible: boolean | undefined): ToolEnvelope<never> {
@@ -416,6 +484,11 @@ function groupParameterized(records: TestRecord[]): {
  * OPA stops repeating once a run fails, so `runs` can be shorter than the
  * requested count; the caller reports the length rather than the request.
  */
+/** Pass 0, fail 1, error 2: the order in which one outcome is worse than another. */
+function severity(r: TestRecord): number {
+  return isErrored(r) ? 2 : r.fail === true ? 1 : 0;
+}
+
 function mergeRepetitions(runs: TestRecord[][]): TestRecord[] {
   const worst = new Map<string, TestRecord>();
   const order: string[] = [];
@@ -430,6 +503,15 @@ function mergeRepetitions(runs: TestRecord[][]): TestRecord[] {
         continue;
       }
       const merged: TestRecord = { ...seen };
+      // The run that made the outcome worse is the one to explain: keeping
+      // the first run's trace showed how a flaky test passed, beside the
+      // mark saying it failed.
+      if (severity(record) > severity(seen)) {
+        if (record.trace !== undefined) merged.trace = record.trace;
+        else delete merged.trace;
+        if (record.output !== undefined) merged.output = record.output;
+        else delete merged.output;
+      }
       if (record.error !== undefined) merged.error = record.error;
       if (record.fail === true) merged.fail = true;
       // A test skipped in one run but executed in another is not skipped.
@@ -461,6 +543,7 @@ function handleTestRecordsMode(
   exitCode: number | null,
   runPattern?: string,
   v0Compatible?: boolean,
+  keepPassingTraces = false,
 ): ToolEnvelope<RegoTestOutput> {
   let records: TestRecord[] = [];
   let repetitions = 1;
@@ -511,6 +594,16 @@ function handleTestRecordsMode(
   // failures, `skip: true` for todo_* tests, and `error` for a test that could
   // not be evaluated. Passing is what is left after all three: subtracting only
   // failures and skips counted an errored test as a pass.
+  // In JSON mode `-v`, `--var-values` and `--explain fails` trace passing
+  // tests too, wherever their evaluation had a failed sub-expression, which
+  // is most real tests: four passing tests of a 70-line policy came back at
+  // 3 MB, far over the response cap. A trace explains a failure, so it stays
+  // only where a test failed, unless every trace was asked for. (OPA does not
+  // trace an errored test in these modes; one that has a trace keeps it.)
+  if (!keepPassingTraces) {
+    records = records.map((r) => (r.fail === true || isErrored(r) ? r : withoutTrace(r)));
+  }
+
   const failed = records.filter((r) => r.fail).length;
   const skipped = records.filter((r) => r.skip).length;
   const errored = records.filter(isErrored).length;
