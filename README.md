@@ -179,22 +179,29 @@ and double-click it.
 From your project folder, register the server with `claude mcp add`:
 
 ```bash
-claude mcp add opa --scope project --env OPA_MCP_ALLOWED_PATHS=/path/to/your/policies -- npx -y @orygn/opa-mcp
+claude mcp add opa --scope project -- npx -y @orygn/opa-mcp
 ```
 
-This writes `.mcp.json` in the project, so Claude Code in the terminal and
-the editor extensions both pick it up, and so does anyone else who opens the
-repository. Use `--scope user` instead to have it in every project. Keep the
-server name before `--env`, which takes every argument up to the next
-option.
+Claude Code shares the folders you work in with the server as MCP roots:
+the folder it started in, plus any added with `--add-dir` or `/add-dir`.
+With `OPA_MCP_ALLOWED_PATHS` unset, those are the folders the file tools
+may use, and the list follows the session as folders are added. `--scope
+project` writes `.mcp.json` in the project, so Claude Code in the terminal
+and the editor extensions both pick it up, and since it holds no path it
+works for anyone who clones the repository. Use `--scope user` instead to
+have it in every project.
 
-> Use an absolute path (on Windows, `C:\path\to\policies`). On Windows, run
-> the command in Command Prompt: Windows PowerShell drops the `--` and
-> `claude` then rejects `-y`. Without `--scope`, Claude Code keeps the server
-> private to you under the folder's path, and on Windows the VS Code
-> extension can miss it when the drive letter's case differs. Add
-> `--env REGAL_BINARY=...` and `--env CONFTEST_BINARY=...` for the lint and
-> Conftest tools, as for Claude Desktop above.
+> To pick the folders yourself, add
+> `--env OPA_MCP_ALLOWED_PATHS=/path/to/your/policies` after the server
+> name (on Windows, `C:\path\to\policies`). When set, it is used instead
+> of the client's roots. `--env` takes every argument up to the next
+> option, so the name has to come first. On Windows, run the command in Command
+> Prompt: Windows PowerShell drops the `--` and `claude` then rejects `-y`.
+> Without `--scope`, Claude Code keeps the server private to you under the
+> folder's path, and on Windows the VS Code extension can miss it when the
+> drive letter's case differs. Add `--env REGAL_BINARY=...` and
+> `--env CONFTEST_BINARY=...` for the lint and Conftest tools, as for
+> Claude Desktop above.
 
 **Persistent context and auto-checks for policy repos.**
 If you work in an OPA policy repo regularly, two extra files remove
@@ -286,13 +293,14 @@ variable is optional; defaults are sensible for a local OPA on
 | `OPA_BINARY`                   | `opa` (on `PATH`)            | Path to the `opa` CLI, used by `rego_*` tools. Unset: `opa` on `PATH`, else the bundled copy.                                                                                                                                                                                                |
 | `REGAL_BINARY`                 | `regal` (on `PATH`)          | Path to the `regal` linter. Required by `rego_lint`, `rego_fix`, and `rego_security_audit`.                                                                                                                                                                                                  |
 | `CONFTEST_BINARY`              | `conftest` (on `PATH`)       | Path to the `conftest` binary. Only required by `conftest_*` tools. Returns `CONFTEST_NOT_FOUND` if absent.                                                                                                                                                                                  |
-| `OPA_MCP_ALLOWED_PATHS`        | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file-based tools refuse to read from disk.**                                                                                                                                    |
+| `OPA_MCP_ALLOWED_PATHS`        | _(unset)_                    | Comma- or semicolon-separated list of directories the server is allowed to read policies from. **When unset, file tools use the folders the client shares as MCP roots (Claude Code does); with neither, they refuse to read from disk.**                                                    |
 | `OPA_MCP_LOG_FILE`             | `<tmpdir>/orygn-opa-mcp.log` | Path the server appends logs to. The server never writes to stdout; that channel is reserved for the MCP protocol.                                                                                                                                                                           |
 | `OPA_MCP_LOG_LEVEL`            | `info`                       | One of `debug`, `info`, `warn`, `error`.                                                                                                                                                                                                                                                     |
 | `OPA_MCP_MAX_RESPONSE_BYTES`   | `100000`                     | Hard cap on a single tool response. Larger payloads are truncated with a `__truncated: true` marker. Values below 512 are refused.                                                                                                                                                           |
 | `OPA_MCP_TIMEOUT_MS`           | `30000`                      | Hard timeout for any spawned subprocess (`opa`, `regal`). After this, the child gets `SIGTERM` and then `SIGKILL`.                                                                                                                                                                           |
 | `OPA_MCP_HTTP_TIMEOUT_MS`      | `15000`                      | Timeout for each request to the OPA REST API, from the connection attempt to the last byte of the response; reported as `TIMEOUT`.                                                                                                                                                           |
 | `OPA_MCP_NO_TELEMETRY`         | _(unset)_                    | Set to `1` to disable the anonymous startup ping. The ping sends the server version, OS platform, and a random install ID, stored at `~/.orygn/opa-mcp/install-id`; containers and CI jobs send a `container` or `ci` label instead. No policy content or file paths are ever sent.          |
+| `OPA_MCP_NO_CLIENT_ROOTS`      | _(unset)_                    | Set to `1` to ignore the client's MCP roots, so file tools stay off unless `OPA_MCP_ALLOWED_PATHS` is set.                                                                                                                                                                                   |
 | `OPA_MCP_MAX_SUBPROCESS_BYTES` | `33554432` (32 MiB)          | Maximum bytes captured from a subprocess's stdout and stderr, counted separately. On overflow the stream is clamped, the child is stopped, and the tool returns `OUTPUT_TOO_LARGE`. Distinct from `OPA_MCP_MAX_RESPONSE_BYTES`, which trims the reply after the output is already in memory. |
 | `OPA_MCP_PASSTHROUGH_ENV`      | _(unset)_                    | Comma-separated variable names to pass through to `opa`, `regal` and `conftest`. Everything else is withheld. **Anything named here is readable by any policy the server evaluates**, via `opa.runtime().env`, so use it only for values that are safe in that position.                     |
 | `OPA_MCP_BLOCK_ENV`            | _(unset)_                    | Comma-separated variable names to withhold from `opa`, `regal` and `conftest` even when they are on the built-in allow-list. Applied last, so it also overrides `OPA_MCP_PASSTHROUGH_ENV`. Use it to drop the proxy variables, which can carry credentials, at the cost of proxy support.    |
@@ -531,9 +539,9 @@ YAML/JSON/HCL/TOML/INI against Rego policies using
 
 ### Category G: Meta
 
-| Tool              | What it does                                                                                                                                                                                    |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp_server_info` | Return server name, version, resolved `opa`/`regal`/`conftest` versions, transport type, and Node.js version in one call. Useful for verifying which server instance the agent is connected to. |
+| Tool              | What it does                                                                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp_server_info` | Return server name, version, resolved `opa`/`regal`/`conftest` versions, transport type, Node.js version, and the allowed paths with where they came from. Useful for verifying which server instance the agent is connected to. |
 
 ## Prompts
 
@@ -672,8 +680,11 @@ This server is designed to run **locally**, started by an MCP client on
 the user's own machine, communicating over stdio. It is not designed to
 be exposed on the network.
 
-- File-based tools refuse to read anything outside `OPA_MCP_ALLOWED_PATHS`.
-  When that variable is unset, file tools return `PATH_NOT_ALLOWED`.
+- File-based tools refuse to read or write anything outside
+  `OPA_MCP_ALLOWED_PATHS` or, when it is unset, outside the folders the
+  client shares as MCP roots. With neither, file tools return
+  `PATH_NOT_ALLOWED`. If the client's roots cannot be read, file tools are
+  disabled rather than left on the previous list.
 - Subprocesses run with `shell: false`, a hard timeout, and a byte cap on
   captured output.
 - **Evaluated policy cannot read the server's environment.** Rego exposes the
@@ -762,8 +773,11 @@ it calls prints to stdout. The fixed-position safety net is
 
 **`PATH_NOT_ALLOWED` on a file under my project.**
 
-`OPA_MCP_ALLOWED_PATHS` is empty by default. Set it to the absolute
-path(s) you want the server to read from, comma-separated.
+Without `OPA_MCP_ALLOWED_PATHS`, the server allows only the folders the
+client shares as MCP roots, and not every client shares them.
+`mcp_server_info` lists the allowed paths and where they came from. Set
+`OPA_MCP_ALLOWED_PATHS` to the absolute path(s) you want the server to read
+from, comma-separated.
 
 **`OPA_UNREACHABLE` when calling `opa_*` tools.**
 

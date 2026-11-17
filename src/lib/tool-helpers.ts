@@ -8,10 +8,11 @@
  */
 
 import type { Config } from '../config.js';
+import { allowedRoots, awaitClientRoots } from './client-roots.js';
 import { err } from './errors.js';
 import { logger } from './logger.js';
 import { formatEnvelope, type McpToolResult, type Shrink } from './output.js';
-import { validatePath } from './security.js';
+import { validatePath, type PathValidationOptions } from './security.js';
 import type { SpawnResult } from './subprocess.js';
 import type { ToolEnvelope, ToolErrorCode } from '../types.js';
 
@@ -157,8 +158,45 @@ export function tryParseJson<T = unknown>(text: string): T | undefined {
   }
 }
 
+const SET_ALLOWED_PATHS =
+  'Set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories the server may read or write.';
+
 /**
- * Validate a list of input paths against the configured allow-list.
+ * The messages a refused path gets, by where the allowed roots came from, so
+ * the error says why file tools are off instead of always blaming the
+ * environment variable.
+ */
+function messagesFor(
+  roots: ReturnType<typeof allowedRoots>,
+): Pick<PathValidationOptions, 'noRoots' | 'outsideHint'> {
+  if (roots.source === 'env') return {};
+  if (roots.source === 'client-roots') {
+    return {
+      outsideHint:
+        "OPA_MCP_ALLOWED_PATHS is not set, so the allowed roots are the folders the client shares (MCP roots). Use a path inside one of them, add the folder to the client's workspace, or set OPA_MCP_ALLOWED_PATHS.",
+    };
+  }
+  if (!roots.clientRoots) return {};
+  if (roots.rootsError !== undefined) {
+    return {
+      noRoots: {
+        message: `File-based tools are disabled: OPA_MCP_ALLOWED_PATHS is not set and the client's roots could not be read (${roots.rootsError}).`,
+        hint: SET_ALLOWED_PATHS,
+      },
+    };
+  }
+  return {
+    noRoots: {
+      message:
+        'File-based tools are disabled: OPA_MCP_ALLOWED_PATHS is not set and the client shares no folders (MCP roots) the server can use.',
+      hint: 'Open a folder in the client, or set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories the server may read or write.',
+    },
+  };
+}
+
+/**
+ * Validate a list of input paths against the allowed roots: the
+ * OPA_MCP_ALLOWED_PATHS list, or the client's roots when that is not set.
  * Returns either an array of resolved absolute paths or a structured
  * error envelope on the first violation.
  */
@@ -167,9 +205,11 @@ export function validatePaths(
   config: Config,
   options: { mustExist?: boolean } = {},
 ): { ok: true; resolved: string[] } | { ok: false; error: ToolEnvelope<never> } {
+  const roots = allowedRoots(config);
+  const pathOptions: PathValidationOptions = { ...options, ...messagesFor(roots) };
   const resolved: string[] = [];
   for (const path of paths) {
-    const result = validatePath(path, config.allowedPaths, options);
+    const result = validatePath(path, roots.paths, pathOptions);
     if (!result.ok) {
       return { ok: false, error: result.error! };
     }
@@ -189,6 +229,9 @@ export async function withToolEnvelope<T>(
   options: { shrink?: Shrink<T> } = {},
 ): Promise<McpToolResult> {
   try {
+    // Paths are checked against the client's roots when OPA_MCP_ALLOWED_PATHS
+    // is unset; a call made right after the handshake waits for them.
+    await awaitClientRoots(config);
     const envelope = await body();
     return formatEnvelope(envelope, config.maxResponseBytes, options.shrink);
   } catch (e) {

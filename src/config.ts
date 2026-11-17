@@ -104,6 +104,13 @@ const ConfigSchema = z.object({
     )
     .default([]),
 
+  /**
+   * Do not ask the client for its roots when `allowedPaths` is empty, so file
+   * tools stay off until OPA_MCP_ALLOWED_PATHS is set, as before roots were
+   * used. Set by OPA_MCP_NO_CLIENT_ROOTS=1.
+   */
+  ignoreClientRoots: z.boolean().optional(),
+
   /** Path to the log file. Defaults to OS tmpdir + orygn-opa-mcp.log. */
   logFile: z.string().default(join(tmpdir(), 'orygn-opa-mcp.log')),
 
@@ -164,6 +171,7 @@ const ENV_VAR_NAMES: Record<string, string> = {
   subprocessTimeoutMs: 'OPA_MCP_TIMEOUT_MS',
   httpTimeoutMs: 'OPA_MCP_HTTP_TIMEOUT_MS',
   allowedPaths: 'OPA_MCP_ALLOWED_PATHS',
+  ignoreClientRoots: 'OPA_MCP_NO_CLIENT_ROOTS',
   logFile: 'OPA_MCP_LOG_FILE',
   logLevel: 'OPA_MCP_LOG_LEVEL',
   maxResponseBytes: 'OPA_MCP_MAX_RESPONSE_BYTES',
@@ -197,6 +205,8 @@ export function loadConfig(): Config {
     subprocessTimeoutMs: env('OPA_MCP_TIMEOUT_MS'),
     httpTimeoutMs: env('OPA_MCP_HTTP_TIMEOUT_MS'),
     allowedPaths,
+    // Like OPA_MCP_NO_TELEMETRY, only `1` turns it on.
+    ignoreClientRoots: env('OPA_MCP_NO_CLIENT_ROOTS') === '1' ? true : undefined,
     logFile: env('OPA_MCP_LOG_FILE'),
     logLevel: env('OPA_MCP_LOG_LEVEL'),
     maxResponseBytes: env('OPA_MCP_MAX_RESPONSE_BYTES'),

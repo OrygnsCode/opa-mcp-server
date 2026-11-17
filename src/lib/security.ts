@@ -17,6 +17,22 @@ export interface PathValidationResult {
   error?: ToolEnvelope<never>;
 }
 
+export interface PathValidationOptions {
+  mustExist?: boolean;
+  /** Message and hint when there are no roots at all. */
+  noRoots?: { message: string; hint: string };
+  /** Hint for a path outside the roots. */
+  outsideHint?: string;
+}
+
+const DEFAULT_NO_ROOTS = {
+  message: 'File-based tools are disabled because OPA_MCP_ALLOWED_PATHS is empty.',
+  hint: 'Set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories the server may read or write.',
+};
+
+const DEFAULT_OUTSIDE_HINT =
+  'Set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories, or use a path under the current allowed roots.';
+
 const WINDOWS = process.platform === 'win32';
 
 /**
@@ -125,7 +141,7 @@ export function windowsDrivePath(inputPath: string): string {
 export function validatePath(
   inputPath: string,
   allowedRoots: string[],
-  options: { mustExist?: boolean } = {},
+  options: PathValidationOptions = {},
 ): PathValidationResult {
   if (typeof inputPath !== 'string' || inputPath.length === 0) {
     return {
@@ -135,23 +151,17 @@ export function validatePath(
   }
 
   if (allowedRoots.length === 0) {
+    const noRoots = options.noRoots ?? DEFAULT_NO_ROOTS;
     return {
       ok: false,
-      error: err(
-        'PATH_NOT_ALLOWED',
-        'File-based tools are disabled because OPA_MCP_ALLOWED_PATHS is empty.',
-        {
-          hint: 'Set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories the server may read or write.',
-        },
-      ),
+      error: err('PATH_NOT_ALLOWED', noRoots.message, { hint: noRoots.hint }),
     };
   }
 
   inputPath = windowsDrivePath(inputPath);
   const resolved = isAbsolute(inputPath) ? resolve(inputPath) : resolve(process.cwd(), inputPath);
   const resolvedRoots = allowedRoots.map((r) => resolve(r));
-  const outsideHint =
-    'Set OPA_MCP_ALLOWED_PATHS to a comma-separated list of directories, or use a path under the current allowed roots.';
+  const outsideHint = options.outsideHint ?? DEFAULT_OUTSIDE_HINT;
 
   // Phase 1: syntactic containment, cheap and free of I/O. It is not the
   // decision on its own: a root spelled through a link (macOS /var, a Windows

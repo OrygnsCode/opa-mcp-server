@@ -68,7 +68,7 @@ export function registerConftestPush(server: McpServer, config: Config): void {
         'Package the local Rego policy directory as an OCI artifact and push it to a registry ' +
         'using `conftest push`. Registry credentials must be pre-configured in the host ' +
         'environment (docker login, ORAS keychain, etc.) -- this tool never handles credentials. ' +
-        'The `policy` directory must be inside OPA_MCP_ALLOWED_PATHS. ' +
+        'The `policy` directory must be inside OPA_MCP_ALLOWED_PATHS, or a folder the client shares when that is unset. ' +
         'Requires `conftest` on PATH or `CONFTEST_BINARY` set.',
       inputSchema: ConftestPushInput,
       annotations: {
@@ -91,7 +91,7 @@ export function registerConftestPush(server: McpServer, config: Config): void {
             'PATH_NOT_ALLOWED',
             'The conftest default policy directory is outside the allowed roots.',
             {
-              hint: 'Pass `policy` with a directory inside OPA_MCP_ALLOWED_PATHS.',
+              hint: 'Pass `policy` with a directory inside OPA_MCP_ALLOWED_PATHS, or a folder the client shares when that is unset.',
               details: { defaultPolicyDir: DEFAULT_POLICY_DIR },
             },
           );

@@ -17,6 +17,22 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- With `OPA_MCP_ALLOWED_PATHS` unset, file tools use the folders the client
+  shares as MCP roots, and follow the client when they change. Claude Code
+  shares the folder it started in plus any `--add-dir` folders, so
+  `claude mcp add opa --scope project -- npx -y @orygn/opa-mcp` works
+  without a path and the `.mcp.json` it writes holds none. When set,
+  `OPA_MCP_ALLOWED_PATHS` still decides alone and the client is not asked.
+  Clients without roots behave as before, and `OPA_MCP_NO_CLIENT_ROOTS=1`
+  keeps file tools off as an unset variable used to. A tool called before
+  the client has answered waits for it, up to 6 seconds. While a change is
+  unanswered, or if the roots cannot be read, no folder is allowed, rather
+  than the previous list.
+- `mcp_server_info` reports `allowedPaths` and `allowedPathsSource`
+  (`env`, `client-roots` or `none`).
+
 ### Fixed
 
 - The example client configs set `OPA_BINARY` to a placeholder path, which

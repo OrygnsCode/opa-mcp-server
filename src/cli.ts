@@ -51,7 +51,7 @@ export function formatHelp(col: boolean): string {
     ['CONFTEST_BINARY', 'conftest binary path', 'conftest'],
     ['OPA_URL', 'OPA server base URL', 'http://localhost:8181'],
     ['OPA_TOKEN', 'OPA authentication token', ''],
-    ['OPA_MCP_ALLOWED_PATHS', 'allowed filesystem roots, comma or semicolon separated', ''],
+    ['OPA_MCP_ALLOWED_PATHS', 'allowed roots (comma or ; separated)', "the client's roots"],
     ['OPA_MCP_TIMEOUT_MS', 'subprocess timeout in ms', '30000'],
     ['OPA_MCP_HTTP_TIMEOUT_MS', 'OPA HTTP request timeout', '15000'],
     ['OPA_MCP_LOG_FILE', 'log file path', '<tmpdir>/orygn-opa-mcp.log'],
@@ -61,6 +61,7 @@ export function formatHelp(col: boolean): string {
     ['OPA_MCP_PASSTHROUGH_ENV', 'extra env names to pass to child processes', ''],
     ['OPA_MCP_BLOCK_ENV', 'env names withheld from child processes', ''],
     ['OPA_MCP_NO_TELEMETRY', 'set to 1 to disable the anonymous startup ping', ''],
+    ['OPA_MCP_NO_CLIENT_ROOTS', "set to 1 to ignore the client's roots", ''],
   ];
 
   // Pad the name to 30 and the description to 40 so the default column lines
@@ -100,7 +101,11 @@ export function formatHelp(col: boolean): string {
 
 export function formatStartupBanner(config: Config, col: boolean): string {
   const paths =
-    config.allowedPaths.length > 0 ? config.allowedPaths.join(', ') : '(none configured)';
+    config.allowedPaths.length > 0
+      ? config.allowedPaths.join(', ')
+      : config.ignoreClientRoots === true
+        ? '(none configured)'
+        : "(not set: the client's roots, if it shares them)";
 
   const fields = [
     `opa=${config.opaBinary}`,

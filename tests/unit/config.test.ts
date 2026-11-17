@@ -41,6 +41,7 @@ const ENV_KEYS = [
   'OPA_MCP_LOG_LEVEL',
   'OPA_MCP_MAX_RESPONSE_BYTES',
   'OPA_MCP_MAX_SUBPROCESS_BYTES',
+  'OPA_MCP_NO_CLIENT_ROOTS',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
@@ -164,6 +165,24 @@ describe('loadConfig — OPA_MCP_ALLOWED_PATHS parsing', () => {
   it('falls back to the default when the variable is set to empty string', () => {
     process.env['OPA_MCP_ALLOWED_PATHS'] = '';
     expect(loadConfig().allowedPaths).toEqual([]);
+  });
+});
+
+describe('loadConfig - OPA_MCP_NO_CLIENT_ROOTS', () => {
+  it('is off when unset', () => {
+    expect(loadConfig().ignoreClientRoots).toBeUndefined();
+  });
+
+  it('turns on with 1', () => {
+    process.env['OPA_MCP_NO_CLIENT_ROOTS'] = '1';
+    expect(loadConfig().ignoreClientRoots).toBe(true);
+  });
+
+  it('stays off for any other value, like OPA_MCP_NO_TELEMETRY', () => {
+    for (const value of ['0', 'true', 'yes', '']) {
+      process.env['OPA_MCP_NO_CLIENT_ROOTS'] = value;
+      expect(loadConfig().ignoreClientRoots).toBeUndefined();
+    }
   });
 });
 
