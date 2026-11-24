@@ -22,6 +22,12 @@ environment.
 +--------------------+  52 tools  +-----------------+            +---------------------+
 ```
 
+<a href="https://youtu.be/trr0vwYJtjw"><img src="https://img.youtube.com/vi/trr0vwYJtjw/maxresdefault.jpg" alt="Video: Claude Code testing a Kubernetes policy with OPA MCP" width="560"></a>
+
+Claude Code tests a pod policy against the real OPA, finds the pods it lets
+through, and fixes it ([1 min video](https://youtu.be/trr0vwYJtjw)). Setup
+in Claude Code, step by step: [2 min walkthrough](https://youtu.be/GhuMid9tNl0).
+
 > **Status:** v0.10.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
@@ -187,6 +193,8 @@ From your project folder, register the server with `claude mcp add`:
 ```bash
 claude mcp add opa --scope project -- npx -y @orygn/opa-mcp
 ```
+
+The [walkthrough video](https://youtu.be/GhuMid9tNl0) shows the whole setup.
 
 Claude Code shares the folders you work in with the server as MCP roots:
 the folder it started in, plus any added with `--add-dir` or `/add-dir`.
