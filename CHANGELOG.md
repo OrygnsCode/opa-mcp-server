@@ -17,6 +17,8 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+## [0.11.0] - RELEASE_DATE
+
 ### Changed
 
 - The startup ping is replaced by a daily usage report: once a day, after
@@ -1999,7 +2001,8 @@ wrappers end-to-end. CI matrix: Ubuntu, macOS, and Windows on Node
 20 and 22, plus CodeQL security scanning and weekly Dependabot updates
 for npm, GitHub Actions, and Docker base images.
 
-[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/OrygnsCode/opa-mcp-server/compare/v0.9.0...v0.9.1

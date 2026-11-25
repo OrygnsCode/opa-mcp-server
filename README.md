@@ -28,9 +28,16 @@ Claude Code tests a pod policy against the real OPA, finds the pods it lets
 through, and fixes it ([1 min video](https://youtu.be/trr0vwYJtjw)). Setup
 in Claude Code, step by step: [2 min walkthrough](https://youtu.be/GhuMid9tNl0).
 
-> **Status:** v0.10.0. Tool surface, error codes, and
+> **Status:** v0.11.0. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
+
+> **Upgrading to 0.11.0:** the startup ping is gone. Instead, once a day after
+> the first tool call, opa-mcp sends an anonymous report of the tools used,
+> their error codes and the versions in use, with no install ID and nothing
+> from your policies or files. [docs/privacy.md](docs/privacy.md) lists every
+> field. `OPA_MCP_TELEMETRY=off` or `DO_NOT_TRACK=1` turns it off, and
+> `OPA_MCP_TELEMETRY=log` shows what would be sent.
 
 > **Upgrading to 0.10.0:** with `OPA_MCP_ALLOWED_PATHS` unset, file tools now
 > use the folders your client shares as MCP roots instead of staying off;
