@@ -19,6 +19,14 @@ const PLATFORMS = new Set([
 // Sent instead of an install ID by clients running in a container or a CI job.
 const CONTEXTS = new Set(['container', 'ci']);
 
+// Every published version pings with Node's built-in fetch, whose user agent
+// is "node" ("undici" on some older Node releases). Anything else fetching
+// the URL is not a client: Facebook's link-preview crawler does it whenever
+// the URL is posted somewhere, and each of those fetches looked like a new
+// install. Such pings are kept under the context "crawler", out of every
+// figure about clients.
+const CLIENT_AGENT_RE = /^(?:node|undici)(?:$|[\s/])/i;
+
 const LOG_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -78,15 +86,17 @@ async function ping(request, url, env) {
   const params = url.searchParams;
   const c = params.get('c');
   const id = params.get('u');
+  const userAgent = (request.headers.get('user-agent') ?? '').slice(0, 64);
+  const crawler = !CLIENT_AGENT_RE.test(userAgent);
 
   const event = {
     ts: now.toISOString(),
     date: now.toISOString().slice(0, 10),
     version: clean(params.get('v'), (v) => VERSION_RE.test(v)),
     platform: clean(params.get('p'), (p) => PLATFORMS.has(p)),
-    context: !c ? 'default' : CONTEXTS.has(c) ? c : 'other',
+    context: crawler ? 'crawler' : !c ? 'default' : CONTEXTS.has(c) ? c : 'other',
     id: id && UUID_RE.test(id) ? id : null,
-    userAgent: (request.headers.get('user-agent') ?? '').slice(0, 64),
+    userAgent,
   };
 
   try {
@@ -110,7 +120,10 @@ function clean(value, valid) {
 async function record(db, event) {
   let idState = 'none';
 
-  if (event.context !== 'default') {
+  if (event.context === 'crawler') {
+    // Not a client (see CLIENT_AGENT_RE): never an install.
+    idState = 'crawler';
+  } else if (event.context !== 'default') {
     // Containers and CI jobs usually start from a clean home directory, so any
     // ID they send would be new on every run. They count as pings, not installs.
     idState = 'ignored';
@@ -171,12 +184,20 @@ async function stats(db) {
   const [legacy, versions, platforms, contexts, counts, todayPings, todayInstalls, legacyToday] =
     await db.batch([
       db.prepare('SELECT key, value FROM legacy_totals'),
-      db.prepare('SELECT version AS k, SUM(pings) AS n FROM daily_pings GROUP BY version'),
-      db.prepare('SELECT platform AS k, SUM(pings) AS n FROM daily_pings GROUP BY platform'),
+      // Crawler pings are left out of every client figure and shown only
+      // under contexts.
+      db.prepare(
+        "SELECT version AS k, SUM(pings) AS n FROM daily_pings WHERE context != 'crawler' GROUP BY version",
+      ),
+      db.prepare(
+        "SELECT platform AS k, SUM(pings) AS n FROM daily_pings WHERE context != 'crawler' GROUP BY platform",
+      ),
       db.prepare('SELECT context AS k, SUM(pings) AS n FROM daily_pings GROUP BY context'),
       installCounts(db),
       db
-        .prepare('SELECT COALESCE(SUM(pings), 0) AS n FROM daily_pings WHERE date = ?1')
+        .prepare(
+          "SELECT COALESCE(SUM(pings), 0) AS n FROM daily_pings WHERE date = ?1 AND context != 'crawler'",
+        )
         .bind(today),
       db
         .prepare('SELECT active_installs, new_installs FROM daily_installs WHERE date = ?1')
@@ -272,6 +293,10 @@ async function history(db, days) {
   for (const { date, field, value } of legacy.results) add(row(date), field, value);
   for (const { date, version, platform, context, pings: n } of pings.results) {
     const r = row(date);
+    if (context === 'crawler') {
+      add(r, 'c:crawler', n);
+      continue;
+    }
     add(r, 'total', n);
     add(r, `v:${version}`, n);
     add(r, `p:${platform}`, n);

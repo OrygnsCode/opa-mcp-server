@@ -1,0 +1,14 @@
+{
+  "name": "opa-mcp-telemetry",
+  "private": true,
+  "type": "module",
+  "description": "Receiver for opa-mcp's startup ping (Cloudflare Worker + D1).",
+  "scripts": {
+    "test": "node test/ping.test.mjs",
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.168.0"
+  }
+}

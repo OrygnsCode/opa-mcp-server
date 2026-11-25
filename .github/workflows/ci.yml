@@ -192,3 +192,20 @@ jobs:
           OPA_BINARY: ${{ runner.temp }}/tools/opa.exe
           REGAL_BINARY: ${{ runner.temp }}/tools/regal.exe
           CONFTEST_BINARY: ${{ runner.temp }}/tools/conftest.exe
+
+  telemetry-receiver:
+    name: Telemetry receiver
+    runs-on: ubuntu-latest
+    # workers/ is the Cloudflare Worker that receives the startup ping. Its
+    # tests run it on Miniflare, a local copy of the Workers runtime and D1.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: workers/package-lock.json
+      - run: npm ci --no-audit --no-fund --loglevel=error
+        working-directory: workers
+      - run: npm test
+        working-directory: workers
