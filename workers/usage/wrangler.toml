@@ -4,14 +4,16 @@ main = "src/worker.js"
 compatibility_date = "2025-11-01"
 workers_dev = false
 
+# Shares telemetry.orygn.tech with the receivers of other Orygn tools, each on
+# its own path. This route runs before the Worker that holds the hostname.
 routes = [
-  { pattern = "HOSTNAME_TO_CONFIRM", custom_domain = true },
+  { pattern = "telemetry.orygn.tech/opa-mcp/*", zone_name = "orygn.tech" },
 ]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "opa-mcp-usage"
-database_id = "DATABASE_ID_TO_CREATE"
+database_id = "5700798b-776d-4aea-86c3-1f5dfeaf3159"
 migrations_dir = "migrations"
 
 # Caps how many reports one address can have counted per minute, far above

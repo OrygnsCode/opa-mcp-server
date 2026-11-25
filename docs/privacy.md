@@ -60,7 +60,7 @@ being sent.
 
 ### Where it goes
 
-Reports go to `HOSTNAME_TO_CONFIRM`, a Cloudflare Worker run by Orygn. Its
+Reports go to `telemetry.orygn.tech`, a Cloudflare Worker run by Orygn. Its
 code is in this repository, in [`workers/usage/`](../workers/usage). It
 accepts only the values listed above and stores anything else as `other` or
 drops it.

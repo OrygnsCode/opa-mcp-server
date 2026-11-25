@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const days = Number(process.argv[2] ?? 30);
-const base = (process.env.STATS_URL ?? 'https://HOSTNAME_TO_CONFIRM').replace(/\/+$/, '');
+const base = (process.env.STATS_URL ?? 'https://telemetry.orygn.tech').replace(/\/+$/, '');
 const tokenFile = process.env.STATS_TOKEN_FILE ?? join(homedir(), '.orygn', 'opa-mcp-usage-token');
 const token =
   process.env.STATS_TOKEN ?? (existsSync(tokenFile) ? readFileSync(tokenFile, 'utf8').trim() : '');

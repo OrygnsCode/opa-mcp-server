@@ -47,7 +47,7 @@ import {
   type UsageSwitch,
 } from './usage-stats.js';
 
-export const REPORT_BASE = 'https://HOSTNAME_TO_CONFIRM';
+export const REPORT_BASE = 'https://telemetry.orygn.tech';
 export const REPORT_PATH = '/opa-mcp/v1/report';
 export const SCHEMA = 1;
 const SEND_TIMEOUT_MS = 3_000;
