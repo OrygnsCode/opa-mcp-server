@@ -14,6 +14,7 @@ import { logger } from './logger.js';
 import { formatEnvelope, type McpToolResult, type Shrink } from './output.js';
 import { validatePath, type PathValidationOptions } from './security.js';
 import type { SpawnResult } from './subprocess.js';
+import { CRASH_SITE, crashSite } from './usage-stats.js';
 import type { ToolEnvelope, ToolErrorCode } from '../types.js';
 
 export {
@@ -244,6 +245,12 @@ export async function withToolEnvelope<T>(
       stack: e instanceof Error ? e.stack : undefined,
     });
     const details = e instanceof Error ? undefined : { value: e };
-    return formatEnvelope(err('UNKNOWN_ERROR', message, { details }), config.maxResponseBytes);
+    const result = formatEnvelope(
+      err('UNKNOWN_ERROR', message, { details }),
+      config.maxResponseBytes,
+    );
+    // Where it was thrown, for usage stats (never sent to the client).
+    (result as unknown as Record<symbol, unknown>)[CRASH_SITE] = crashSite(e);
+    return result;
   }
 }

@@ -2,11 +2,15 @@
   "name": "opa-mcp-telemetry",
   "private": true,
   "type": "module",
-  "description": "Receiver for opa-mcp's startup ping (Cloudflare Worker + D1).",
+  "description": "Receivers for opa-mcp's startup ping (versions before 0.11.0) and its daily usage report (Cloudflare Workers + D1).",
   "scripts": {
-    "test": "node test/ping.test.mjs",
+    "test": "node test/ping.test.mjs && node usage/test/worker.test.mjs",
     "dev": "wrangler dev --local",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "dev:usage": "wrangler dev --local -c usage/wrangler.toml",
+    "migrate:usage": "wrangler d1 migrations apply opa-mcp-usage --remote -c usage/wrangler.toml",
+    "deploy:usage": "wrangler deploy -c usage/wrangler.toml",
+    "stats": "node usage/stats.mjs"
   },
   "devDependencies": {
     "wrangler": "4.168.0"

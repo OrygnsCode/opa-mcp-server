@@ -13,6 +13,7 @@ import { ConftestCli } from '../../lib/conftest-cli.js';
 import { OpaCli } from '../../lib/opa-cli.js';
 import { RegalCli } from '../../lib/regal-cli.js';
 import { withToolEnvelope } from '../../lib/tool-helpers.js';
+import { usageLine, usageSwitch } from '../../lib/usage-stats.js';
 
 export interface McpServerInfoOutput {
   name: string;
@@ -26,6 +27,8 @@ export interface McpServerInfoOutput {
   allowedPaths: string[];
   /** `env` for OPA_MCP_ALLOWED_PATHS, `client-roots` for the client's MCP roots, `none` when there are none. */
   allowedPathsSource: AllowedPathsSource;
+  /** Whether the daily usage report is sent, and how to change that. */
+  usageStats: string;
 }
 
 export function registerMcpServerInfo(server: McpServer, config: Config): void {
@@ -38,7 +41,7 @@ export function registerMcpServerInfo(server: McpServer, config: Config): void {
     {
       title: 'MCP server info',
       description:
-        "Return the name, version, and runtime details of this opa-mcp server instance. Use this when you need to confirm which version of opa-mcp is running, to verify that the OPA, Regal, and Conftest binaries are reachable, or to see which directories file tools may use (allowedPaths) and whether they come from OPA_MCP_ALLOWED_PATHS or the client's roots.",
+        "Return the name, version, and runtime details of this opa-mcp server instance. Use this when you need to confirm which version of opa-mcp is running, to verify that the OPA, Regal, and Conftest binaries are reachable, or to see which directories file tools may use (allowedPaths) and whether they come from OPA_MCP_ALLOWED_PATHS or the client's roots. It also says whether the anonymous daily usage report is on.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -66,6 +69,7 @@ export function registerMcpServerInfo(server: McpServer, config: Config): void {
           node: process.version,
           allowedPaths: roots.paths,
           allowedPathsSource: roots.source,
+          usageStats: usageLine(usageSwitch()),
         });
       });
     },

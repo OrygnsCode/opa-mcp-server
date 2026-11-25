@@ -100,5 +100,8 @@ COPY --from=binaries /usr/local/bin/regal /usr/local/bin/regal
 
 USER app
 
+# Tells usage stats this copy is the Docker image (see docs/privacy.md).
+ENV OPA_MCP_PACKAGING=docker
+
 # stdio transport - no port to expose.
 ENTRYPOINT ["node", "/app/dist/server.js"]
