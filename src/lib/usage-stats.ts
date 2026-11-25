@@ -14,6 +14,7 @@ import {
   accessSync,
   constants,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   renameSync,
@@ -138,7 +139,8 @@ const APPS: ReadonlyArray<readonly [RegExp, string]> = [
   [/cursor/i, 'cursor'],
   [/visual studio code|vscode|vs code/i, 'vscode'],
   [/windsurf|codeium/i, 'windsurf'],
-  [/^roo|roo[-_ ]?code/i, 'roo-code'],
+  [/roo[-_ ]?code/i, 'roo-code'],
+  [/^roo\b/i, 'roo-code'],
   [/cline/i, 'cline'],
   [/codex/i, 'codex'],
   [/^zed/i, 'zed'],
@@ -253,26 +255,52 @@ let counting = false;
 let currentApp = 'unknown';
 let onCall: (() => void) | undefined;
 let exitHooked = false;
+// Where this process writes its counts, fixed when counting starts.
+let countDir = '';
 let dirOverride: string | undefined;
 let resolvedDir: string | undefined;
+let dirResolved = false;
 const fileTag = `${process.pid}-${randomBytes(3).toString('hex')}`;
+
+/**
+ * A folder of this user's own in the system's temp folder, for when the home
+ * folder cannot be written. On a machine with other users the temp folder is
+ * shared, and files written in a folder someone else made could follow links
+ * they planted, so it is made private and refused if it is a link, belongs to
+ * someone else, or others can reach it.
+ */
+export function privateTempDir(base: string = tmpdir()): string | undefined {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  const dir = join(base, uid === undefined ? 'opa-mcp-usage-stats' : `opa-mcp-usage-stats-${uid}`);
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = lstatSync(dir);
+    if (!st.isDirectory()) return undefined;
+    if (uid !== undefined && (st.uid !== uid || (st.mode & 0o077) !== 0)) return undefined;
+    return dir;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Where the counts and the report's state live, beside the rest of opa-mcp's
  * files in the home folder. Where that cannot be written (a container run as
- * a user with no home), the system's temp folder instead.
+ * a user with no home), a private folder in the system's temp folder, and
+ * when there is none of those either, nowhere: nothing is counted.
  */
-export function usageDir(): string {
+export function usageDir(): string | undefined {
   if (dirOverride) return dirOverride;
-  if (resolvedDir) return resolvedDir;
+  if (dirResolved) return resolvedDir;
   const primary = join(homedir(), '.orygn', 'opa-mcp', 'usage-stats');
   try {
     mkdirSync(primary, { recursive: true });
     accessSync(primary, constants.W_OK);
     resolvedDir = primary;
   } catch {
-    resolvedDir = join(tmpdir(), 'opa-mcp-usage-stats');
+    resolvedDir = privateTempDir();
   }
+  dirResolved = true;
   return resolvedDir;
 }
 
@@ -289,7 +317,7 @@ function today(): Running {
       day,
       tally: emptyTally(),
       dirty: false,
-      file: join(usageDir(), `day-${day}-${fileTag}.json`),
+      file: join(countDir, `day-${day}-${fileTag}.json`),
     };
   }
   return running;
@@ -317,6 +345,9 @@ export function flush(): void {
  * call, once the result is on its way.
  */
 export function startCounting(opts: { onToolCall: () => void }): void {
+  const dir = usageDir();
+  if (dir === undefined) return;
+  countDir = dir;
   counting = true;
   onCall = opts.onToolCall;
   pruneOldFiles();
@@ -370,7 +401,7 @@ const KEEP_DAYS = 8;
 
 function pruneOldFiles(): void {
   try {
-    const dir = usageDir();
+    const dir = countDir;
     if (!existsSync(dir)) return;
     const cutoff = utcDay(new Date(Date.now() - KEEP_DAYS * 86_400_000));
     for (const name of readdirSync(dir)) {
@@ -391,6 +422,8 @@ export const __testing = {
   reset(dir?: string): void {
     dirOverride = dir;
     resolvedDir = undefined;
+    dirResolved = false;
+    countDir = '';
     running = undefined;
     counting = false;
     currentApp = 'unknown';

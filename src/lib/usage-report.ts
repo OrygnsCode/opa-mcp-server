@@ -565,8 +565,9 @@ export async function sendIfDue(
   if (!config || sending || mode === 'off') return 'skipped';
   const day = utcDay(now);
   if (sentDay === day || now.getTime() < retryAfter) return 'skipped';
-  sending = true;
   const dir = usageDir();
+  if (dir === undefined) return 'skipped';
+  sending = true;
   try {
     mkdirSync(dir, { recursive: true });
     const before = readState(dir);

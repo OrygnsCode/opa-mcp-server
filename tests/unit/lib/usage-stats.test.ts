@@ -1,9 +1,13 @@
 import {
+  chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -22,6 +26,7 @@ import {
   noteClient,
   noteToolCall,
   packagedAs,
+  privateTempDir,
   recordCrashSite,
   startCounting,
   takeCrashSite,
@@ -299,5 +304,42 @@ describe('the running tally', () => {
     for (let i = 0; i < 100; i++) recordCrashSite(i, 'external');
     expect(takeCrashSite(0)).toBeUndefined();
     expect(takeCrashSite(99)).toBe('external');
+  });
+});
+
+describe('privateTempDir()', () => {
+  let base: string;
+  const name =
+    typeof process.getuid === 'function'
+      ? `opa-mcp-usage-stats-${process.getuid()}`
+      : 'opa-mcp-usage-stats';
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), 'opa-mcp-private-'));
+  });
+  afterEach(() => rmSync(base, { recursive: true, force: true }));
+
+  it('makes a folder of its own, private, and finds it again', () => {
+    const dir = privateTempDir(base);
+    expect(dir).toBe(join(base, name));
+    expect(statSync(dir!).isDirectory()).toBe(true);
+    if (process.platform !== 'win32') expect(statSync(dir!).mode & 0o077).toBe(0);
+    expect(privateTempDir(base)).toBe(dir);
+  });
+
+  it('refuses a file in its place', () => {
+    writeFileSync(join(base, name), 'x');
+    expect(privateTempDir(base)).toBeUndefined();
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses a link, or a folder others can reach', () => {
+    const target = join(base, 'elsewhere');
+    mkdirSync(target);
+    symlinkSync(target, join(base, name));
+    expect(privateTempDir(base)).toBeUndefined();
+    rmSync(join(base, name));
+    mkdirSync(join(base, name));
+    chmodSync(join(base, name), 0o777);
+    expect(privateTempDir(base)).toBeUndefined();
   });
 });
