@@ -27,12 +27,16 @@ import { RegalCli } from './lib/regal-cli.js';
 import { isZ3Busy, isZ3Failure, markZ3Unusable, z3RecoveriesLeft } from './lib/rego-z3.js';
 import { redactUrlCredentials } from './lib/opa-client.js';
 import { terminateChildren } from './lib/subprocess.js';
-import { sendTelemetryPing } from './lib/telemetry.js';
+import { observeToolCalls } from './lib/usage-observer.js';
+import { noteBinaryVersions, removeOldInstallId, startUsageReport } from './lib/usage-report.js';
 import { registerPrompts } from './prompts/index.js';
 import { registerResources } from './resources/index.js';
-import { registerTools } from './tools/index.js';
+import { registerTools, toolNames } from './tools/index.js';
 
 export { SERVER_NAME, SERVER_VERSION };
+
+// The config each server was built with: its own copy (see buildServer).
+const serverConfigs = new WeakMap<McpServer, Config>();
 
 /**
  * Construct an `McpServer`, register every tool / prompt / resource
@@ -65,6 +69,7 @@ export function buildServer(config: Config): McpServer {
   registerTools(server, config);
   registerPrompts(server, config);
   registerResources(server, config);
+  serverConfigs.set(server, config);
 
   return server;
 }
@@ -89,6 +94,7 @@ export async function runStartupSelfCheck(config: Config): Promise<void> {
     regal.version().catch(() => null),
     conftest.version().catch(() => null),
   ]);
+  noteBinaryVersions({ opa: opaVersion, regal: regalVersion, conftest: conftestVersion });
 
   if (opaVersion === null) {
     logger.warn('startup self-check: opa binary not reachable; rego_* tools will fail', {
@@ -179,7 +185,14 @@ export async function main(transport?: Transport): Promise<McpServer> {
     });
   }
 
-  const connectTo = transport ?? new StdioServerTransport();
+  // Usage stats watch the connection only when they are on (or written to
+  // the log); otherwise the transport is used as it is.
+  // The server's own copy of the config, which is where the client's roots
+  // are tracked.
+  const usage = startUsageReport(serverConfigs.get(server) ?? config);
+  const base = transport ?? new StdioServerTransport();
+  const names = toolNames(server);
+  const connectTo = usage.mode === 'off' ? base : observeToolCalls(base, (name) => names.has(name));
   await server.connect(connectTo);
 
   logger.info('connected to transport, ready for requests');
@@ -189,7 +202,9 @@ export async function main(transport?: Transport): Promise<McpServer> {
     logger.error('startup self-check threw unexpectedly', { error: cause });
   });
 
-  sendTelemetryPing();
+  // Earlier versions kept an install ID in the home folder; nothing uses it
+  // now. Not when a test drives the server: the home folder is not its own.
+  if (!transport) removeOldInstallId();
 
   return server;
 }

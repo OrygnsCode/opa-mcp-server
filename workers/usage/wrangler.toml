@@ -1,0 +1,37 @@
+# The receiver for opa-mcp's usage reports. See src/worker.js.
+name = "opa-mcp-usage"
+main = "src/worker.js"
+compatibility_date = "2025-11-01"
+workers_dev = false
+
+routes = [
+  { pattern = "HOSTNAME_TO_CONFIRM", custom_domain = true },
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "opa-mcp-usage"
+database_id = "DATABASE_ID_TO_CREATE"
+migrations_dir = "migrations"
+
+# Caps how many reports one address can have counted per minute, far above
+# what an install sends (one a day). The address is only the limiter's key.
+[[ratelimits]]
+name = "REPORT_LIMIT"
+namespace_id = "2002"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Daily: forget report numbers after three days, the log after seven.
+[triggers]
+crons = ["41 3 * * *"]
+
+# Keeps what the Worker logs itself (failures) for a few days. Per-request
+# logs are off.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false

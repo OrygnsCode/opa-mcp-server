@@ -153,8 +153,17 @@ const ConfigSchema = z.object({
 
 export type Config = z.infer<typeof ConfigSchema>;
 
+/**
+ * A Claude Desktop extension setting maps onto an environment variable as
+ * `${user_config.name}`. The packaging library substitutes a setting that
+ * has a value or a default and leaves any other in place as that text, which
+ * would otherwise be read as a token, a URL or a folder called
+ * "${user_config.allowed_paths}".
+ */
+const PLACEHOLDER_RE = /^\$\{user_config\.[^}]*\}$/;
+
 function parseAllowedPaths(raw: string | undefined): string[] | undefined {
-  if (!raw) return undefined;
+  if (!raw || PLACEHOLDER_RE.test(raw.trim())) return undefined;
   const parts = raw
     .split(/[;,]/)
     .map((s) => s.trim())
@@ -190,7 +199,7 @@ function env(name: string): string | undefined {
   const raw = process.env[name];
   if (raw === undefined) return undefined;
   const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return trimmed.length > 0 && !PLACEHOLDER_RE.test(trimmed) ? trimmed : undefined;
 }
 
 export function loadConfig(): Config {
@@ -205,7 +214,7 @@ export function loadConfig(): Config {
     subprocessTimeoutMs: env('OPA_MCP_TIMEOUT_MS'),
     httpTimeoutMs: env('OPA_MCP_HTTP_TIMEOUT_MS'),
     allowedPaths,
-    // Like OPA_MCP_NO_TELEMETRY, only `1` turns it on.
+    // Only `1` turns it on.
     ignoreClientRoots: env('OPA_MCP_NO_CLIENT_ROOTS') === '1' ? true : undefined,
     logFile: env('OPA_MCP_LOG_FILE'),
     logLevel: env('OPA_MCP_LOG_LEVEL'),

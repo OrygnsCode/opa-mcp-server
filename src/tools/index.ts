@@ -43,6 +43,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import type { Config } from '../config.js';
+import { CRASH_SITE, recordCrashSite } from '../lib/usage-stats.js';
 import { registerAuthoringTools } from './authoring/index.js';
 import { registerBundleTools } from './bundles/index.js';
 import { registerConftestTools } from './conftest/index.js';
@@ -74,8 +75,46 @@ export function strictArguments(server: McpServer): void {
   };
 }
 
+const registeredNames = new WeakMap<McpServer, Set<string>>();
+
+/** The names of the tools registered on `server`. */
+export function toolNames(server: McpServer): ReadonlySet<string> {
+  return registeredNames.get(server) ?? new Set();
+}
+
+/**
+ * Note each tool's name for usage stats, and hand on where an unexpected
+ * error was thrown. The SDK sends a validated copy of a result, which drops
+ * the CRASH_SITE marker, so it is recorded here under the request's id.
+ */
+export function trackTools(server: McpServer): void {
+  const names = new Set<string>();
+  registeredNames.set(server, names);
+  const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
+  (server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (
+    ...args: unknown[]
+  ) => {
+    const [name, toolConfig, callback] = args;
+    if (typeof name === 'string') names.add(name);
+    if (typeof callback !== 'function') return register(...args);
+    const handler = callback as (...a: unknown[]) => unknown;
+    const watched = async (...cbArgs: unknown[]): Promise<unknown> => {
+      const result = await handler(...cbArgs);
+      const site = (result as Record<symbol, unknown> | undefined)?.[CRASH_SITE];
+      const extra = cbArgs[cbArgs.length - 1] as { requestId?: unknown } | undefined;
+      const id = extra?.requestId;
+      if (typeof site === 'string' && (typeof id === 'string' || typeof id === 'number')) {
+        recordCrashSite(id, site);
+      }
+      return result;
+    };
+    return register(name, toolConfig, watched);
+  };
+}
+
 export function registerTools(server: McpServer, config: Config): void {
   strictArguments(server);
+  trackTools(server);
   registerAuthoringTools(server, config);
   registerEvaluationTools(server, config);
   registerBundleTools(server, config);

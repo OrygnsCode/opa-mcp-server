@@ -17,6 +17,28 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- The startup ping is replaced by a daily usage report: once a day, after
+  the first tool call, which tools were called, the error codes they
+  returned, where in opa-mcp an unexpected error was thrown, and the
+  versions in use. Every value is a band, a version or one of a fixed list;
+  there is no install ID and nothing from policies, inputs, data or paths.
+  [docs/privacy.md](docs/privacy.md) lists every field.
+- `OPA_MCP_TELEMETRY=off` turns it off, as do `DO_NOT_TRACK=1` and
+  `OPA_MCP_NO_TELEMETRY=1`. `OPA_MCP_TELEMETRY=log` writes the report to the
+  log instead of sending it. It is off in CI and in a clone of the
+  repository. The Claude Desktop extension has a **Usage stats** checkbox.
+- `mcp_server_info` reports `usageStats`: whether the report is on, and how
+  to turn it off.
+- An environment variable that still holds a Claude Desktop extension
+  placeholder (`${user_config.name}`) is treated as unset.
+
+### Removed
+
+- The install ID. `~/.orygn/opa-mcp/install-id` is deleted the first time
+  the server starts.
+
 ## [0.10.0] - 2026-11-17
 
 ### Added

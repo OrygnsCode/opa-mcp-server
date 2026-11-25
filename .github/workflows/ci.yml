@@ -196,15 +196,21 @@ jobs:
   telemetry-receiver:
     name: Telemetry receiver
     runs-on: ubuntu-latest
-    # workers/ is the Cloudflare Worker that receives the startup ping. Its
-    # tests run it on Miniflare, a local copy of the Workers runtime and D1.
+    # workers/ holds the Cloudflare Workers that receive the startup ping and
+    # the daily usage report. Their tests run them on Miniflare, a local copy
+    # of the Workers runtime and D1, and send the usage receiver reports made
+    # by the server just built.
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: workers/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            workers/package-lock.json
+      - run: npm install --no-audit --no-fund --loglevel=error
+      - run: npm run build
       - run: npm ci --no-audit --no-fund --loglevel=error
         working-directory: workers
       - run: npm test

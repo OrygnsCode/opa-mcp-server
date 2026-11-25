@@ -35,7 +35,9 @@
         "OPA_TOKEN": "${user_config.opa_token}",
         "OPA_BINARY": "${user_config.opa_binary}",
         "REGAL_BINARY": "${user_config.regal_binary}",
-        "OPA_MCP_ALLOWED_PATHS": "${user_config.allowed_paths}"
+        "OPA_MCP_ALLOWED_PATHS": "${user_config.allowed_paths}",
+        "OPA_MCP_TELEMETRY": "${user_config.usage_stats}",
+        "OPA_MCP_PACKAGING": "mcpb"
       }
     }
   },
@@ -73,6 +75,13 @@
       "title": "Allowed Paths",
       "description": "Root directories tools may read/write. When empty, file-based tools refuse to access the disk.",
       "multiple": true,
+      "required": false
+    },
+    "usage_stats": {
+      "type": "boolean",
+      "title": "Usage stats",
+      "description": "Send a small anonymous report once a day: which tools were used, which error codes came back, and the versions in use. Never policies, inputs, paths or anything that identifies you.",
+      "default": true,
       "required": false
     }
   },

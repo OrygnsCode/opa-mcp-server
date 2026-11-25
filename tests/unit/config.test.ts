@@ -178,7 +178,7 @@ describe('loadConfig - OPA_MCP_NO_CLIENT_ROOTS', () => {
     expect(loadConfig().ignoreClientRoots).toBe(true);
   });
 
-  it('stays off for any other value, like OPA_MCP_NO_TELEMETRY', () => {
+  it('stays off for any other value', () => {
     for (const value of ['0', 'true', 'yes', '']) {
       process.env['OPA_MCP_NO_CLIENT_ROOTS'] = value;
       expect(loadConfig().ignoreClientRoots).toBeUndefined();
