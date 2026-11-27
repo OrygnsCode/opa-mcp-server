@@ -17,7 +17,7 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
-## [0.11.0] - RELEASE_DATE
+## [0.11.0] - 2026-11-27
 
 ### Changed
 
