@@ -37,7 +37,8 @@ in Claude Code, step by step: [2 min walkthrough](https://youtu.be/GhuMid9tNl0).
 > their error codes and the versions in use, with no install ID and nothing
 > from your policies or files. [docs/privacy.md](docs/privacy.md) lists every
 > field. `OPA_MCP_TELEMETRY=off` or `DO_NOT_TRACK=1` turns it off, and
-> `OPA_MCP_TELEMETRY=log` shows what would be sent.
+> `OPA_MCP_TELEMETRY=log` shows what would be sent. The Claude Desktop
+> extension now starts with **Allowed Paths** left empty.
 
 > **Upgrading to 0.10.0:** with `OPA_MCP_ALLOWED_PATHS` unset, file tools now
 > use the folders your client shares as MCP roots instead of staying off;
@@ -191,7 +192,10 @@ Edit `claude_desktop_config.json` directly (or copy from
 
 Or download `opa-mcp.mcpb` from the
 [latest release](https://github.com/OrygnsCode/opa-mcp-server/releases/latest)
-and double-click it.
+and install it in Claude Desktop: **Settings > Desktop app > Extensions >
+Manage > Advanced settings > Install extension**, or drop the file on that
+Extensions page. The extension does not include OPA: set **OPA Binary Path**
+in its settings, or have `opa` on `PATH`.
 
 ### Claude Code (CLI)
 

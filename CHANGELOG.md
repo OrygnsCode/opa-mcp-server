@@ -33,8 +33,14 @@ not part of the public surface and may change in minor releases.
   repository. The Claude Desktop extension has a **Usage stats** checkbox.
 - `mcp_server_info` reports `usageStats`: whether the report is on, and how
   to turn it off.
-- An environment variable that still holds a Claude Desktop extension
-  placeholder (`${user_config.name}`) is treated as unset.
+
+### Fixed
+
+- The Claude Desktop extension did not start with **Allowed Paths** left
+  empty: Claude Desktop passes an empty setting as the literal text
+  `${user_config.allowed_paths}`, which was refused as a relative path. Such a
+  value now counts as unset, and an empty **OPA Bearer Token** is no longer
+  sent as that text either.
 
 ### Removed
 
