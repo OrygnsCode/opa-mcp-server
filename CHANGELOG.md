@@ -17,6 +17,12 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- A Claude plugin, in `plugin/`, for Claude Code and Cowork:
+  `/plugin install opa-mcp --marketplace OrygnsCode/opa-mcp-server`. It starts
+  a pinned opa-mcp release with npx and reads the usual environment variables.
+
 ## [0.11.2] - 2026-11-28
 
 ### Changed

@@ -1,0 +1,30 @@
+{
+  "name": "opa-mcp",
+  "displayName": "OPA MCP",
+  "version": "0.11.2",
+  "description": "Write, test and debug Open Policy Agent (OPA) Rego policies against the real OPA, Regal and Conftest: evaluate, explain why a rule matched nothing, probe a policy for inputs that get through, lint, test and format.",
+  "author": {
+    "name": "Daniel Okwor",
+    "url": "https://orygn.tech"
+  },
+  "homepage": "https://orygn.tech/products/opa-mcp",
+  "repository": "https://github.com/OrygnsCode/opa-mcp-server",
+  "license": "MIT",
+  "keywords": [
+    "opa",
+    "open-policy-agent",
+    "rego",
+    "policy-as-code",
+    "regal",
+    "conftest",
+    "kubernetes",
+    "authorization"
+  ],
+  "icon": "./assets/icon.png",
+  "documentationUrl": "https://github.com/OrygnsCode/opa-mcp-server#readme",
+  "supportUrl": "https://github.com/OrygnsCode/opa-mcp-server/issues",
+  "privacyPolicyUrl": "https://github.com/OrygnsCode/opa-mcp-server/blob/main/docs/privacy.md",
+  "network": {
+    "hosts": ["telemetry.orygn.tech", "api.github.com"]
+  }
+}

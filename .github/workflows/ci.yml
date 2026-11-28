@@ -215,3 +215,27 @@ jobs:
         working-directory: workers
       - run: npm test
         working-directory: workers
+
+  claude-plugin:
+    name: Claude plugin (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # plugin/ is the Claude plugin and .claude-plugin/marketplace.json lists
+    # it. The validator runs part of what Anthropic's plugin directory checks,
+    # and that changes with Claude Code, so this takes the latest release.
+    # test-plugin.mjs starts the server the way .mcp.json does (npx, pinned)
+    # from an empty npm cache and runs a policy on the OPA that comes with it.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Validate the plugin and the marketplace
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          npx -y @anthropic-ai/claude-code@latest plugin validate --strict ./plugin
+          npx -y @anthropic-ai/claude-code@latest plugin validate --strict .
+      - run: node scripts/test-plugin.mjs

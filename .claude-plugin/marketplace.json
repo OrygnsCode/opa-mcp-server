@@ -1,0 +1,15 @@
+{
+  "name": "orygn",
+  "owner": {
+    "name": "Orygn",
+    "url": "https://orygn.tech"
+  },
+  "description": "Claude plugins from Orygn.",
+  "plugins": [
+    {
+      "name": "opa-mcp",
+      "source": "./plugin",
+      "description": "Write, test and debug Open Policy Agent (OPA) Rego policies against the real OPA, Regal and Conftest."
+    }
+  ]
+}

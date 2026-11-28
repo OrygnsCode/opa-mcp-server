@@ -207,6 +207,18 @@ claude mcp add opa --scope project -- npx -y @orygn/opa-mcp
 
 The [walkthrough video](https://youtu.be/GhuMid9tNl0) shows the whole setup.
 
+Or install the plugin, which runs the same server in every project, and in
+Claude Desktop's Cowork too:
+
+```
+/plugin install opa-mcp --marketplace OrygnsCode/opa-mcp-server
+```
+
+The plugin pins one opa-mcp release; `claude plugin update opa-mcp@orygn`
+moves it to the newest. It reads the same environment variables, set for
+example in the `env` block of `~/.claude/settings.json`.
+[plugin/README.md](./plugin/README.md) has the details.
+
 Claude Code shares the folders you work in with the server as MCP roots:
 the folder it started in, plus any added with `--add-dir` or `/add-dir`.
 With `OPA_MCP_ALLOWED_PATHS` unset, those are the folders the file tools
