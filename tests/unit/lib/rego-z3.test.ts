@@ -33,6 +33,19 @@ afterEach(() => {
   resetZ3ForTesting();
 });
 
+/**
+ * Collect, then wait until `done` holds. V8 runs each registry's callbacks in
+ * a task of its own after a collection, in no set order, so one registry's
+ * having run says nothing about another's: wait for the one asked about, and
+ * collect again now and then in case the first pass left the objects behind.
+ */
+async function collectUntil(gc: () => void, done: () => boolean): Promise<void> {
+  for (let i = 0; i < 200 && !done(); i++) {
+    if (i % 20 === 0) gc();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 describe('rego-z3', () => {
   it('caps Z3 memory when it initialises', async () => {
     await getZ3();
@@ -132,11 +145,7 @@ describe('rego-z3', () => {
       // Registered from its own frame so nothing on this one keeps it alive.
       (() => decoy.register({}, 'decoy-held'))();
       for (let i = 0; i < 2000; i++) Z3.Real.const(`g${i}`).add(1);
-      gc();
-      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
-      for (let i = 0; i < 20 && decoyFired.length === 0; i++) {
-        await new Promise((resolve) => setImmediate(resolve));
-      }
+      await collectUntil(gc, () => decoyFired.length > 0 && deferredFinalizersForTesting() > 0);
       queuedInside = deferredFinalizersForTesting();
       decoyInside = decoyFired.length;
     });
@@ -158,8 +167,7 @@ describe('rego-z3', () => {
     let queuedInside = 0;
     await withZ3Lock(async () => {
       for (let i = 0; i < 2000; i++) Z3.Real.const(`h${i}`).add(1);
-      gc();
-      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
+      await collectUntil(gc, () => deferredFinalizersForTesting() > 0);
       queuedInside = deferredFinalizersForTesting();
     });
     expect(queuedInside).toBeGreaterThan(0);
@@ -183,8 +191,7 @@ describe('rego-z3', () => {
     let queuedInside = 0;
     await withZ3Lock(async () => {
       for (let i = 0; i < 2000; i++) Z3.Real.const(`k${i}`).add(1);
-      gc();
-      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
+      await collectUntil(gc, () => deferredFinalizersForTesting() > 0);
       queuedInside = deferredFinalizersForTesting();
     });
     expect(queuedInside).toBeGreaterThan(0);
