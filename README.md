@@ -28,7 +28,7 @@ Claude Code tests a pod policy against the real OPA, finds the pods it lets
 through, and fixes it ([1 min video](https://youtu.be/trr0vwYJtjw)). Setup
 in Claude Code, step by step: [2 min walkthrough](https://youtu.be/GhuMid9tNl0).
 
-> **Status:** v0.11.0. Tool surface, error codes, and
+> **Status:** v0.11.1. Tool surface, error codes, and
 > environment variables follow [SemVer](https://semver.org/) from
 > v0.1.0 forward.
 
