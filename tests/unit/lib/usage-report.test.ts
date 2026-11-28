@@ -104,6 +104,12 @@ describe('where and how it runs', () => {
     for (const [root, kind] of cases) expect(installKind({}, root), root).toBe(kind);
     expect(installKind({ OPA_MCP_PACKAGING: 'docker' }, '/app')).toBe('docker');
     expect(installKind({ OPA_MCP_PACKAGING: 'mcpb' }, '/x/server')).toBe('mcpb');
+    expect(
+      installKind(
+        { OPA_MCP_PACKAGING: 'plugin' },
+        '/home/u/.claude/plugins/cache/orygn/opa-mcp/0.11.1/node_modules/@orygn/opa-mcp',
+      ),
+    ).toBe('plugin');
   });
 
   it('notices a container', () => {

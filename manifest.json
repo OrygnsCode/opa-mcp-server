@@ -35,6 +35,7 @@
         "OPA_TOKEN": "${user_config.opa_token}",
         "OPA_BINARY": "${user_config.opa_binary}",
         "REGAL_BINARY": "${user_config.regal_binary}",
+        "CONFTEST_BINARY": "${user_config.conftest_binary}",
         "OPA_MCP_ALLOWED_PATHS": "${user_config.allowed_paths}",
         "OPA_MCP_TELEMETRY": "${user_config.usage_stats}",
         "OPA_MCP_PACKAGING": "mcpb"
@@ -68,6 +69,13 @@
       "title": "Regal Binary Path",
       "description": "Path to the regal binary (used by rego_lint, rego_security_audit and rego_fix). Defaults to 'regal' on PATH.",
       "default": "regal",
+      "required": false
+    },
+    "conftest_binary": {
+      "type": "string",
+      "title": "Conftest Binary Path",
+      "description": "Path to the conftest binary (used by the conftest_* tools). Defaults to 'conftest' on PATH.",
+      "default": "conftest",
       "required": false
     },
     "allowed_paths": {

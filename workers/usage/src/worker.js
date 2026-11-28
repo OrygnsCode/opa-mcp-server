@@ -64,7 +64,17 @@ const APPS = new Set([
   'other',
   'unknown',
 ]);
-const INSTALLS = new Set(['npx', 'dlx', 'global', 'local', 'docker', 'mcpb', 'source', 'other']);
+const INSTALLS = new Set([
+  'npx',
+  'dlx',
+  'global',
+  'local',
+  'docker',
+  'mcpb',
+  'plugin',
+  'source',
+  'other',
+]);
 const CONTEXTS = new Set(['default', 'container']);
 const OPA_SOURCES = new Set(['bundled', 'path', 'custom', 'missing', 'unknown']);
 const FILES = new Set(['allowed_paths', 'roots', 'none']);

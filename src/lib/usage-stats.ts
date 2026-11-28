@@ -64,12 +64,13 @@ function truthy(value: string | undefined): boolean {
 }
 
 /**
- * How this copy says it was packaged: the Docker image and the Claude
- * Desktop bundle set OPA_MCP_PACKAGING. Anything else is not trusted.
+ * How this copy says it was packaged: the Docker image, the Claude Desktop
+ * bundle and the Claude plugin set OPA_MCP_PACKAGING. Anything else is not
+ * trusted.
  */
-export function packagedAs(env: Env = process.env): 'docker' | 'mcpb' | undefined {
+export function packagedAs(env: Env = process.env): 'docker' | 'mcpb' | 'plugin' | undefined {
   const v = env['OPA_MCP_PACKAGING']?.trim().toLowerCase();
-  return v === 'docker' || v === 'mcpb' ? v : undefined;
+  return v === 'docker' || v === 'mcpb' || v === 'plugin' ? v : undefined;
 }
 
 /** An npm install of the package, as opposed to a clone of the repository. */
@@ -96,13 +97,20 @@ export function usageSwitch(
     return { mode: 'off', why: 'OPA_MCP_NO_TELEMETRY is set' };
   }
   if (CI_VARIABLES.some((name) => truthy(env[name]))) return { mode: 'off', why: 'running in CI' };
-  // The Claude Desktop bundle sets OPA_MCP_TELEMETRY from a checkbox, as
-  // "true" or "false". There only an explicit on counts, so a setting the
-  // app failed to fill in leaves it off.
-  if (packagedAs(env) === 'mcpb') {
+  // The Claude Desktop bundle and the Claude plugin set OPA_MCP_TELEMETRY
+  // from a Usage stats setting, as "true" or "false". There only an explicit
+  // on counts, so a setting the app failed to fill in leaves it off.
+  const packaged = packagedAs(env);
+  if (packaged === 'mcpb' || packaged === 'plugin') {
     return value !== undefined && ON_WORDS.includes(value.toLowerCase())
       ? { mode: 'on' }
-      : { mode: 'off', why: "turned off in the extension's settings" };
+      : {
+          mode: 'off',
+          why:
+            packaged === 'mcpb'
+              ? "turned off in the extension's settings"
+              : "turned off in the plugin's settings",
+        };
   }
   if (value !== undefined && value !== '') {
     if (ON_WORDS.includes(value.toLowerCase())) return { mode: 'on' };
@@ -118,9 +126,14 @@ export function usageLine(sw: UsageSwitch, env: Env = process.env): string {
     return 'Usage stats: written to the log once a day and never sent (OPA_MCP_TELEMETRY=log).';
   }
   if (sw.mode === 'off') return `Usage stats: off (${sw.why ?? 'turned off'}).`;
-  return packagedAs(env) === 'mcpb'
-    ? "Usage stats: on. To turn them off, untick Usage stats in this extension's settings."
-    : 'Usage stats: on. To turn them off, set OPA_MCP_TELEMETRY=off.';
+  const packaged = packagedAs(env);
+  if (packaged === 'mcpb') {
+    return "Usage stats: on. To turn them off, untick Usage stats in this extension's settings.";
+  }
+  if (packaged === 'plugin') {
+    return "Usage stats: on. To turn them off, set Usage stats to off in this plugin's settings (/plugin, then opa-mcp, then Configure).";
+  }
+  return 'Usage stats: on. To turn them off, set OPA_MCP_TELEMETRY=off.';
 }
 
 // --- the AI app ---

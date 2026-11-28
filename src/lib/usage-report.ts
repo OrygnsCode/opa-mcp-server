@@ -137,7 +137,16 @@ export function nodeMajor(version: string = process.versions.node): string {
 }
 
 /** Every kind installKind can give. */
-export const INSTALL_KINDS = ['npx', 'dlx', 'global', 'local', 'docker', 'mcpb', 'source'] as const;
+export const INSTALL_KINDS = [
+  'npx',
+  'dlx',
+  'global',
+  'local',
+  'docker',
+  'mcpb',
+  'plugin',
+  'source',
+] as const;
 
 /**
  * How this copy was installed. The Docker image and the Claude Desktop

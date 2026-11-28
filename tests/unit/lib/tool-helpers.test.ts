@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   lastJsonObject,
   mapSubprocessFailure,
+  missingBinaryHint,
   sanitizeInlinePath,
   sanitizeInlinePathsDeep,
   sanitizeInlineText,
@@ -333,5 +334,37 @@ describe("sanitizeInlineText, the exact pass for the server's own temp root", ()
   it('uses the real temp root when none is given', () => {
     const path = `${tmpdir()}${sep}orygn-opa-mcp-zz${sep}input.rego`;
     expect(sanitizeInlineText(`opened ${path}`)).toBe('opened <inline>');
+  });
+});
+
+describe('missingBinaryHint', () => {
+  it('names the environment variable for a plain install', () => {
+    expect(missingBinaryHint('opa', undefined)).toBe(
+      'Install OPA (https://www.openpolicyagent.org/docs/latest/) or set OPA_BINARY to the absolute path of the binary.',
+    );
+    expect(missingBinaryHint('conftest', 'docker')).toContain('CONFTEST_BINARY');
+  });
+
+  it('names the extension setting, and says the extension has no OPA of its own', () => {
+    const opa = missingBinaryHint('opa', 'mcpb');
+    expect(opa).toContain('does not include OPA');
+    expect(opa).toContain('OPA Binary Path');
+    expect(opa).not.toContain('OPA_BINARY');
+    expect(missingBinaryHint('regal', 'mcpb')).toContain('Regal Binary Path');
+    expect(missingBinaryHint('conftest', 'mcpb')).toContain('Conftest Binary Path');
+  });
+
+  it('in the plugin, says which platforms bring OPA', () => {
+    expect(missingBinaryHint('opa', 'plugin')).toContain('Windows x64, macOS and Linux');
+    expect(missingBinaryHint('regal', 'plugin')).toContain('PATH Claude Code runs with');
+  });
+
+  it('is what a missing binary reports', () => {
+    const env = mapSubprocessFailure(
+      { stdout: '', stderr: '', aborted: false, durationMs: 1, exitCode: null, timedOut: false },
+      'opa',
+    );
+    expect(env?.error?.code).toBe('OPA_BINARY_NOT_FOUND');
+    expect(env?.error?.hint).toBe(missingBinaryHint('opa'));
   });
 });

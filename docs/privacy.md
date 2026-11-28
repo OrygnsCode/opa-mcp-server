@@ -36,7 +36,7 @@ Every value is a number band, a version, or one of a fixed list.
 | Version                    | The opa-mcp version, like `0.11.0`.                                                                                                                                                |
 | Platform                   | Operating system (`windows`, `macos`, `linux`, `other`), architecture (`x64`, `arm64`, `other`) and the Node.js major version, like `22`.                                          |
 | AI app                     | One of a fixed list, such as Claude Desktop, Claude Code, Cursor, VS Code, Windsurf, Cline, Codex, Zed, the MCP Inspector, or `other`.                                             |
-| Install                    | npx, a global npm install, a project dependency, pnpm or bun's one-off runners, the Docker image, the Claude Desktop extension, or `other`.                                        |
+| Install                    | npx, a global npm install, a project dependency, pnpm or bun's one-off runners, the Docker image, the Claude Desktop extension, the Claude plugin, or `other`.                     |
 | Context                    | `default`, or `container` when it runs in one.                                                                                                                                     |
 | Binaries                   | How `opa` was found (`OPA_BINARY`, `PATH`, the copy bundled with the npm package, or not found) and the minor version of `opa`, `regal` and `conftest`, like `1.22`, or `missing`. |
 | File access                | Whether file tools use `OPA_MCP_ALLOWED_PATHS`, the folders your AI app shares, or neither.                                                                                        |
@@ -80,6 +80,8 @@ Any one of these does it:
 - `DO_NOT_TRACK=1` in the environment.
 - `OPA_MCP_NO_TELEMETRY=1`, the setting earlier versions used, still works.
 - In the Claude Desktop extension, untick **Usage stats** in its settings.
+- In the Claude plugin, set **Usage stats** to off in its settings (`/plugin`,
+  then opa-mcp, then Configure).
 
 It is also off on its own in CI, and in a copy run from a clone of this
 repository unless you set `OPA_MCP_TELEMETRY=on`. `mcp_server_info` says

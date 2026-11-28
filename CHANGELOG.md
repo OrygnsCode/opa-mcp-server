@@ -17,6 +17,19 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Added
+
+- Runs as a Claude plugin: the usage report counts those installs as `plugin`,
+  and the plugin's **Usage stats** setting turns the report off.
+- The Claude Desktop extension has a **Conftest Binary Path** setting, like the
+  ones for OPA and Regal.
+
+### Changed
+
+- When `opa`, `regal` or `conftest` cannot be run, the hint names the setting
+  that fixes it where the server runs. In the Claude Desktop extension it says
+  the extension does not include OPA and points to **OPA Binary Path**.
+
 ## [0.11.0] - 2026-11-28
 
 ### Changed
