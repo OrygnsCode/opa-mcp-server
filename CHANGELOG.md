@@ -17,6 +17,14 @@ not part of the public surface and may change in minor releases.
 
 ## [Unreleased]
 
+### Changed
+
+- In the Claude plugin, usage stats follow `OPA_MCP_TELEMETRY` and
+  `DO_NOT_TRACK` as in other installs, instead of a plugin setting: Claude
+  Desktop does not start a plugin server whose config uses plugin settings.
+  A missing `regal` or `conftest` there points to `REGAL_BINARY` and
+  `CONFTEST_BINARY`.
+
 ## [0.11.1] - 2026-11-28
 
 ### Added

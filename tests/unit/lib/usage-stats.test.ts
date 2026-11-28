@@ -347,22 +347,23 @@ describe('privateTempDir()', () => {
 describe('the Claude plugin', () => {
   const plugin = { OPA_MCP_PACKAGING: 'plugin' };
 
-  it('is on only when its Usage stats setting says so', () => {
-    expect(usageSwitch({ ...plugin, OPA_MCP_TELEMETRY: 'true' }, true).mode).toBe('on');
-    for (const value of ['false', '${user_config.usage_stats}', '', undefined]) {
-      expect(usageSwitch({ ...plugin, OPA_MCP_TELEMETRY: value }, true), String(value)).toEqual({
-        mode: 'off',
-        why: "turned off in the plugin's settings",
-      });
-    }
-    expect(usageSwitch({ ...plugin, OPA_MCP_TELEMETRY: 'true', DO_NOT_TRACK: '1' }).mode).toBe(
-      'off',
-    );
+  // It has no settings of its own: Claude Desktop drops a plugin server whose
+  // config uses them. So it follows the environment, like an npx install.
+  it('follows the environment like any install', () => {
+    expect(usageSwitch(plugin)).toEqual({ mode: 'on' });
+    expect(usageSwitch({ ...plugin, OPA_MCP_TELEMETRY: 'off' })).toEqual({
+      mode: 'off',
+      why: 'OPA_MCP_TELEMETRY=off',
+    });
+    expect(usageSwitch({ ...plugin, DO_NOT_TRACK: '1' }).mode).toBe('off');
+    expect(usageSwitch({ ...plugin, CI: 'true' }).mode).toBe('off');
   });
 
   it('counts as installed and says where to turn it off', () => {
     expect(packagedAs({ OPA_MCP_PACKAGING: 'Plugin' })).toBe('plugin');
-    expect(usageSwitch({ ...plugin, OPA_MCP_TELEMETRY: 'true' }).mode).toBe('on');
-    expect(usageLine({ mode: 'on' }, plugin)).toContain("this plugin's settings");
+    expect(usageSwitch(plugin, false).mode).toBe('off');
+    expect(usageSwitch(plugin).mode).toBe('on');
+    expect(usageLine({ mode: 'on' }, plugin)).toContain('OPA_MCP_TELEMETRY=off');
+    expect(usageLine({ mode: 'on' }, plugin)).toContain('settings.json');
   });
 });

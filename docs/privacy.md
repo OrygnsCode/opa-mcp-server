@@ -80,8 +80,8 @@ Any one of these does it:
 - `DO_NOT_TRACK=1` in the environment.
 - `OPA_MCP_NO_TELEMETRY=1`, the setting earlier versions used, still works.
 - In the Claude Desktop extension, untick **Usage stats** in its settings.
-- In the Claude plugin, set **Usage stats** to off in its settings (`/plugin`,
-  then opa-mcp, then Configure).
+- In the Claude plugin, `OPA_MCP_TELEMETRY=off` in the `env` block of Claude
+  Code's `settings.json`, or in the environment Claude starts from.
 
 It is also off on its own in CI, and in a copy run from a clone of this
 repository unless you set `OPA_MCP_TELEMETRY=on`. `mcp_server_info` says

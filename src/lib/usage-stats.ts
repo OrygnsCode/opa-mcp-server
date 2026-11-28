@@ -97,20 +97,15 @@ export function usageSwitch(
     return { mode: 'off', why: 'OPA_MCP_NO_TELEMETRY is set' };
   }
   if (CI_VARIABLES.some((name) => truthy(env[name]))) return { mode: 'off', why: 'running in CI' };
-  // The Claude Desktop bundle and the Claude plugin set OPA_MCP_TELEMETRY
-  // from a Usage stats setting, as "true" or "false". There only an explicit
-  // on counts, so a setting the app failed to fill in leaves it off.
-  const packaged = packagedAs(env);
-  if (packaged === 'mcpb' || packaged === 'plugin') {
+  // The Claude Desktop bundle sets OPA_MCP_TELEMETRY from its Usage stats
+  // checkbox, as "true" or "false". There only an explicit on counts, so a
+  // setting the app failed to fill in leaves it off. The Claude plugin has no
+  // settings of its own (Claude Desktop drops a plugin server that uses them),
+  // so it reads the environment like any other install.
+  if (packagedAs(env) === 'mcpb') {
     return value !== undefined && ON_WORDS.includes(value.toLowerCase())
       ? { mode: 'on' }
-      : {
-          mode: 'off',
-          why:
-            packaged === 'mcpb'
-              ? "turned off in the extension's settings"
-              : "turned off in the plugin's settings",
-        };
+      : { mode: 'off', why: "turned off in the extension's settings" };
   }
   if (value !== undefined && value !== '') {
     if (ON_WORDS.includes(value.toLowerCase())) return { mode: 'on' };
@@ -131,7 +126,7 @@ export function usageLine(sw: UsageSwitch, env: Env = process.env): string {
     return "Usage stats: on. To turn them off, untick Usage stats in this extension's settings.";
   }
   if (packaged === 'plugin') {
-    return "Usage stats: on. To turn them off, set Usage stats to off in this plugin's settings (/plugin, then opa-mcp, then Configure).";
+    return "Usage stats: on. To turn them off, set OPA_MCP_TELEMETRY=off in the environment Claude runs with, for example in the env block of Claude Code's settings.json.";
   }
   return 'Usage stats: on. To turn them off, set OPA_MCP_TELEMETRY=off.';
 }
