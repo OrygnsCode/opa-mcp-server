@@ -6,11 +6,13 @@
  * .mcp.json runs the server with npx at an exact version. This runs that
  * command with the env it sets, an empty npm cache (a first start downloads
  * the package and the OPA that comes with it) and PATH cut down to node's own
- * directory, so that OPA is the one that runs. It checks that:
+ * directory, plus /usr/bin and /bin outside Windows for the shell npm runs a
+ * package's bin through. It checks that:
  *
  *   1. .mcp.json uses no plugin settings, which Claude Desktop does not support
  *   2. the server answers initialize, and how long a first start took
- *   3. it lists its tools, reports the pinned version, and finds OPA
+ *   3. it lists its tools, reports the pinned version, and runs the OPA that
+ *      came with the package, as its startup line on stderr shows
  *   4. rego_eval runs a policy on that OPA
  *
  * Needs network access to the npm registry. Exits 0 on pass, 1 on failure.
@@ -50,7 +52,7 @@ try {
   // 2. Start it as .mcp.json says, from an empty npm cache.
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (/^path$/i.test(k)) delete env[k];
-  env.PATH = dirname(process.execPath);
+  env.PATH = windows ? dirname(process.execPath) : `${dirname(process.execPath)}:/usr/bin:/bin`;
   env.npm_config_cache = join(work, 'npm-cache');
   env.npm_config_update_notifier = 'false';
   for (const [k, v] of Object.entries(server.env ?? {})) env[k] = v;
@@ -67,7 +69,12 @@ try {
     env,
     shell: windows,
     detached: !windows,
-    stdio: ['pipe', 'pipe', 'inherit'],
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stderrText = '';
+  child.stderr.on('data', (chunk) => {
+    stderrText += chunk;
+    process.stderr.write(chunk);
   });
   child.on('exit', (code, signal) => {
     if (done) return;
@@ -126,6 +133,10 @@ try {
   const data = info?.data ?? info;
   if (data?.version !== pinned) fail(`mcp_server_info reports ${data?.version}, not ${pinned}`);
   if (!data?.opaVersion) fail('the server could not run the OPA that comes with the package');
+  const opaPath = stderrText.match(/\bopa=(.*?)(?:\s{2,}|\r?\n|$)/)?.[1] ?? '';
+  if (!/[\\/]@orygn[\\/]opa-mcp-(?:linux|darwin|win32)-(?:x64|arm64)[\\/]/.test(opaPath)) {
+    fail(`the server runs opa from "${opaPath}", not the copy that comes with the package`);
+  }
   console.log(`  opa-mcp ${data.version}, OPA ${data.opaVersion}`);
 
   // 4. A policy evaluates on that OPA.
