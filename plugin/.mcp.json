@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "opa": {
+      "command": "npx",
+      "args": ["-y", "@orygn/opa-mcp@0.11.2"],
+      "env": {
+        "OPA_MCP_PACKAGING": "plugin"
+      }
+    }
+  }
+}
