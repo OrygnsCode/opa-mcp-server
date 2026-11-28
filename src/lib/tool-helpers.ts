@@ -14,7 +14,7 @@ import { logger } from './logger.js';
 import { formatEnvelope, type McpToolResult, type Shrink } from './output.js';
 import { validatePath, type PathValidationOptions } from './security.js';
 import type { SpawnResult } from './subprocess.js';
-import { CRASH_SITE, crashSite } from './usage-stats.js';
+import { CRASH_SITE, crashSite, packagedAs } from './usage-stats.js';
 import type { ToolEnvelope, ToolErrorCode } from '../types.js';
 
 export {
@@ -89,15 +89,41 @@ export function mapSubprocessFailure(
         : binary === 'regal'
           ? 'REGAL_NOT_FOUND'
           : 'CONFTEST_NOT_FOUND';
-    const hint =
-      binary === 'opa'
-        ? 'Install OPA (https://www.openpolicyagent.org/docs/latest/) or set OPA_BINARY to the absolute path of the binary.'
-        : binary === 'regal'
-          ? 'Install Regal (https://www.openpolicyagent.org/projects/regal) or set REGAL_BINARY to the absolute path of the binary.'
-          : 'Install Conftest (https://www.conftest.dev/) or set CONFTEST_BINARY to the absolute path of the binary.';
-    return err(code, `${binary} binary unreachable: ${result.stderr || 'spawn failed'}`, { hint });
+    return err(code, `${binary} binary unreachable: ${result.stderr || 'spawn failed'}`, {
+      hint: missingBinaryHint(binary),
+    });
   }
   return undefined;
+}
+
+const INSTALL_PAGES = {
+  opa: ['OPA', 'https://www.openpolicyagent.org/docs/latest/'],
+  regal: ['Regal', 'https://www.openpolicyagent.org/projects/regal'],
+  conftest: ['Conftest', 'https://www.conftest.dev/'],
+} as const;
+
+/**
+ * What to do about a binary that cannot be run, in the terms of where this
+ * copy runs: the Claude Desktop extension and the Claude plugin have settings
+ * of their own instead of environment variables, and the extension carries no
+ * OPA while the plugin brings one for the common platforms.
+ */
+export function missingBinaryHint(
+  binary: 'opa' | 'regal' | 'conftest',
+  packaged: ReturnType<typeof packagedAs> = packagedAs(),
+): string {
+  const [name, page] = INSTALL_PAGES[binary];
+  const setting = `${name} Binary Path`;
+  if (packaged === 'mcpb') {
+    const why = binary === 'opa' ? 'This Claude Desktop extension does not include OPA. ' : '';
+    return `${why}Install ${name} (${page}) and put it on PATH, or set ${setting} in the extension's settings to the full path of the binary.`;
+  }
+  if (packaged === 'plugin') {
+    return binary === 'opa'
+      ? `The plugin brings OPA for Windows x64, macOS and Linux (x64 and arm64); on any other platform, install OPA (${page}) and put it on PATH.`
+      : `Install ${name} (${page}) and put it on the PATH Claude Code runs with.`;
+  }
+  return `Install ${name} (${page}) or set ${binary.toUpperCase()}_BINARY to the absolute path of the binary.`;
 }
 
 /**
