@@ -104,9 +104,9 @@ const INSTALL_PAGES = {
 
 /**
  * What to do about a binary that cannot be run, in the terms of where this
- * copy runs: the Claude Desktop extension and the Claude plugin have settings
- * of their own instead of environment variables, and the extension carries no
- * OPA while the plugin brings one for the common platforms.
+ * copy runs: the Claude Desktop extension has settings of its own instead of
+ * environment variables and carries no OPA, while the Claude plugin installs
+ * the npm package, which brings OPA for the common platforms.
  */
 export function missingBinaryHint(
   binary: 'opa' | 'regal' | 'conftest',
@@ -118,10 +118,8 @@ export function missingBinaryHint(
     const why = binary === 'opa' ? 'This Claude Desktop extension does not include OPA. ' : '';
     return `${why}Install ${name} (${page}) and put it on PATH, or set ${setting} in the extension's settings to the full path of the binary.`;
   }
-  if (packaged === 'plugin') {
-    return binary === 'opa'
-      ? `The plugin brings OPA for Windows x64, macOS and Linux (x64 and arm64); on any other platform, install OPA (${page}) and put it on PATH.`
-      : `Install ${name} (${page}) and put it on the PATH Claude Code runs with.`;
+  if (packaged === 'plugin' && binary === 'opa') {
+    return `The plugin brings OPA for Windows x64, macOS and Linux (x64 and arm64). On any other platform, install OPA (${page}) or set OPA_BINARY to the absolute path of the binary.`;
   }
   return `Install ${name} (${page}) or set ${binary.toUpperCase()}_BINARY to the absolute path of the binary.`;
 }

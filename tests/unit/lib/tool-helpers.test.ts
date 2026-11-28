@@ -356,7 +356,8 @@ describe('missingBinaryHint', () => {
 
   it('in the plugin, says which platforms bring OPA', () => {
     expect(missingBinaryHint('opa', 'plugin')).toContain('Windows x64, macOS and Linux');
-    expect(missingBinaryHint('regal', 'plugin')).toContain('PATH Claude Code runs with');
+    expect(missingBinaryHint('opa', 'plugin')).toContain('OPA_BINARY');
+    expect(missingBinaryHint('regal', 'plugin')).toContain('REGAL_BINARY');
   });
 
   it('is what a missing binary reports', () => {
